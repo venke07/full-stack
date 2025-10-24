@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Agent Portal – Neural Access</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="neural-background">
+    <div class="neural-grid"></div>
+    <div class="floating-particles"></div>
+  </div>
+  
+  <div class="container">
+    <div class="form-box">
+      <div class="header-section">
+        <div class="logo-container">
+          <div class="neural-logo">
+            <div class="core-node"></div>
+            <div class="connection-ring"></div>
+            <div class="pulse-ring"></div>
+          </div>
+        </div>
+        <h1 class="portal-title">
+          <span class="gradient-text">Neural Access</span>
+          <span class="subtitle">AI Agent Portal</span>
+        </h1>
+        <div class="status-indicator">
+          <div class="status-dot"></div>
+          <span>System Online</span>
+        </div>
+      </div>
+
+      <form id="loginForm" class="neural-form">
+        <div class="input-group">
+          <div class="input-field">
+            <label class="field-label">Neural ID</label>
+            <div class="input-container">
+              <input type="email" placeholder="agent@neural.ai" id="email" required>
+              <div class="input-glow"></div>
+            </div>
+          </div>
+          <div class="input-field">
+            <label class="field-label">Access Key</label>
+            <div class="input-container">
+              <input type="password" placeholder="••••••••••••" id="password" required>
+              <div class="input-glow"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-options">
+          <div class="biometric-section">
+            <div class="biometric-scanner">
+              <div class="scanner-ring"></div>
+              <div class="scanner-dot"></div>
+            </div>
+            <span>Biometric Auth</span>
+          </div>
+        </div>
+
+        <div class="btn-field">
+          <button type="submit" id="loginBtn" class="primary-btn">
+            <span class="btn-text">Initialize Connection</span>
+            <div class="btn-glow"></div>
+          </button>
+          <button type="button" id="signupBtn" class="secondary-btn" onclick="window.location.href='../signup/index.html'">
+            <span class="btn-text">Create Neural Profile</span>
+          </button>
+        </div>
+
+        <div class="security-info">
+          <div class="encryption-badge">
+            <span>🔐</span>
+            <span>256-bit Neural Encryption</span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
