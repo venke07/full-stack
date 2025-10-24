@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Agent Portal – Neural Registration</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="neural-background">
+    <div class="neural-grid"></div>
+    <div class="floating-particles"></div>
+  </div>
+  
+  <div class="container">
+    <div class="form-box">
+      <div class="header-section">
+        <div class="logo-container">
+          <div class="neural-logo">
+            <div class="core-node"></div>
+            <div class="connection-ring"></div>
+            <div class="pulse-ring"></div>
+          </div>
+        </div>
+        <h1 class="portal-title">
+          <span class="gradient-text">Neural Registration</span>
+          <span class="subtitle">Create AI Agent Profile</span>
+        </h1>
+        <div class="status-indicator">
+          <div class="status-dot"></div>
+          <span>Registration Portal Active</span>
+        </div>
+      </div>
+
+      <form id="signupForm" class="neural-form">
+        <div class="input-group">
+          <div class="input-field">
+            <label class="field-label">Agent Name</label>
+            <div class="input-container">
+              <input type="text" placeholder="Neural Agent 001" id="name" required>
+              <div class="input-glow"></div>
+            </div>
+          </div>
+          <div class="input-field">
+            <label class="field-label">Neural ID</label>
+            <div class="input-container">
+              <input type="email" placeholder="agent@neural.ai" id="email" required>
+              <div class="input-glow"></div>
+            </div>
+          </div>
+          <div class="input-field">
+            <label class="field-label">Access Key</label>
+            <div class="input-container">
+              <input type="password" placeholder="••••••••••••" id="password" required>
+              <div class="input-glow"></div>
+            </div>
+            <div class="password-strength">
+              <div class="strength-bar">
+                <div class="strength-fill"></div>
+              </div>
+              <span class="strength-text">Key Strength: Weak</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="neural-features">
+          <div class="feature-card">
+            <div class="feature-icon">🧠</div>
+            <div class="feature-text">
+              <h3>Advanced AI Processing</h3>
+              <p>Next-gen neural networks</p>
+            </div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <div class="feature-text">
+              <h3>Real-time Adaptation</h3>
+              <p>Dynamic learning capabilities</p>
+            </div>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🔒</div>
+            <div class="feature-text">
+              <h3>Quantum Encryption</h3>
+              <p>Military-grade security</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-field">
+          <button type="submit" id="signupBtn" class="primary-btn">
+            <span class="btn-text">Initialize Neural Profile</span>
+            <div class="btn-glow"></div>
+          </button>
+          <button type="button" id="loginBtn" class="secondary-btn" onclick="window.location.href='../login/index.html'">
+            <span class="btn-text">Access Existing Profile</span>
+          </button>
+        </div>
+
+        <div class="terms-section">
+          <div class="checkbox-field">
+            <input type="checkbox" id="terms" required>
+            <label for="terms">I agree to the <span class="link-accent">Neural Protocol Terms</span> and <span class="link-accent">AI Ethics Guidelines</span></label>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
