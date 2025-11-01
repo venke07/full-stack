@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Chat Interface</title>
+  <link rel="stylesheet" href="chat.css">
+</head>
+<body>
+  <div class="chat-container">
+    <header class="chat-header">
+      <img src="https://cdn-icons-png.flaticon.com/512/4712/4712101.png" alt="Agent Avatar" class="agent-avatar">
+      <div class="agent-info">
+        <div class="agent-name">Custom AI Agent</div>
+        <div class="agent-status">
+          <span class="status-dot"></span>
+          Online
+        </div>
+      </div>
+    </header>
+
+    <div class="chat-messages" id="chat-messages">
+      <div class="ai-message">
+        Hello! I'm your AI assistant. How can I help you today?
+      </div>
+    </div>
+
+    <div class="typing-indicator" id="typing-indicator">
+      <div class="typing-dots">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+
+    <div class="chat-input">
+      <input type="text" id="user-input" placeholder="Type your message..." />
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
