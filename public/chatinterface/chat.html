@@ -7,38 +7,83 @@
   <link rel="stylesheet" href="chat.css">
 </head>
 <body>
-  <div class="chat-container">
-    <header class="chat-header">
-      <img src="https://cdn-icons-png.flaticon.com/512/4712/4712101.png" alt="Agent Avatar" class="agent-avatar">
-      <div class="agent-info">
-        <div class="agent-name">Custom AI Agent</div>
-        <div class="agent-status">
-          <span class="status-dot"></span>
-          Online
+  <div class="main-container">
+    <!-- Left Sidebar - Agents -->
+    <aside class="agents-sidebar">
+      <h2 class="sidebar-title">Your Agents</h2>
+      <div class="agents-list">
+        <div class="agent-card active">
+          <div class="agent-badge">BA</div>
+          <div class="agent-label">Business Analyst</div>
+          <div class="agent-desc">Financial reports and analysis</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-badge">RA</div>
+          <div class="agent-label">Research Assistant</div>
+          <div class="agent-desc">Academic Research and Support</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-badge">CM</div>
+          <div class="agent-label">Code Mentor</div>
+          <div class="agent-desc">Programming Help and Debugging</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-badge">CW</div>
+          <div class="agent-label">Content Writer</div>
+          <div class="agent-desc">Creative Writing & Copywriting</div>
         </div>
       </div>
-    </header>
+      <button class="new-agent-btn">+ New Agent Chat</button>
+    </aside>
 
-    <div class="chat-messages" id="chat-messages">
-      <div class="ai-message">
-        Hello! I'm your AI assistant. How can I help you today?
+    <!-- Center - Chat -->
+    <main class="chat-section">
+      <header class="chat-header">
+        <div class="agent-info">
+          <img src="https://cdn-icons-png.flaticon.com/512/4712/4712101.png" alt="Agent Avatar" class="agent-avatar">
+          <div class="agent-meta">
+            <div class="agent-name">Business Analyst</div>
+            <div class="agent-status">
+              <span class="status-dot"></span>
+              Active and Ready
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn">⋯</button>
+        </div>
+      </header>
+
+      <div class="chat-messages" id="chat-messages">
+        <div class="message-row ai">
+          <div class="avatar">
+            <img src="https://cdn-icons-png.flaticon.com/512/4712/4712101.png" alt="BA">
+          </div>
+          <div class="bubble ai-bubble">
+            Hello! I'm your Business Analyst agent. I specialize in financial insights, market analysis, and business reporting. How can I assist you today?
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="typing-indicator" id="typing-indicator">
-      <div class="typing-dots">
-        <span></span>
-        <span></span>
-        <span></span>
+      <div class="chat-input">
+        <textarea id="user-input" placeholder="Type your message..." rows="1"></textarea>
+        <button id="send-btn">Send</button>
       </div>
-    </div>
+    </main>
 
-    <div class="chat-input">
-      <input type="text" id="user-input" placeholder="Type your message..." />
-      <button id="send-btn">Send</button>
-    </div>
+    <!-- Right Sidebar - Capabilities -->
+    <aside class="capabilities-sidebar">
+      <h2 class="sidebar-title">Capabilities</h2>
+      <div class="capabilities-list">
+        <div class="capability-tag">Forecasting</div>
+        <div class="capability-tag">Financial</div>
+        <div class="capability-tag">Agent Settings</div>
+        <div class="capability-tag">Comprehensive</div>
+        <div class="capability-tag">GPT-4</div>
+      </div>
+    </aside>
   </div>
 
-  <script src="script.js"></script>
+  <script src="chat.js"></script>
 </body>
 </html>
