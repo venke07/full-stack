@@ -1,3 +1,4 @@
+// ...existing code...
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -176,6 +177,20 @@ app.get('/api/test/database', async (req, res) => {
   }
 });
 
+// Integrate user's history page routes (added, do not modify existing handlers)
+// If SERVE_HISTORY=true the history page will be served as the root before the default index.html handler.
+if (process.env.SERVE_HISTORY === 'true') {
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'HTML', 'history.html'));
+  });
+}
+
+// Route to serve the standalone history page
+app.get('/history', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'search-history', 'HTML', 'history.html'));
+});
+
+
 // Serve the main application
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -238,3 +253,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+// ...existing code...
