@@ -5,6 +5,7 @@ const qs = (s, el=document)=>el.querySelector(s);
     creativity: qs('#creativityBadge'),
     safety: qs('#safetyBadge')
   };
+  const BACKEND_URL = window.AGENT_API_BASE || 'http://localhost:8001';
 
   // Slider labels
   function mapRange(v, labels){
@@ -64,6 +65,69 @@ const qs = (s, el=document)=>el.querySelector(s);
     }, 300);
   });
 
+  function buildAgentPayload(){
+    const toggleState = {};
+    qsa('.switch').forEach(sw=>{
+      if(sw.dataset.key){
+        toggleState[sw.dataset.key] = sw.classList.contains('active');
+      }
+    });
+    return {
+      agentName: qs('#agentName').value.trim(),
+      agentDesc: qs('#agentDesc').value.trim(),
+      agentPrompt: qs('#agentPrompt').value.trim(),
+      formality: Number(qs('#formality').value),
+      creativity: Number(qs('#creativity').value),
+      toggles: toggleState,
+      modelPick: qs('#modelPick').value
+    };
+  }
+
+  async function publishAgent(){
+    const payload = buildAgentPayload();
+    if(!payload.agentName){
+      alert('Please provide a name for your agent first.');
+      return;
+    }
+    if(!payload.agentPrompt){
+      alert('Please enter a system prompt so the backend knows how to run the agent.');
+      return;
+    }
+
+    const publishBtn = qs('#publish');
+    const originalText = publishBtn.textContent;
+    publishBtn.disabled = true;
+    publishBtn.textContent = 'Publishing...';
+
+    try{
+      const res = await fetch(`${BACKEND_URL}/api/build-agent`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if(!res.ok || !data.ok){
+        throw new Error(data.detail || 'Backend rejected the request.');
+      }
+
+      // Persist a short-lived snapshot so chat.html can show context
+      sessionStorage.setItem('latestAgent', JSON.stringify({
+        ...payload,
+        research_plan: data.research_plan || null,
+        createdAt: new Date().toISOString()
+      }));
+
+      const encoded = encodeURIComponent(payload.agentName || 'Your Agent');
+      window.location.href = `/chat.html?agent=${encoded}`;
+    }catch(err){
+      console.error('Error publishing agent', err);
+      alert(`Failed to publish agent: ${err.message}`);
+    }finally{
+      publishBtn.disabled = false;
+      publishBtn.textContent = originalText;
+    }
+  }
+
   // Footer buttons
   qs('#discard').addEventListener('click',()=>{
     if(confirm('Discard all changes?')) location.reload();
@@ -71,9 +135,7 @@ const qs = (s, el=document)=>el.querySelector(s);
   qs('#saveDraft').addEventListener('click',()=>{
     alert('Draft saved locally. (Wire up to your backend)');
   });
-  qs('#publish').addEventListener('click',()=>{
-    alert('Agent published! (Hook to your deployment flow)');
-  });
+  qs('#publish').addEventListener('click', publishAgent);
 
   // File uploads (demo only)
   qs('#fileUp').addEventListener('change',(e)=>{
