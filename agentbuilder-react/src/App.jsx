@@ -7,7 +7,7 @@ import Preview from "./components/Preview";
 import FooterBar from "./components/FooterBar";
 import mapRange from "./utils/mapRange";
 
-const BACKEND_URL = "http://localhost:8000"; // FastAPI server
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001"; // FastAPI server
 
 export default function App() {
   const [agentName, setAgentName] = useState("");
@@ -24,6 +24,7 @@ export default function App() {
   });
 
   const [modelPick, setModelPick] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const formalityBadge = useMemo(
     () => mapRange(formality, ["Casual", "Warm", "Neutral", "Confident", "Professional"]),
@@ -84,19 +85,32 @@ export default function App() {
 
   const onSave = () => alert("Draft saved locally. (Wire up to your backend)");
 
-  // ---------- ✅ PUBLISH: build agent + redirect to chat.html ----------
+  const buildPayload = () => ({
+    agentName: agentName.trim(),
+    agentDesc: agentDesc.trim(),
+    agentPrompt: agentPrompt.trim(),
+    formality,
+    creativity,
+    toggles,
+    modelPick,
+  });
+
+  // ---------- PUBLISH: build agent + redirect to chat.html ----------
   const onPublish = async () => {
-    const payload = {
-      agentName,
-      agentDesc,
-      agentPrompt,
-      formality,
-      creativity,
-      toggles,
-      modelPick,
-    };
+    if (isPublishing) return;
+    const payload = buildPayload();
+
+    if (!payload.agentName) {
+      alert("Give your agent a name before publishing.");
+      return;
+    }
+    if (!payload.agentPrompt) {
+      alert("Please provide a system prompt so the backend knows how to configure your agent.");
+      return;
+    }
 
     try {
+      setIsPublishing(true);
       const res = await fetch(`${BACKEND_URL}/api/build-agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -108,18 +122,24 @@ export default function App() {
         throw new Error(data.detail || "Failed to build agent");
       }
 
-      // Optional: log backend response so you can inspect the research_plan
-      console.log("Build-agent response:", data);
+      sessionStorage.setItem(
+        "latestAgent",
+        JSON.stringify({
+          ...payload,
+          research_plan: data.research_plan || null,
+          createdAt: new Date().toISOString(),
+        })
+      );
 
-      // Redirect to chat.html with agent name in query params
-      const encoded = encodeURIComponent(agentName || "My Agent");
+      const encoded = encodeURIComponent(payload.agentName || "My Agent");
       window.location.href = `/chat.html?agent=${encoded}`;
     } catch (err) {
       console.error(err);
       alert("Error publishing agent: " + err.message);
+    } finally {
+      setIsPublishing(false);
     }
   };
-
   // ---------- Simple test: call /api/model-research (non-streaming for now) ----------
   const handleModelResearch = async () => {
     if (!agentPrompt.trim()) {
@@ -154,15 +174,7 @@ export default function App() {
 
   // ---------- Optional: separate build-agent test button ----------
   const onBuildAgent = async () => {
-    const payload = {
-      agentName,
-      agentDesc,
-      agentPrompt,
-      formality,
-      creativity,
-      toggles,
-      modelPick,
-    };
+    const payload = buildPayload();
 
     try {
       const response = await fetch(`${BACKEND_URL}/api/build-agent`, {

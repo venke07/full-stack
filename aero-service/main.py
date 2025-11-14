@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,13 @@ except Exception:
     run_experiment_designer = None
 
 load_dotenv()
+
+ENABLE_RESEARCH_PIPELINE = os.getenv("ENABLE_RESEARCH_PIPELINE", "").lower() in {"1", "true", "yes"}
+AERO_HOST = os.getenv("AERO_HOST", "127.0.0.1")
+try:
+    AERO_PORT = int(os.getenv("AERO_PORT", "8000"))
+except ValueError:
+    AERO_PORT = 8000
 
 app = FastAPI()
 
@@ -207,13 +215,28 @@ async def build_agent(req: AgentBuilderReq):
     - Model: {req.modelPick}
     """
 
-    try:
-        research_plan = await plan_research(prompt=prompt, streaming=False)
-        return {"ok": True, "agent": req.dict(), "research_plan": research_plan}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if ENABLE_RESEARCH_PIPELINE:
+        try:
+            research_plan = await plan_research(prompt=prompt, streaming=False)
+        except Exception as e:
+            logging.exception("Research plan generation failed")
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        research_plan = {
+            "ok": True,
+            "mode": "mock",
+            "summary": "Research pipeline disabled in this environment.",
+            "prompt_echo": prompt.strip(),
+            "next_steps": [
+                "Enable ENABLE_RESEARCH_PIPELINE=1 to call the full Aero stack.",
+                "Persist the agent configuration to your datastore.",
+                "Redirect the user to the live chat surface.",
+            ],
+        }
+
+    return {"ok": True, "agent": req.dict(), "research_plan": research_plan}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host=AERO_HOST, port=AERO_PORT)
