@@ -5,7 +5,7 @@ const qs = (s, el=document)=>el.querySelector(s);
     creativity: qs('#creativityBadge'),
     safety: qs('#safetyBadge')
   };
-  const BACKEND_URL = window.AGENT_API_BASE || 'http://localhost:8001';
+  const BACKEND_URL = window.AGENT_API_BASE || 'http://localhost:8002';
 
   // Slider labels
   function mapRange(v, labels){

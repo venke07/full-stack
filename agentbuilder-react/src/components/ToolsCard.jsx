@@ -21,7 +21,7 @@ export default function ToolsCard({ toggles, toggle, modelPick, setModelPick, ha
         </div>
         <div className="row">
           <label className="chip ghost" htmlFor="fileUp">
-            ⬆️ Add source
+            + Add source
           </label>
           <input id="fileUp" type="file" hidden multiple onChange={handleFiles} />
           <div className={`switch ${toggles.rfd ? "active" : ""}`} onClick={() => toggle("rfd")} />
@@ -30,15 +30,15 @@ export default function ToolsCard({ toggles, toggle, modelPick, setModelPick, ha
 
       <div className="tool">
         <div>
-          <b>Custom GPT Model</b>
+          <b>Model Provider</b>
           <br />
-          <small>Choose a tuned model for this agent.</small>
+          <small>Choose the API this agent should use.</small>
         </div>
         <div style={{ minWidth: 170 }}>
           <select id="modelPick" value={modelPick} onChange={(e) => setModelPick(e.target.value)}>
-            <option>GPT-5 Thinking</option>
-            <option>GPT-4o mini (fast)</option>
-            <option>Cost-optimized</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="tavily">Tavily AI</option>
           </select>
         </div>
       </div>
