@@ -1,2 +1,74 @@
-node_modules
-node_modules
+# Environment variables (NEVER commit API keys!)
+.env
+.env.local
+.env.*.local
+
+# Node modules
+node_modules/
+*/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build outputs
+build/
+dist/
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Node
+npm-debug.log
+yarn-error.log
+
+# Supabase / Firebase
+.supabase/
+
+# API Keys and Secrets (double protection)
+*_API_KEY
+*_SECRET
+*_TOKEN
+config/secrets.json
