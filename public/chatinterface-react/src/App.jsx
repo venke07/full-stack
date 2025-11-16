@@ -1,40 +1,135 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import "./chat.css";
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8000";
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
+const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
 export default function App() {
-  const [messages, setMessages] = useState([
-    {
-      text: "Hello! I'm your Business Analyst agent. I specialize in financial insights, market analysis, and business reporting. How can I assist you today?",
-      sender: "ai",
-    },
-  ]);
+  const [searchParams] = useSearchParams();
+  const agentId = searchParams.get("agentId");
+
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [loadedAgent, setLoadedAgent] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
-  // Scroll to bottom whenever new message added
+  // ONLY THIS ONE - Fetch agent from Supabase
+  useEffect(() => {
+    if (!agentId) {
+      console.log("⚠️ No agentId in URL");
+      return;
+    }
+
+    console.log("🔍 Looking for agent with ID:", agentId);
+    console.log("SUPABASE_URL:", SUPABASE_URL);
+    console.log("SUPABASE_KEY:", SUPABASE_KEY ? "✅ Set" : "❌ Missing");
+
+    const fetchAgent = async () => {
+      setIsLoading(true);
+      try {
+        const url = `${SUPABASE_URL}/rest/v1/agentdetails?id=eq.${agentId}&select=*`;
+        console.log("📡 Fetching from:", url);
+
+        const response = await fetch(url, {
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+          },
+        });
+
+        console.log("Response status:", response.status);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("✅ Fetched data:", data);
+
+        if (!data || data.length === 0) {
+          throw new Error("Agent not found in database");
+        }
+
+        const agent = data[0];
+        setLoadedAgent(agent);
+
+        setMessages([
+          { text: `Hello! I'm ${agent.name}. ${agent.description}`, sender: "ai" },
+          { text: "What can I help you with today?", sender: "ai" },
+        ]);
+      } catch (err) {
+        console.error("❌ Error:", err);
+        setMessages([
+          { text: `Error loading agent: ${err.message}`, sender: "ai" },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAgent();
+  }, [agentId]);
+
+  // Scroll to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = () => {
-    if (input.trim() === "") return;
-    const userMessage = { text: input, sender: "user" };
-    setMessages((prev) => [...prev, userMessage]);
+  const handleSend = async () => {
+    if (!input.trim() || !loadedAgent || isSending) return;
+
+    const userText = input.trim();
     setInput("");
+    setMessages((prev) => [...prev, { text: userText, sender: "user" }]);
 
-    // Fake AI response
-    const responses = [
-      "That's an interesting point. Let me analyze that for you.",
-      "I understand. I can help you with forecasting on that.",
-      "Great question! This relates to financial analysis.",
-      "I see what you're looking for. Let me process that.",
-      "Excellent! Let's dive deeper into this insight.",
-    ];
+    try {
+      setIsSending(true);
 
-    const randomReply = responses[Math.floor(Math.random() * responses.length)];
-    setTimeout(() => {
-      setMessages((prev) => [...prev, { text: randomReply, sender: "ai" }]);
-    }, 900);
+      const systemPrompt = loadedAgent.system_prompt || "You are a helpful agent.";
+      const model = loadedAgent.model || "openai";
+
+      const res = await fetch(`${BACKEND_URL}/api/model-research`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: `${systemPrompt}\n\nUser: ${userText}`,
+          streaming: false,
+          provider: model,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to get response from agent");
+
+      const data = await res.json();
+      const reply = formatBotReply(data);
+
+      setMessages((prev) => [...prev, { text: reply, sender: "ai" }]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      setMessages((prev) => [
+        ...prev,
+        { text: `Error: ${err.message}`, sender: "ai" },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const formatBotReply = (result) => {
+    if (!result) return "I wasn't able to craft a response.";
+    const payload = result.data ?? result;
+    if (typeof payload === "string") return payload;
+    if (payload.summary) return payload.summary;
+    if (Array.isArray(payload.recommendations)) {
+      return payload.recommendations
+        .map((item, idx) => `${idx + 1}. ${item.title || item.name || "Item"}\n${item.description || ""}`)
+        .join("\n\n");
+    }
+    return JSON.stringify(payload, null, 2);
   };
 
   const handleKeyPress = (e) => {
@@ -44,34 +139,44 @@ export default function App() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="main-container">
+        <main className="chat-section" style={{ textAlign: "center", marginTop: "50px" }}>
+          <p>Loading agent...</p>
+        </main>
+      </div>
+    );
+  }
+
+  if (!loadedAgent) {
+    return (
+      <div className="main-container">
+        <main className="chat-section" style={{ textAlign: "center", marginTop: "50px" }}>
+          <p>No agent found. Please use the agent builder to create one.</p>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="main-container">
       {/* Left Sidebar */}
       <aside className="agents-sidebar">
-        <h2 className="sidebar-title">Your Agents</h2>
+        <h2 className="sidebar-title">Current Agent</h2>
         <div className="agents-list">
           <div className="agent-card active">
-            <div className="agent-badge">BA</div>
-            <div className="agent-label">Business Analyst</div>
-            <div className="agent-desc">Financial reports and analysis</div>
-          </div>
-          <div className="agent-card">
-            <div className="agent-badge">RA</div>
-            <div className="agent-label">Research Assistant</div>
-            <div className="agent-desc">Academic Research and Support</div>
-          </div>
-          <div className="agent-card">
-            <div className="agent-badge">CM</div>
-            <div className="agent-label">Code Mentor</div>
-            <div className="agent-desc">Programming Help and Debugging</div>
-          </div>
-          <div className="agent-card">
-            <div className="agent-badge">CW</div>
-            <div className="agent-label">Content Writer</div>
-            <div className="agent-desc">Creative Writing & Copywriting</div>
+            <div className="agent-badge">{loadedAgent.name.substring(0, 2).toUpperCase()}</div>
+            <div className="agent-label">{loadedAgent.name}</div>
+            <div className="agent-desc">{loadedAgent.description}</div>
           </div>
         </div>
-        <button className="new-agent-btn">+ New Agent Chat</button>
+        <button 
+          className="new-agent-btn" 
+          onClick={() => window.location.href = "http://localhost:3000/"}
+        >
+          ← Back to Builder
+        </button>
       </aside>
 
       {/* Center Chat Section */}
@@ -84,7 +189,7 @@ export default function App() {
               className="agent-avatar"
             />
             <div className="agent-meta">
-              <div className="agent-name">Business Analyst</div>
+              <div className="agent-name">{loadedAgent.name}</div>
               <div className="agent-status">
                 <span className="status-dot"></span>
                 Active and Ready
@@ -106,7 +211,7 @@ export default function App() {
                 <div className="avatar">
                   <img
                     src="https://cdn-icons-png.flaticon.com/512/4712/4712101.png"
-                    alt="BA"
+                    alt="Agent"
                   />
                 </div>
               )}
@@ -129,9 +234,10 @@ export default function App() {
             onKeyDown={handleKeyPress}
             placeholder="Type your message..."
             rows={1}
+            disabled={isSending}
           />
-          <button onClick={handleSend} disabled={!input.trim()}>
-            Send
+          <button onClick={handleSend} disabled={!input.trim() || isSending}>
+            {isSending ? "Sending..." : "Send"}
           </button>
         </div>
       </main>
@@ -140,11 +246,16 @@ export default function App() {
       <aside className="capabilities-sidebar">
         <h2 className="sidebar-title">Capabilities</h2>
         <div className="capabilities-list">
-          <div className="capability-tag">Forecasting</div>
-          <div className="capability-tag">Financial</div>
-          <div className="capability-tag">Agent Settings</div>
-          <div className="capability-tag">Comprehensive</div>
-          <div className="capability-tag">GPT-4</div>
+          {loadedAgent.tools && Object.entries(loadedAgent.tools).map(([key, enabled]) =>
+            enabled ? (
+              <div key={key} className="capability-tag">
+                {key.toUpperCase()}
+              </div>
+            ) : null
+          )}
+          <div className="capability-tag">{loadedAgent.model}</div>
+          <div className="capability-tag">Formality: {loadedAgent.formality}%</div>
+          <div className="capability-tag">Creativity: {loadedAgent.creativity}%</div>
         </div>
       </aside>
     </div>
