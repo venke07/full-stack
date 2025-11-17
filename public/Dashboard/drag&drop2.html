@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Agent Flow Builder – Drag and Drop</title>
+  <script src="https://unpkg.com/jsplumb@2.15.6/dist/js/jsplumb.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    .app { display: flex; height: 100vh; }
+
+    .sidebar {
+      width: 240px;
+      background: #020617;
+      border-right: 1px solid #111827;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .sidebar h2 { font-size: 1.05rem; margin: 0; }
+    .sidebar p { font-size: 0.8rem; color: #9ca3af; margin: 0; }
+
+    .palette {
+      margin-top: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .palette-item {
+      background: #020617;
+      border: 1px solid #1f2937;
+      border-radius: 0.7rem;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.9rem;
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    }
+
+    .palette-item span.icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+    }
+
+    .palette-item:hover {
+      background: #020617;
+      border-color: #3b82f6;
+      transform: translateY(-1px);
+    }
+
+    .builder { flex: 1; display: flex; flex-direction: column; }
+
+    .builder-header {
+      height: 50px;
+      border-bottom: 1px solid #111827;
+      background: rgba(15,23,42,0.97);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .toolbar { display: flex; gap: 0.5rem; }
+
+    .btn {
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn:hover { background: #111827; border-color: #3b82f6; }
+
+    .canvas-wrapper { position: relative; flex: 1; overflow: hidden; }
+
+    .canvas {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background-color: #020617;
+      background-image: radial-gradient(circle, #111827 1px, transparent 0);
+      background-size: 20px 20px;
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      width: 210px;
+      padding: 0.6rem 0.75rem;
+      background: #020617;
+      border-radius: 0.9rem;
+      border: 1px solid #1f2937;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.8);
+      color: #e5e7eb;
+      font-size: 0.85rem;
+      cursor: move;
+    }
+
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.3rem;
+    }
+
+    .node-title { font-weight: 500; font-size: 0.9rem; }
+
+    .node-tag {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      background: #0f172a;
+      color: #9ca3af;
+      border: 1px solid #111827;
+    }
+
+    .node-body { font-size: 0.78rem; color: #9ca3af; }
+
+    .bin {
+      position: absolute;
+      bottom: 15px;
+      right: 20px;
+      width: 80px;
+      height: 80px;
+      background: #111827;
+      border: 2px dashed #3b82f6;
+      border-radius: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      color: #3b82f6;
+    }
+
+    .bin.drag-over {
+      background: #1e3a8a;
+      border-color: #60a5fa;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div>
+      <h2>Blocks</h2>
+      <p>Drag blocks onto the canvas, connect them, or drop into bin to delete.</p>
+    </div>
+    <div class="palette">
+      <div class="palette-item" draggable="true" data-type="trigger"><span class="icon">⚡</span> On Create User</div>
+      <div class="palette-item" draggable="true" data-type="agent"><span class="icon">🤖</span> AI Agent</div>
+      <div class="palette-item" draggable="true" data-type="condition"><span class="icon">🧭</span> Condition</div>
+      <div class="palette-item" draggable="true" data-type="tool"><span class="icon">🧩</span> Tool / API</div>
+      <div class="palette-item" draggable="true" data-type="output"><span class="icon">📨</span> Output</div>
+    </div>
+  </aside>
+
+  <section class="builder">
+    <div class="builder-header">
+      <div>AI Agent Flow Builder</div>
+      <div class="toolbar">
+        <button class="btn" id="btnExport">Export JSON</button>
+        <button class="btn" id="btnClear">Clear All</button>
+      </div>
+    </div>
+
+    <div class="canvas-wrapper">
+      <div class="canvas" id="canvas"></div>
+      <div class="bin" id="bin">🗑️</div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const TYPE_LABELS = {
+    trigger: "On 'Create User' form submission",
+    agent: "AI Agent",
+    condition: "Is Manager?",
+    tool: "External Tool / API",
+    output: "Notify / Update"
+  };
+
+  const TYPE_DESC = {
+    trigger: "Entry point of the workflow.",
+    agent: "Call an AI model with tools & memory.",
+    condition: "Branch flow based on user data.",
+    tool: "Integrate with databases or services.",
+    output: "Send Slack/Email or update profile."
+  };
+
+  let idCounter = 1;
+  const nodesData = [];
+
+  jsPlumb.ready(() => {
+    const instance = jsPlumb.getInstance({
+      Connector: ["Bezier", { curviness: 50 }],
+      PaintStyle: { stroke: "#4b5563", strokeWidth: 2 },
+      EndpointStyle: { fill: "#3b82f6", radius: 5 },
+      HoverPaintStyle: { stroke: "#60a5fa" },
+      ConnectionOverlays: [["Arrow", { width: 10, length: 10, location: 1 }]],
+      Container: "canvas"
+    });
+
+    const canvas = document.getElementById("canvas");
+    const bin = document.getElementById("bin");
+
+    function addNode(type, x, y) {
+      const id = "n" + idCounter++;
+      const el = document.createElement("div");
+      el.className = "node";
+      el.id = id;
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      el.draggable = true;
+
+      el.innerHTML = `
+        <div class="node-header">
+          <div class="node-title">${TYPE_LABELS[type] || "Block"}</div>
+          <span class="node-tag">${type}</span>
+        </div>
+        <div class="node-body">${TYPE_DESC[type] || ""}</div>
+      `;
+
+      canvas.appendChild(el);
+      instance.draggable(el);
+
+      instance.addEndpoint(id, { anchors: "Right", isSource: true, maxConnections: -1 }, { endpoint: "Dot", paintStyle: { fill: "#3b82f6", radius: 5 } });
+      instance.addEndpoint(id, { anchors: "Left", isTarget: true, maxConnections: -1 }, { endpoint: "Dot", paintStyle: { fill: "#22c55e", radius: 5 } });
+
+      nodesData.push({ id, type, x, y });
+
+      // Enable drag to bin
+      el.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('node-id', id);
+      });
+    }
+
+    // Drag from sidebar to canvas
+    document.querySelectorAll('.palette-item').forEach(item => {
+      item.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('type', item.dataset.type);
+      });
+    });
+
+    canvas.addEventListener('dragover', e => e.preventDefault());
+    canvas.addEventListener('drop', e => {
+      e.preventDefault();
+      const type = e.dataTransfer.getData('type');
+      if (!type) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      addNode(type, x, y);
+    });
+
+    // Bin logic
+    bin.addEventListener('dragover', e => {
+      e.preventDefault();
+      bin.classList.add('drag-over');
+    });
+
+    bin.addEventListener('dragleave', () => bin.classList.remove('drag-over'));
+
+    bin.addEventListener('drop', e => {
+      e.preventDefault();
+      bin.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('node-id');
+      if (!id) return;
+      instance.remove(id);
+      const index = nodesData.findIndex(n => n.id === id);
+      if (index !== -1) nodesData.splice(index, 1);
+    });
+
+    // Export JSON
+    document.getElementById('btnExport').addEventListener('click', () => {
+      const connections = instance.getAllConnections().map(c => ({ from: c.sourceId, to: c.targetId }));
+      alert(JSON.stringify({ nodes: nodesData, connections }, null, 2));
+    });
+
+    // Clear All
+    document.getElementById('btnClear').addEventListener('click', () => {
+      instance.deleteEveryConnection();
+      instance.deleteEveryEndpoint();
+      canvas.innerHTML = '';
+      nodesData.length = 0;
+    });
+  });
+</script>
+</body>
+</html>
