@@ -12,6 +12,10 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const dashboardRoutes = require('./routes/dashboard');
 const neuralRoutes = require('./routes/neural');
+const agentRoutes = require('./routes/agentRoutes');
+const conversationRoutes = require('./routes/conversationRoutes');
+const messageRoutes = require('./routes/messagesRoutes');
+const searchRoutes = require('./routes/searchRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -54,7 +58,7 @@ app.use(compression());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://venke07.github.io', 'https://your-domain.com'] 
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001'],
   credentials: true
 }));
 app.use(morgan('combined'));
@@ -82,6 +86,10 @@ app.get('/auth/*', (req, res) => {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/neural', neuralRoutes);
+app.use('/api/agents', agentRoutes);
+app.use('/api', conversationRoutes);
+app.use('/api', messageRoutes);
+app.use('/api', searchRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -185,16 +193,14 @@ if (process.env.SERVE_HISTORY === 'true') {
   });
 }
 
-// Route to serve the standalone history page
+// Serve static files (CSS, JS) for search-history
+app.use('/search-history', express.static(path.join(__dirname, 'public', 'search-history', 'public')));
+
+// Serve the standalone history page
 app.get('/history', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'search-history', 'HTML', 'history.html'));
+  res.sendFile(path.join(__dirname, 'public', 'search-history', 'public', 'HTML', 'history.html'));
 });
 
-
-// Serve the main application
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
 
 // Serve login page
 app.get('/login', (req, res) => {
@@ -210,6 +216,7 @@ app.get('/signup', (req, res) => {
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
+
 
 // 404 handler for API routes
 app.use('/api/*', (req, res) => {
