@@ -29,6 +29,7 @@ export default function App() {
   const [isChatReady, setIsChatReady] = useState(false);
   const [chatStatus, setChatStatus] = useState('Click "Test Build Agent" to try a live preview.');
   const [isSending, setIsSending] = useState(false);
+  const [pendingBuild, setPendingBuild] = useState(null);
 
   const formalityBadge = useMemo(
     () => mapRange(formality, ["Casual", "Warm", "Neutral", "Confident", "Professional"]),
@@ -247,6 +248,16 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.colorScheme = 'dark';
   }, []);
+
+  useEffect(() => {
+    if (!pendingBuild) return;
+    const id = setTimeout(() => {
+      // call your preview build only once after user stops changing sliders/inputs
+      pendingBuild();
+      setPendingBuild(null);
+    }, 600);
+    return () => clearTimeout(id);
+  }, [pendingBuild]);
 
   return (
     <div className="app">

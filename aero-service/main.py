@@ -2,10 +2,13 @@ import os
 import json
 import logging
 import asyncio
+import time
+import random
+import requests
+from typing import Tuple
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +16,7 @@ from pydantic import BaseModel
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client, Client
+import google.generativeai as genai
 
 from aero.model_researcher import suggest_models
 from aero.research_planner import plan_research
@@ -36,20 +40,47 @@ except ValueError:
     AERO_PORT = 8000
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Add validation right after loading:
+if OPENAI_API_KEY:
+    OPENAI_API_KEY = OPENAI_API_KEY.strip()  # Remove whitespace
+    if not OPENAI_API_KEY.startswith("sk-"):
+        logging.error("❌ Invalid OpenAI API key format")
+    else:
+        logging.info(f"✅ OpenAI API key loaded (starts with: {OPENAI_API_KEY[:10]}...)")
+else:
+    logging.error("❌ OPENAI_API_KEY not found in environment")
+
 DEFAULT_OPENAI_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 # Supabase setup
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")  # Changed from SUPABASE_KEY
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
 
 supabase: Optional[Client] = None
 if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    logging.info("✅ Supabase client initialized")
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logging.info(f"✅ Supabase client initialized with URL: {SUPABASE_URL}")
+        logging.info(f"✅ Using API key: {SUPABASE_KEY[:20]}...")
+    except Exception as e:
+        logging.error(f"❌ Failed to initialize Supabase: {e}")
+        supabase = None
 else:
     logging.warning("⚠️ Supabase credentials not configured")
+    logging.warning(f"SUPABASE_URL present: {bool(SUPABASE_URL)}")
+    logging.warning(f"SUPABASE_KEY present: {bool(SUPABASE_KEY)}")
+
+# Load Gemini key
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+    logging.info("✅ Gemini configured")
+else:
+    logging.error("❌ GOOGLE_API_KEY not found")
+
 
 app = FastAPI()
 
@@ -126,12 +157,57 @@ def _mock_research_response(prompt: str, provider: Optional[str], detail: Option
     }
 
 
-async def _post_json(url: str, headers: Optional[Dict[str, str]] = None, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    def _send():
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+# --- Simple throttle (one call every 4s) + 60s response cache ---
+_OPENAI_LOCK = asyncio.Lock()
+_last_openai_call = 0.0
+_RATE_WINDOW_SEC = 4.0
+_RESP_CACHE: Dict[Tuple[str, str], Tuple[float, str]] = {}  # key=(provider,prompt), value=(ts, text)
+_RESP_TTL = 60.0
 
+def _cache_get(provider: str, prompt: str) -> Optional[str]:
+    key = (provider, prompt.strip()[:1000])
+    hit = _RESP_CACHE.get(key)
+    if not hit:
+        return None
+    ts, text = hit
+    if time.monotonic() - ts > _RESP_TTL:
+        _RESP_CACHE.pop(key, None)
+        return None
+    return text
+
+def _cache_set(provider: str, prompt: str, text: str) -> None:
+    key = (provider, prompt.strip()[:1000])
+    _RESP_CACHE[key] = (time.monotonic(), text)
+
+async def _respect_openai_rl():
+    global _last_openai_call
+    async with _OPENAI_LOCK:
+        now = time.monotonic()
+        wait = _RATE_WINDOW_SEC - (now - _last_openai_call)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_openai_call = time.monotonic()
+
+
+async def _post_json(url: str, headers: Optional[Dict[str, str]] = None, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """POST request with retry logic for rate limiting."""
+    def _send():
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=45)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.exceptions.HTTPError as e:
+                if getattr(e.response, "status_code", 0) == 429:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1.5)
+                    logger.warning(f"Rate limited! Waiting {wait_time:.1f}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    if attempt == max_retries - 1:
+                        logger.error("All retries exhausted.")
+                        raise
+                else:
+                    raise
     return await asyncio.to_thread(_send)
 
 
@@ -140,43 +216,54 @@ def _format_provider_response(provider: str, summary: str, raw: Optional[Dict[st
 
 
 async def _call_openai(prompt: str) -> Dict[str, Any]:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not configured.")
-    
-    # Debug: Check if key is loaded
-    logger.info(f"Using OpenAI key: {OPENAI_API_KEY[:20]}...")
-    
+    cached = _cache_get("openai", prompt)
+    if cached:
+        return _format_provider_response("openai", cached, {"cached": True})
+
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY.strip()}",  # Strip whitespace
+        "Authorization": f"Bearer {OPENAI_API_KEY.strip()}",
         "Content-Type": "application/json",
     }
-    
     payload = {
-        "model": "gpt-3.5-turbo",
+        "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": "Be concise."},
+            {"role": "user", "content": prompt[:600]}
         ],
-        "temperature": 0.7,
-        "max_tokens": 500,
+        "temperature": 0.6,
+        "max_tokens": 256,
     }
     
+    # Add debug logging before the request
+    logging.debug(f"Using API key: {OPENAI_API_KEY[:15]}...{OPENAI_API_KEY[-4:]}")
+    logging.debug(f"Authorization header: Bearer {OPENAI_API_KEY.strip()[:15]}...")
+    
     try:
+        await _respect_openai_rl()
         data = await _post_json("https://api.openai.com/v1/chat/completions", headers, payload)
-        message = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        message = data.get("choices", [{}])[0].get("message", {}).get("content", "") or "No response."
+        _cache_set("openai", prompt, message)
         return _format_provider_response("openai", message, data)
     except Exception as e:
         logger.error(f"OpenAI API error: {str(e)}")
-        raise RuntimeError(f"OpenAI API failed: {str(e)}")
+        # graceful text instead of crashing chat
+        return _format_provider_response("openai", "I'm at capacity right now. Please try again in a few seconds.", {"rate_limited": True})
 
 
 async def _call_gemini(prompt: str) -> Dict[str, Any]:
-    """Gemini fallback to OpenAI."""
-    logger.warning("Gemini API unavailable, using OpenAI")
-    result = await _call_openai(prompt)
-    # Keep gemini in the response so frontend shows "gemini"
-    result["provider"] = "gemini"
-    return result
+    cached = _cache_get("gemini", prompt)
+    if cached:
+        return _format_provider_response("gemini", cached, {"cached": True})
+
+    try:
+        await _respect_openai_rl()
+        response = gemini_model.generate_content(prompt)
+        message = response.text or "No response."
+        _cache_set("gemini", prompt, message)
+        return _format_provider_response("gemini", message, {"gemini_response": True})
+    except Exception as e:
+        logging.error(f"❌ Gemini error: {e}")
+        return _format_provider_response("gemini", "I'm at capacity right now. Please try again in a few seconds.", {"rate_limited": True})
 
 
 async def _call_tavily(prompt: str) -> Dict[str, Any]:
@@ -391,7 +478,7 @@ async def build_agent(req: AgentBuilderReq):
     if supabase:
         try:
             logger.info("Attempting to save to Supabase...")
-            response = supabase.table("agentdetails").insert(agent_data).execute()  # Changed from "agents" to "agentdetails"
+            response = supabase.table("agentdetails").insert(agent_data).execute()  # Changed from agents
             logger.info(f"Supabase response: {response}")
             
             if response.data:

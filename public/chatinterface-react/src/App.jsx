@@ -12,7 +12,7 @@ export default function App() {
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [isSending, setIsSending] = useState(false);
+  const [sending, setSending] = useState(false);
   const [loadedAgent, setLoadedAgent] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
@@ -80,14 +80,14 @@ export default function App() {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || !loadedAgent || isSending) return;
+    if (sending || !input.trim() || !loadedAgent) return;
 
     const userText = input.trim();
     setInput("");
     setMessages((prev) => [...prev, { text: userText, sender: "user" }]);
 
     try {
-      setIsSending(true);
+      setSending(true);
 
       const systemPrompt = loadedAgent.system_prompt || "You are a helpful agent.";
       const model = loadedAgent.model || "openai";
@@ -115,7 +115,7 @@ export default function App() {
         { text: `Error: ${err.message}`, sender: "ai" },
       ]);
     } finally {
-      setIsSending(false);
+      setSending(false);
     }
   };
 
@@ -234,10 +234,10 @@ export default function App() {
             onKeyDown={handleKeyPress}
             placeholder="Type your message..."
             rows={1}
-            disabled={isSending}
+            disabled={sending}
           />
-          <button onClick={handleSend} disabled={!input.trim() || isSending}>
-            {isSending ? "Sending..." : "Send"}
+          <button className="send-btn" disabled={sending || !input.trim()} onClick={handleSend}>
+            {sending ? "Sending..." : "Send"}
           </button>
         </div>
       </main>
