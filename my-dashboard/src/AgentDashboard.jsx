@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from "react";
 import "./dashboard.css";
+import { useNavigate } from "react-router-dom";
+
 
 const initialAgents = [
   { name: "Business Analyst", status: "Active", desc: "Provides market insights", tags: ["Web Search", "RFD", "Deep Research"], lastUsed: "2 hours ago" },
@@ -23,6 +25,7 @@ export default function AgentDashboard() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [sortMode, setSortMode] = useState("recent");
+  const navigate = useNavigate();
 
   // Add from template
   const addTemplate = (template) => {
@@ -67,25 +70,32 @@ export default function AgentDashboard() {
 
   return (
     <div className="dashboard-container">
-      
-      {/* HEADER */}
       <header>
         <div>
           <h1>Agent Dashboard</h1>
-          <p>Manage and monitor your AI Agents</p>
+          <p>Manage and monitor every AI agent linked to your account.</p>
         </div>
 
         <div className="header-actions">
-          <button className="new-agent-btn">➕ New Agent</button>
-
+          <button className="new-agent-btn">+ New Agent</button>
           <div className="search-box">
-            <input
-              type="text"
-              placeholder="Search agents..."
+            <input 
+              type="text" 
+              placeholder="Search agents..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          {/* Chat Icon Button */}
+          <button 
+            className="chat-icon-btn"
+            onClick={() => navigate('/multi-chat')}
+            title="Open Multi-Agent Chat"
+            type="button"
+          >
+            💬
+          </button>
+          <button className="signout-btn">Sign out</button>
         </div>
       </header>
 

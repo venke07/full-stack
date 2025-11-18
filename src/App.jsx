@@ -5,6 +5,7 @@ import HomePage from './pages/Home.jsx';
 import BuilderPage from './pages/Builder.jsx';
 import CanvasPage from './pages/Canvas.jsx';
 import ChatPage from './pages/Chat.jsx';
+import MultiAgentChat from './pages/MultiAgentChat.jsx';
 import LoginPage from './pages/Login.jsx';
 import SignupPage from './pages/Signup.jsx';
 
@@ -60,6 +61,14 @@ export default function App() {
             element={(
               <RequireAuth>
                 <ChatPage />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/multi-chat"
+            element={(
+              <RequireAuth>
+                <MultiAgentChat />
               </RequireAuth>
             )}
           />

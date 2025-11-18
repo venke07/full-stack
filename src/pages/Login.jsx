@@ -21,18 +21,18 @@ export default function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!email || !password) {
-      setStatus('Neural ID and Access Key are required.');
+      setStatus('Aether ID and Access Key are required.');
       return;
     }
     setIsSubmitting(true);
-    setStatus('Initializing neural link…');
+    setStatus('Initializing Aether link…');
     const { error } = await signIn(email, password);
     if (error) {
       setStatus(error.message || 'Access denied.');
       setIsSubmitting(false);
       return;
     }
-    setStatus('Neural link established. Redirecting…');
+    setStatus('Aether link established. Redirecting…');
     navigate(redirectPath, { replace: true });
   };
 
@@ -50,7 +50,7 @@ export default function LoginPage() {
             <div className="pulse-ring" />
           </div>
           <h1 className="portal-title">
-            <span className="gradient-text">Neural Access</span>
+            <span className="gradient-text">Aether Access</span>
             <span className="subtitle">AI Agent Portal</span>
           </h1>
           <div className="status-indicator">
@@ -61,13 +61,13 @@ export default function LoginPage() {
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field-label" htmlFor="loginEmail">
-            Neural ID
+            Aether ID
           </label>
           <div className="input-container">
             <input
               id="loginEmail"
               type="email"
-              placeholder="agent@neural.ai"
+              placeholder="agent@aether.ai"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -101,7 +101,7 @@ export default function LoginPage() {
             onClick={() => navigate('/signup')}
             disabled={isSubmitting}
           >
-            Create Neural Profile
+            Create Aether Profile
           </button>
         </form>
 
@@ -110,10 +110,10 @@ export default function LoginPage() {
             <span role="img" aria-label="lock">
               🔐
             </span>
-            <span>256-bit Neural Encryption</span>
+            <span>256-bit Aether Encryption</span>
           </div>
           <div>
-            Need help? <Link to="/signup">Contact neural ops</Link>
+            Need help? <Link to="/signup">Contact Aether ops</Link>
           </div>
         </div>
       </div>

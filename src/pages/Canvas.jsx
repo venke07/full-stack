@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
@@ -95,6 +95,7 @@ const agentAccent = (seed = '') => {
 
 export default function CanvasPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [nodes, setNodes] = useState(starterNodes);
   const [connections, setConnections] = useState(starterConnections);
   const [selectedNodeId, setSelectedNodeId] = useState(starterNodes[0].id);
@@ -102,6 +103,10 @@ export default function CanvasPage() {
   const [agents, setAgents] = useState([]);
   const [agentStatus, setAgentStatus] = useState('');
   const [isLoadingAgents, setIsLoadingAgents] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [agentName, setAgentName] = useState('');
+  const [agentDescription, setAgentDescription] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const boardRef = useRef(null);
   const dragStateRef = useRef(null);
@@ -357,6 +362,107 @@ export default function CanvasPage() {
     setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, modelId: modelId || null } : node)));
   };
 
+  const generateSystemPromptFromWorkflow = () => {
+    // Build a system prompt from the workflow nodes
+    const llmNodes = nodes.filter((n) => n.type === 'llm' || n.type === 'agent');
+    const triggerNodes = nodes.filter((n) => n.type === 'trigger');
+    const actionNodes = nodes.filter((n) => n.type === 'action');
+
+    let prompt = `You are an AI agent designed to process workflows.\n\n`;
+
+    if (triggerNodes.length > 0) {
+      prompt += `TRIGGERS:\n`;
+      triggerNodes.forEach((n) => {
+        prompt += `- ${n.title}: ${n.description}\n`;
+      });
+      prompt += '\n';
+    }
+
+    if (llmNodes.length > 0) {
+      prompt += `PRIMARY TASKS:\n`;
+      llmNodes.forEach((n) => {
+        prompt += `- ${n.title}: ${n.description}\n`;
+      });
+      prompt += '\n';
+    }
+
+    if (actionNodes.length > 0) {
+      prompt += `ACTIONS:\n`;
+      actionNodes.forEach((n) => {
+        prompt += `- ${n.title}: ${n.description}\n`;
+      });
+      prompt += '\n';
+    }
+
+    prompt += `Process the workflow steps in sequence and provide clear outputs.`;
+    return prompt;
+  };
+
+  const handleCreateAgentFromWorkflow = async () => {
+    if (!agentName.trim()) {
+      alert('Agent name is required');
+      return;
+    }
+
+    if (nodes.length === 0) {
+      alert('Add at least one node to your workflow');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const systemPrompt = generateSystemPromptFromWorkflow();
+      const workflowData = {
+        nodes,
+        connections,
+      };
+
+      // Determine primary model from LLM nodes
+      const llmNode = nodes.find((n) => n.type === 'llm' || n.type === 'agent');
+      const modelId = llmNode?.modelId || modelOptions[0].id;
+
+      const { data, error } = await supabase
+        .from('agent_personas')
+        .insert([
+          {
+            user_id: user.id,
+            name: agentName.trim(),
+            description: agentDescription.trim() || `Agent created from workflow with ${nodes.length} nodes`,
+            system_prompt: systemPrompt,
+            model_id: modelId,
+            status: 'draft',
+            workflow_data: workflowData,
+            guardrails: [],
+            sliders: {},
+          },
+        ])
+        .select();
+
+      if (error) {
+        alert(`Failed to create agent: ${error.message}`);
+        setIsSaving(false);
+        return;
+      }
+
+      const newAgent = data[0];
+      alert(`✅ Agent "${newAgent.name}" created successfully!`);
+
+      // Pass workflow data to Builder via state
+      navigate(`/builder?agentId=${newAgent.id}`, {
+        state: {
+          fromWorkflow: true,
+          workflowData: workflowData,
+          systemPrompt: systemPrompt,
+        },
+      });
+    } catch (error) {
+      console.error('Error creating agent:', error);
+      alert('Failed to create agent from workflow');
+      setIsSaving(false);
+    }
+  };
+
   const renderConnections = () => {
     if (!boardRef.current) {
       return null;
@@ -393,6 +499,14 @@ export default function CanvasPage() {
           </div>
         </div>
         <div className="header-actions">
+          <button
+            className="btn primary compact"
+            onClick={() => setShowCreateModal(true)}
+            disabled={nodes.length === 0}
+            title={nodes.length === 0 ? 'Add nodes first' : 'Create agent from this workflow'}
+          >
+            💾 Save as Agent
+          </button>
           <Link className="btn ghost compact" to="/home">
             Dashboard
           </Link>
@@ -401,6 +515,70 @@ export default function CanvasPage() {
           </Link>
         </div>
       </header>
+
+      {/* Create Agent Modal */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Create Agent from Workflow</h2>
+            <p className="muted small">Convert your workflow into a reusable AI agent</p>
+
+            <div className="form-group">
+              <label htmlFor="agent-name">Agent Name *</label>
+              <input
+                id="agent-name"
+                type="text"
+                placeholder="e.g., Lead Qualification Agent"
+                value={agentName}
+                onChange={(e) => setAgentName(e.target.value)}
+                disabled={isSaving}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="agent-desc">Description</label>
+              <textarea
+                id="agent-desc"
+                placeholder="What does this agent do?"
+                value={agentDescription}
+                onChange={(e) => setAgentDescription(e.target.value)}
+                disabled={isSaving}
+                rows="3"
+              />
+            </div>
+
+            <div className="modal-info">
+              <p className="muted small">
+                <strong>Workflow Summary:</strong>
+                <br />
+                {nodes.length} node{nodes.length !== 1 ? 's' : ''} • {connections.length} connection{connections.length !== 1 ? 's' : ''}
+              </p>
+              <p className="muted small">
+                <strong>Primary Model:</strong>
+                <br />
+                {getModelMeta((nodes.find((n) => n.type === 'llm' || n.type === 'agent')?.modelId) || modelOptions[0].id).label}
+              </p>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn ghost"
+                onClick={() => setShowCreateModal(false)}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                onClick={handleCreateAgentFromWorkflow}
+                disabled={isSaving || !agentName.trim()}
+              >
+                {isSaving ? '⏳ Creating...' : '✅ Create Agent'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="canvas-shell">
         <aside className="canvas-sidebar palette">
