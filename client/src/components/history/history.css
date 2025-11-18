@@ -164,8 +164,15 @@
   color: var(--text-muted);
 }
 
+.delete-all-container {
+  width: 100%;
+  display: flex;
+  justify-content: end;
+}
+
 .delete-all {
   text-align: end;
+  border-radius: 10px;
 } .delete-all:hover {
   color: #dc2626;
   cursor: pointer;
@@ -228,9 +235,13 @@
   font-size: 15px;
   font-weight: 600;
   color: var(--accent);
+  background: red;
+  padding: 7px;
+  border-radius: 5px;
 } .delete-conversation:hover {
   color: rgb(118, 52, 52);
-}
+  transform: translateY(3px);
+} 
 
 .search-container {
   max-width: 500px;

@@ -1,23 +1,17 @@
 {
-  "name": "neural-ai-portal",
-  "version": "1.0.0",
-  "description": "Futuristic AI Agent Portal with Neural Network Interface",
-  "main": "app.js",
+  "name": "agent-builder-react",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
   "scripts": {
-    "start": "node app.js",
-    "dev": "nodemon app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "server": "node server/index.js"
   },
-  "keywords": [
-    "ai",
-    "neural-network",
-    "dashboard",
-    "supabase",
-    "express"
-  ],
-  "author": "venke07",
-  "license": "MIT",
   "dependencies": {
+<<<<<<< HEAD
     "@supabase/supabase-js": "^2.81.1",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
@@ -26,12 +20,25 @@
     "express-rate-limit": "^6.10.0",
     "helmet": "^7.0.0",
     "morgan": "^1.10.1"
+=======
+    "@supabase/supabase-js": "^2.43.1",
+    "react-router-dom": "^6.28.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+>>>>>>> c43956d795d8b2d117e577e7651113ff94c9fbbc
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.1.0",
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=16.0.0"
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react": "^7.37.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "vite": "^5.4.8"
   }
 }

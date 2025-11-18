@@ -279,7 +279,9 @@ const handleDeleteAllConversations = async () => {
                     onChange={(e) => handleSearch(e.target.value)}
                  />
               </div>
-              <div className='delete-all'onClick={handleDeleteAllConversations} >Delete all</div>
+              <div className='delete-all-container'>
+                <div className='delete-all'onClick={handleDeleteAllConversations} >Delete all</div>
+              </div>
             </div>
 
             <div className="conversation-list">
@@ -300,6 +302,7 @@ const handleDeleteAllConversations = async () => {
 
                    <div className="conversation-title-delete">
                       <div className="conversation-title">{c.title}</div>
+
                       <div className="delete-conversation" 
                       onClick={(e) => {
                         e.stopPropagation();

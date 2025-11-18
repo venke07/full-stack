@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 node_modules
 =======
 # Environment variables (NEVER commit API keys!)
@@ -81,3 +82,9 @@ node_modules
 node_modules
 node_modules
 node_modules
+=======
+node_modules/
+dist/
+.vite/
+.env
+>>>>>>> c43956d795d8b2d117e577e7651113ff94c9fbbc
