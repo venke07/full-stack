@@ -6,14 +6,16 @@ require('dotenv').config();
 
 const router = express.Router();
 
-// connect to Supabase directly (same as your other routes)
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
 
-// GET messages for a specific conversation (with conversation info included)
-router.get('/conversations/:conversationId/messages', async (req, res) => {
+/* ====================================
+   Get all messages for a conversation
+   URL: GET /api/message/:conversationId/messages
+==================================== */
+router.get('/:conversationId/messages', async (req, res) => {
   try {
     const conversationId = Number(req.params.conversationId);
 
@@ -24,13 +26,12 @@ router.get('/conversations/:conversationId/messages', async (req, res) => {
       });
     }
 
-    // Call your model function
     const messages = await messagesModel.getConversationMessages(conversationId);
 
     res.json({
       success: true,
       length: messages.length,
-      messages: messages
+      messages
     });
 
   } catch (err) {

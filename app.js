@@ -87,9 +87,10 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/neural', neuralRoutes);
 app.use('/api/agents', agentRoutes);
-app.use('/api', conversationRoutes);
-app.use('/api', messageRoutes);
-app.use('/api', searchRoutes);
+app.use('/api/conversations', conversationRoutes);
+app.use('/api/message', messageRoutes);
+app.use('/api/search', searchRoutes);
+
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

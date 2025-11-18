@@ -1,4 +1,4 @@
-// routes/messagesRoutes.js
+// routes/searchRoutes.js
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const messagesModel = require('../model/searchModel.js');
@@ -6,14 +6,16 @@ require('dotenv').config();
 
 const router = express.Router();
 
-// connect to Supabase directly (same style as your other routes)
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
 
-
-router.get('/search/messages', async (req, res) => {
+/* =========================================
+   Search messages
+   URL: GET /api/search/messages?query=hello
+========================================= */
+router.get('/messages', async (req, res) => {
   try {
     const query = req.query.query;
 
@@ -24,12 +26,11 @@ router.get('/search/messages', async (req, res) => {
       });
     }
 
-    // Call model function
     const results = await messagesModel.searchMessages(query);
 
     res.json({
       success: true,
-      query: query,
+      query,
       length: results.length,
       messages: results
     });

@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import aiAvatar from "./imported_img/ai.png";
+import userAvatar from "./imported_img/user.png";
+
 import './history.css';
 
 
@@ -6,19 +9,23 @@ export default function HistoryPage() {
   
   const [activeAgent, setActiveAgent] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
-
+  
   const [loading, setLoading] = useState(true); // for agents
   const [agents, setAgents] = useState([]);
-
+  
   const [convLoading, setConvLoading] = useState(false); // for conversations
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
-
+  
   const [msgLoading, setMsgLoading] = useState(false); // for messages
   const [messages, setMessages] = useState([]);
-
+  
   const [searchQuery, setSearchQuery] = useState(""); // for search input
   const [isSearching, setIsSearching] = useState(false);
+
+  const [deleteMode, setDeleteMode] = useState("single"); 
+
+  const deleteDialogRef = React.useRef();
   
   const handleSearch = async (value) => {
     setSearchQuery(value);
@@ -51,13 +58,13 @@ export default function HistoryPage() {
     if (!keyword) return text;
 
     const regex = new RegExp(`(${keyword})`, "gi");
-
+    
     return text.replace(regex, `<span class="highlight">$1</span>`);
   };
 
-const presentPast_difference = (last_accessed) => {
-  if (!last_accessed) return;
-
+  const presentPast_difference = (last_accessed) => {
+    if (!last_accessed) return;
+    
   const now = new Date();
   const past = new Date(last_accessed);
   const dateDiff = now - past;
@@ -66,7 +73,7 @@ const presentPast_difference = (last_accessed) => {
   const diffMinutes = Math.floor(dateDiff / (1000 * 60));
   const diffHours = Math.floor(dateDiff / (1000 * 60 * 60));
   const diffDays = Math.floor(dateDiff / (1000 * 60 * 60 * 24));
-
+  
 
   if (diffDays >= 1) {
     return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
@@ -79,6 +86,83 @@ const presentPast_difference = (last_accessed) => {
   } 
   else {
     return `${diffSeconds} second${diffSeconds > 1 ? "s" : ""} ago`;
+  }
+};
+
+const handleDeleteConversation = async (conversationId) => {
+
+  const confirmed = await openDeleteDialog("single");
+  if (!confirmed) return;
+
+
+  try {
+    const res = await fetch(
+      `http://localhost:3000/api/conversations/${conversationId}`,
+      { method: "DELETE" }
+    );
+
+    const data = await res.json();
+
+    if (!data.success) {
+      alert("Error deleting conversation: " + data.message);
+      return;
+    }
+
+    setConversations((prev) =>
+      prev.filter((c) => c.id !== conversationId)
+    );
+
+    if (activeConversation === conversationId) {
+      setActiveConversation(null);
+      setMessages([]);
+    }
+
+  } catch (err) {
+    console.error("Delete failed:", err);
+    alert("Failed to delete conversation.");
+  }
+};
+
+function openDeleteDialog(mode = "single") {
+  return new Promise((resolve) => {
+    setDeleteMode(mode);
+
+    const dialog = deleteDialogRef.current;
+    dialog.showModal();
+
+    const handleClose = () => {
+      resolve(dialog.returnValue === "yes");
+      dialog.removeEventListener("close", handleClose);
+    };
+
+    dialog.addEventListener("close", handleClose);
+  });
+}
+
+const handleDeleteAllConversations = async () => {
+
+  const confirmed = await openDeleteDialog("all");
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch("http://localhost:3000/api/conversations", {
+      method: "DELETE",
+    });
+
+    const data = await res.json();
+
+    if (!data.success) {
+      alert("Could not delete all conversations");
+      return;
+    }
+
+    setConversations([]);
+    setMessages([]);
+    setActiveConversation(null);
+
+  } catch (err) {
+    console.error(err);
+    alert("Error deleting all conversations.");
   }
 };
 
@@ -115,7 +199,7 @@ const presentPast_difference = (last_accessed) => {
     setMessages([]); // clear messages when switching agents
 
     try {
-      const response = await fetch(`http://localhost:3000/api/agents/${agentId}/conversations`);
+      const response = await fetch(`http://localhost:3000/api/conversations/agent/${agentId}`);
       const data = await response.json();
       setConversations(data.conversations || []);
     } catch (error) {
@@ -129,7 +213,7 @@ const presentPast_difference = (last_accessed) => {
     setActiveConversation(conversationId);
     setMsgLoading(true); // start loading messages
     try {
-      const response = await fetch(`http://localhost:3000/api/conversations/${conversationId}/messages`);
+      const response = await fetch(`http://localhost:3000/api/message/${conversationId}/messages`);
       const data = await response.json();
       setMessages(data.messages || []);
     } catch (error) {
@@ -190,12 +274,12 @@ const presentPast_difference = (last_accessed) => {
                 {/* Search input */}
                 <input type="text"
                   className="search-input" 
-                  placeholder="Search conversations" 
+                  placeholder="Search" 
                   value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
                  />
-                 
               </div>
+              <div className='delete-all'onClick={handleDeleteAllConversations} >Delete all</div>
             </div>
 
             <div className="conversation-list">
@@ -213,13 +297,45 @@ const presentPast_difference = (last_accessed) => {
                     <div className="conversation-date">
                       {new Date(c.date_created).toLocaleDateString()} -
                     </div>
-                    <div className="conversation-title">{c.title}</div>
+
+                   <div className="conversation-title-delete">
+                      <div className="conversation-title">{c.title}</div>
+                      <div className="delete-conversation" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteConversation(c.id);}}>
+                          Delete</div>
+                   </div>
                   </div>
                 ))
               )}
             </div>
+                  
           </div>
         )}
+
+        <dialog ref={deleteDialogRef} className="delete-confirmation-prompt">
+          <form method="dialog" className="delete-dialog-form">
+            
+            <h3 className="delete-dialog-title">
+              {deleteMode === "all" ? "Delete ALL conversations?" : "Delete conversation?"}
+            </h3>
+
+            <p className="delete-dialog-subtitle">
+              {deleteMode === "all"
+                ? "This will permanently delete every conversation for this agent. This action cannot be undone."
+                : "This action cannot be undone."
+              }
+            </p>
+
+            <div className="delete-dialog-buttons">
+              <button className="delete-dialog-cancel" value="no">Cancel</button>
+              <button className="delete-dialog-confirm" value="yes">Delete</button>
+            </div>
+
+          </form>
+        </dialog>
+
 
         {showSearch && (
           <div className="search-panel">
@@ -250,8 +366,12 @@ const presentPast_difference = (last_accessed) => {
                 return (<div>No messages found for this conversation.</div>);
               }
               
+              const isAI = agent && msg.sender !== "user"; 
+              const avatar = isAI ? aiAvatar : userAvatar;
+
               return (
                 <div key={msg.id} className="message-item">
+                    <img src={avatar} alt="avatar" className="message-avatar" />
                     <div className='message-header stack-sans-headline'>
                       {agent ? agent.name : "Unknown agent" } ⋅ {msg.conversations.title}
                     </div>

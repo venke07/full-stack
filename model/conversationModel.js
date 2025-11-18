@@ -12,3 +12,43 @@ export async function getAgentConversations(agentId) {
   if (error) throw new Error(error.message);
   return data;
 }
+
+
+
+export async function deleteConversationById(conversationId) {
+  // Step 1 — Delete messages linked to this conversation
+  const { error: msgError } = await supabase
+    .from('messages')
+    .delete()
+    .eq('conversation_id', conversationId);
+
+  if (msgError) throw new Error(msgError.message);
+
+  // Step 2 — Now delete the conversation
+  const { error: convError } = await supabase
+    .from('conversations')
+    .delete()
+    .eq('id', conversationId);
+
+  if (convError) throw new Error(convError.message);
+
+  return true;
+}
+
+export async function deleteAllConversations() {
+  const { error: msgError } = await supabase
+    .from('messages')
+    .delete()
+    .neq('id', 0); 
+
+  if (msgError) throw new Error(msgError.message);
+
+  const { error: convError } = await supabase
+    .from('conversations')
+    .delete()
+    .neq('id', 0); 
+
+  if (convError) throw new Error(convError.message);
+
+  return true;
+}

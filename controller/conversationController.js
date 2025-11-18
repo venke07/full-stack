@@ -11,3 +11,21 @@ export async function getAgentConversations(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+
+export async function deleteAllConversations(req, res) {
+  try {
+    await deleteAllConversations();
+
+    res.json({
+      success: true,
+      message: "All conversations and messages deleted successfully."
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete conversations",
+      error: err.message
+    });
+  }
+}

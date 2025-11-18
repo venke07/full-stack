@@ -18,10 +18,11 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 import google.generativeai as genai
 
-from aero.model_researcher import suggest_models
-from aero.research_planner import plan_research
-from aero.experimentalist import experiment_suggestions
-from aero.report_writer import write_paper
+from aero.src.aero.model_researcher import suggest_models
+from aero.src.aero.research_planner import plan_research
+from aero.src.aero.experimentalist import experiment_suggestions
+from aero.src.aero.report_writer import write_paper
+
 
 # Experiment designer (optional)
 try:
