@@ -250,6 +250,24 @@ export default function HomePage() {
               onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
+          {/* Multi-Agent Chat Button */}
+          <button 
+            className="multi-chat-icon-btn"
+            onClick={() => navigate('/multi-chat')}
+            title="Multi-Agent Chat"
+            type="button"
+          >
+            🤖💬
+          </button>
+          {/* Single Chat Button */}
+          <button 
+            className="chat-icon-btn"
+            onClick={() => navigate('/chat')}
+            title="Single Agent Chat"
+            type="button"
+          >
+            💬
+          </button>
           <button className="signout-btn" type="button" onClick={signOut}>
             Sign out
           </button>
