@@ -41,11 +41,35 @@ const initialForm = {
   },
   tools: {
     web: true,
-    rfd: false,
+    rfd: true,
     deep: false,
   },
   model: modelOptions[0].id,
   files: [],
+};
+
+const fileIconLookup = [
+  { match: ['pdf', 'application/pdf'], icon: '📕' },
+  { match: ['doc', 'docx', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], icon: '📘' },
+  { match: ['ppt', 'pptx', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'], icon: '📙' },
+  { match: ['xls', 'xlsx', 'csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'], icon: '📊' },
+  { match: ['txt', 'md', 'text/plain', 'text/markdown'], icon: '📄' },
+  { match: ['json', 'application/json'], icon: '🧾' },
+];
+
+const resolveFileIcon = (name = '', contentType = '') => {
+  const normalizedName = name.toLowerCase();
+  const normalizedType = contentType.toLowerCase();
+  const ext = normalizedName.includes('.') ? normalizedName.split('.').pop() : '';
+  const hit = fileIconLookup.find(({ match }) =>
+    match.some((token) => token === ext || normalizedType.includes(token)),
+  );
+  return hit?.icon || '🗂️';
+};
+
+const truncateFileLabel = (label = '') => {
+  if (!label) return 'Attachment';
+  return label.length > 30 ? `${label.slice(0, 27)}…` : label;
 };
 
 function Switch({ active, onToggle, label }) {
@@ -74,7 +98,7 @@ export default function BuilderPage() {
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
-  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const descCount = form.description.length;
 
@@ -212,6 +236,9 @@ export default function BuilderPage() {
 
   const updateForm = (path, value) => {
     setForm((prev) => {
+      if (path === 'files') {
+        return { ...prev, files: value };
+      }
       if (path.startsWith('guardrails.')) {
         const key = path.split('.')[1];
         return { ...prev, guardrails: { ...prev.guardrails, [key]: value } };
@@ -229,89 +256,55 @@ export default function BuilderPage() {
   };
 
   const handleFileUpload = async (event) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+    const pickedFiles = Array.from(event.target.files || []);
+    if (!pickedFiles.length) return;
+    if (!user) {
+      setStatus('Sign in to upload sources.');
+      return;
+    }
 
-    setUploadingFiles(true);
-    setStatus('Uploading files…');
+    setIsUploadingFile(true);
+    const uploaded = [];
 
-    try {
-      const uploadedFiles = [];
+    for (const file of pickedFiles) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', user.id);
 
-      for (const file of files) {
-        // Validate file type
-        const allowedTypes = ['application/pdf', 'text/plain', 'text/csv', 'application/json'];
-        if (!allowedTypes.includes(file.type)) {
-          setStatus(`⚠️ File type not supported: ${file.name}`);
-          continue;
-        }
-
-        // Validate file size (max 5MB)
-        if (file.size > 5 * 1024 * 1024) {
-          setStatus(`⚠️ File too large: ${file.name} (max 5MB)`);
-          continue;
-        }
-
-        // Upload to Supabase Storage
-        const fileName = `${user.id}/${Date.now()}-${file.name}`;
-        const { data, error } = await supabase.storage
-          .from('agent-documents')
-          .upload(fileName, file);
-
-        if (error) {
-          setStatus(`Error uploading ${file.name}: ${error.message}`);
-          continue;
-        }
-
-        // Get public URL
-        const { data: publicData } = supabase.storage
-          .from('agent-documents')
-          .getPublicUrl(fileName);
-
-        uploadedFiles.push({
-          name: file.name,
-          path: fileName,
-          url: publicData.publicUrl,
-          type: file.type,
-          size: file.size,
-          uploadedAt: new Date().toISOString(),
+      try {
+        const response = await fetch('/api/storage/files', {
+          method: 'POST',
+          body: formData,
         });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          const message = body.error || body.details || 'Upload failed.';
+          throw new Error(message);
+        }
+
+        const payload = await response.json();
+        uploaded.push({
+          name: file.name,
+          path: payload.path,
+          bucket: payload.bucket,
+          url: payload.url || null,
+          size: payload.size,
+          contentType: payload.contentType,
+        });
+      } catch (error) {
+        console.error('File upload failed', error);
+        setStatus(`Upload error for ${file.name}: ${error.message}`);
       }
-
-      if (uploadedFiles.length > 0) {
-        // Add to form files
-        setForm(prev => ({
-          ...prev,
-          files: [...(prev.files || []), ...uploadedFiles]
-        }));
-        setStatus(`✅ Uploaded ${uploadedFiles.length} file(s) successfully!`);
-      }
-    } catch (error) {
-      setStatus(`Upload error: ${error.message}`);
-    } finally {
-      setUploadingFiles(false);
     }
-  };
 
-  // Add function to remove a file
-  const handleRemoveFile = async (fileIndex) => {
-    const file = form.files[fileIndex];
-    
-    try {
-      // Delete from storage
-      await supabase.storage
-        .from('agent-documents')
-        .remove([file.path]);
-
-      // Remove from form
-      setForm(prev => ({
-        ...prev,
-        files: prev.files.filter((_, idx) => idx !== fileIndex)
-      }));
-      setStatus('✅ File removed');
-    } catch (error) {
-      setStatus(`Error removing file: ${error.message}`);
+    if (uploaded.length) {
+      setForm((prev) => ({ ...prev, files: [...prev.files, ...uploaded] }));
+      setStatus(`Uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}.`);
     }
+
+    event.target.value = '';
+    setIsUploadingFile(false);
   };
 
   const hydrateFormFromAgent = (record) => {
@@ -326,7 +319,13 @@ export default function BuilderPage() {
         ? record.sliders
         : initialForm.sliders,
       tools: record.tools && typeof record.tools === 'object' ? record.tools : initialForm.tools,
-      files: Array.isArray(record.files) ? record.files : [],
+      files: Array.isArray(record.files)
+        ? record.files.map((file) =>
+            typeof file === 'string'
+              ? { name: file, path: file }
+              : file,
+          )
+        : [],
       model: record.model_id ?? initialForm.model,
     });
     const history = Array.isArray(record.chat_history) ? record.chat_history : [];
@@ -457,6 +456,7 @@ export default function BuilderPage() {
           modelId: selectedModel.id,
           messages: messagesForProvider,
           temperature: 0.35,
+          attachments: form.files,
         }),
       });
 
@@ -721,39 +721,53 @@ export default function BuilderPage() {
                   <br />
                   <small>Index PDFs/Docs you upload and ground answers in them.</small>
                 </div>
-                <div className="row">
-                  <label className="chip ghost" htmlFor="fileUp">
-                    {uploadingFiles ? '⏳ Uploading…' : '⬆️ Add source'}
+                <div className="row file-chip-row">
+                  <label className="chip ghost file-upload-trigger" htmlFor="fileUp">
+                    ⬆️ Add source
                   </label>
-                  <Switch
-                    label="RFD"
-                    active={form.tools.rfd}
-                    onToggle={() => setForm(prev => ({
-                      ...prev,
-                      tools: { ...prev.tools, rfd: !prev.tools.rfd }
-                    }))}
-                  />
-                </div>
-              </div>
-              {form.files && form.files.length > 0 && (
-                <div className="upload-list">
-                  {form.files.map((file, idx) => (
-                    <div key={idx} className="file-item">
-                      <span className="chip ghost">
-                        📄 {file.name}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn ghost compact"
-                        onClick={() => handleRemoveFile(idx)}
-                        disabled={uploadingFiles}
-                      >
-                        ✕
-                      </button>
+                  <input id="fileUp" type="file" multiple hidden onChange={handleFileUpload} />
+                  {form.files.length > 0 ? (
+                    <div className="file-chip-track">
+                      {form.files.map((file) => {
+                        const normalized =
+                          typeof file === 'string'
+                            ? { name: file, path: file }
+                            : file;
+                        const key = normalized.path || normalized.name || normalized.url;
+                        if (!key) {
+                          return null;
+                        }
+                        const href = normalized.url
+                          || (normalized.path
+                            ? `/api/storage/files?path=${encodeURIComponent(normalized.path)}`
+                            : '#');
+                        const label = normalized.name || normalized.path;
+                        const icon = resolveFileIcon(label, normalized.contentType || '');
+                        return (
+                          <a
+                            key={key}
+                            className="file-chip"
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={label}
+                          >
+                            <span className="file-chip-icon" aria-hidden="true">
+                              {icon}
+                            </span>
+                            <span className="file-chip-name">{truncateFileLabel(label)}</span>
+                          </a>
+                        );
+                      })}
                     </div>
-                  ))}
+                  ) : (
+                    <div className="file-chip-placeholder">No sources added yet.</div>
+                  )}
                 </div>
-              )}
+                <div className="help">Uploads are always enabled for this agent.</div>
+                {isUploadingFile && <div className="help">Uploading…</div>}
+              </div>
+              
               <div className="tool">
                 <div>
                   <b>Custom GPT Model</b>
