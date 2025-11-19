@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
@@ -62,6 +62,7 @@ function Switch({ active, onToggle, label }) {
 
 export default function BuilderPage() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [chatInput, setChatInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
@@ -73,6 +74,7 @@ export default function BuilderPage() {
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   const descCount = form.description.length;
 
@@ -136,8 +138,8 @@ export default function BuilderPage() {
     if (form.tools.web) {
       toolLines.push('• Web Search: consult the web for fresher facts when needed.');
     }
-    if (form.tools.rfd) {
-      toolLines.push('• Retrieve-from-Documents: ground answers in uploaded sources.');
+    if (form.tools.rfd && form.files.length > 0) {
+      toolLines.push(`• Retrieve-from-Documents: ground answers in ${form.files.length} uploaded source(s). Reference them when relevant.`);
     }
     if (form.tools.deep) {
       toolLines.push('• Deep Research: take multi-step reasoning when tasks are complex.');
@@ -161,6 +163,7 @@ export default function BuilderPage() {
     form.guardrails,
     form.prompt,
     form.tools,
+    form.files,
     personalitySnapshot.formality,
     personalitySnapshot.creativity,
   ]);
@@ -225,9 +228,90 @@ export default function BuilderPage() {
     });
   };
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const files = Array.from(event.target.files || []);
-    updateForm('files', files.map((file) => file.name));
+    if (files.length === 0) return;
+
+    setUploadingFiles(true);
+    setStatus('Uploading files…');
+
+    try {
+      const uploadedFiles = [];
+
+      for (const file of files) {
+        // Validate file type
+        const allowedTypes = ['application/pdf', 'text/plain', 'text/csv', 'application/json'];
+        if (!allowedTypes.includes(file.type)) {
+          setStatus(`⚠️ File type not supported: ${file.name}`);
+          continue;
+        }
+
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          setStatus(`⚠️ File too large: ${file.name} (max 5MB)`);
+          continue;
+        }
+
+        // Upload to Supabase Storage
+        const fileName = `${user.id}/${Date.now()}-${file.name}`;
+        const { data, error } = await supabase.storage
+          .from('agent-documents')
+          .upload(fileName, file);
+
+        if (error) {
+          setStatus(`Error uploading ${file.name}: ${error.message}`);
+          continue;
+        }
+
+        // Get public URL
+        const { data: publicData } = supabase.storage
+          .from('agent-documents')
+          .getPublicUrl(fileName);
+
+        uploadedFiles.push({
+          name: file.name,
+          path: fileName,
+          url: publicData.publicUrl,
+          type: file.type,
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+        });
+      }
+
+      if (uploadedFiles.length > 0) {
+        // Add to form files
+        setForm(prev => ({
+          ...prev,
+          files: [...(prev.files || []), ...uploadedFiles]
+        }));
+        setStatus(`✅ Uploaded ${uploadedFiles.length} file(s) successfully!`);
+      }
+    } catch (error) {
+      setStatus(`Upload error: ${error.message}`);
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  // Add function to remove a file
+  const handleRemoveFile = async (fileIndex) => {
+    const file = form.files[fileIndex];
+    
+    try {
+      // Delete from storage
+      await supabase.storage
+        .from('agent-documents')
+        .remove([file.path]);
+
+      // Remove from form
+      setForm(prev => ({
+        ...prev,
+        files: prev.files.filter((_, idx) => idx !== fileIndex)
+      }));
+      setStatus('✅ File removed');
+    } catch (error) {
+      setStatus(`Error removing file: ${error.message}`);
+    }
   };
 
   const hydrateFormFromAgent = (record) => {
@@ -411,7 +495,7 @@ export default function BuilderPage() {
       sliders: form.sliders,
       personality: personalitySnapshot,
       tools: form.tools,
-      files: form.files,
+      files: form.files, // Now includes URLs and metadata
       model_id: selectedModel.id,
       model_label: selectedModel.label,
       model_provider: selectedModel.provider,
@@ -639,22 +723,34 @@ export default function BuilderPage() {
                 </div>
                 <div className="row">
                   <label className="chip ghost" htmlFor="fileUp">
-                    ⬆️ Add source
+                    {uploadingFiles ? '⏳ Uploading…' : '⬆️ Add source'}
                   </label>
-                  <input id="fileUp" type="file" multiple hidden onChange={handleFileUpload} />
                   <Switch
                     label="RFD"
                     active={form.tools.rfd}
-                    onToggle={() => updateForm('tools.rfd', !form.tools.rfd)}
+                    onToggle={() => setForm(prev => ({
+                      ...prev,
+                      tools: { ...prev.tools, rfd: !prev.tools.rfd }
+                    }))}
                   />
                 </div>
               </div>
-              {form.files.length > 0 && (
+              {form.files && form.files.length > 0 && (
                 <div className="upload-list">
-                  {form.files.map((file) => (
-                    <span key={file} className="chip ghost">
-                      {file}
-                    </span>
+                  {form.files.map((file, idx) => (
+                    <div key={idx} className="file-item">
+                      <span className="chip ghost">
+                        📄 {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn ghost compact"
+                        onClick={() => handleRemoveFile(idx)}
+                        disabled={uploadingFiles}
+                      >
+                        ✕
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
