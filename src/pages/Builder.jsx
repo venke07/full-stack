@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
@@ -86,6 +86,7 @@ function Switch({ active, onToggle, label }) {
 
 export default function BuilderPage() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [chatInput, setChatInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
@@ -161,8 +162,8 @@ export default function BuilderPage() {
     if (form.tools.web) {
       toolLines.push('• Web Search: consult the web for fresher facts when needed.');
     }
-    if (form.tools.rfd) {
-      toolLines.push('• Retrieve-from-Documents: ground answers in uploaded sources.');
+    if (form.tools.rfd && form.files.length > 0) {
+      toolLines.push(`• Retrieve-from-Documents: ground answers in ${form.files.length} uploaded source(s). Reference them when relevant.`);
     }
     if (form.tools.deep) {
       toolLines.push('• Deep Research: take multi-step reasoning when tasks are complex.');
@@ -186,6 +187,7 @@ export default function BuilderPage() {
     form.guardrails,
     form.prompt,
     form.tools,
+    form.files,
     personalitySnapshot.formality,
     personalitySnapshot.creativity,
   ]);
@@ -493,7 +495,7 @@ export default function BuilderPage() {
       sliders: form.sliders,
       personality: personalitySnapshot,
       tools: form.tools,
-      files: form.files,
+      files: form.files, // Now includes URLs and metadata
       model_id: selectedModel.id,
       model_label: selectedModel.label,
       model_provider: selectedModel.provider,

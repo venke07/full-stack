@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Agent Flow Builder – jsPlumb</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://unpkg.com/jsplumb@2.15.6/dist/js/jsplumb.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020617;
+      color: #e5e7eb;
+    }
+
+    .app {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 240px;
+      background: #020617;
+      border-right: 1px solid #111827;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .sidebar h2 {
+      font-size: 1.05rem;
+      margin: 0;
+    }
+
+    .sidebar p {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin: 0;
+    }
+
+    .palette {
+      margin-top: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .palette-item {
+      background: #020617;
+      border: 1px solid #1f2937;
+      border-radius: 0.7rem;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    }
+
+    .palette-item span.icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+    }
+
+    .palette-item:hover {
+      background: #020617;
+      border-color: #3b82f6;
+      transform: translateY(-1px);
+    }
+
+    .builder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .builder-header {
+      height: 50px;
+      border-bottom: 1px solid #111827;
+      background: rgba(15,23,42,0.97);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .canvas {
+      position: relative;
+      flex: 1;
+      background-color: #020617;
+      background-image: radial-gradient(circle, #111827 1px, transparent 0);
+      background-size: 20px 20px;
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      width: 210px;
+      padding: 0.6rem 0.75rem;
+      background: #020617;
+      border-radius: 0.9rem;
+      border: 1px solid #1f2937;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.8);
+      color: #e5e7eb;
+      font-size: 0.85rem;
+      cursor: move;
+    }
+
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.3rem;
+    }
+
+    .node-title {
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .node-tag {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      background: #0f172a;
+      color: #9ca3af;
+      border: 1px solid #111827;
+    }
+
+    .node-body {
+      font-size: 0.78rem;
+      color: #9ca3af;
+    }
+
+    .btn {
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn:hover {
+      background: #111827;
+      border-color: #3b82f6;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div>
+      <h2>Blocks</h2>
+      <p>Click to add blocks, then drag connectors between nodes.</p>
+    </div>
+    <div class="palette">
+      <div class="palette-item" data-type="trigger">
+        <span class="icon">⚡</span> On Create User
+      </div>
+      <div class="palette-item" data-type="agent">
+        <span class="icon">🤖</span> AI Agent
+      </div>
+      <div class="palette-item" data-type="condition">
+        <span class="icon">🧭</span> Condition
+      </div>
+      <div class="palette-item" data-type="tool">
+        <span class="icon">🧩</span> Tool / API
+      </div>
+      <div class="palette-item" data-type="output">
+        <span class="icon">📨</span> Output
+      </div>
+    </div>
+  </aside>
+
+  <section class="builder">
+    <div class="builder-header">
+      <div>AI Agent Flow – jsPlumb</div>
+      <button class="btn" id="btnExport2">Export JSON</button>
+    </div>
+    <div class="canvas" id="canvas"></div>
+  </section>
+</div>
+
+<script>
+  const TYPE_LABELS = {
+    trigger: "On 'Create User' form submission",
+    agent: "AI Agent",
+    condition: "Is Manager?",
+    tool: "External Tool / API",
+    output: "Notify / Update"
+  };
+
+  const TYPE_DESC = {
+    trigger: "Entry point of the workflow.",
+    agent: "Call an AI model with tools & memory.",
+    condition: "Branch flow based on user data.",
+    tool: "Integrate with databases or services.",
+    output: "Send Slack/Email or update profile."
+  };
+
+  let idCounter = 1;
+  const nodesData = [];
+
+  jsPlumb.ready(function () {
+    const instance = jsPlumb.getInstance({
+      Connector: ["Bezier", { curviness: 50 }],
+      PaintStyle: { stroke: "#4b5563", strokeWidth: 2 },
+      EndpointStyle: { fill: "#3b82f6", radius: 5 },
+      HoverPaintStyle: { stroke: "#60a5fa" },
+      ConnectionOverlays: [
+        ["Arrow", { width: 10, length: 10, location: 1 }]
+      ],
+      Container: "canvas"
+    });
+
+    const canvas = document.getElementById("canvas");
+
+    function addNode(type, x, y) {
+      const id = "n" + idCounter++;
+      const el = document.createElement("div");
+      el.className = "node";
+      el.id = id;
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+
+      el.innerHTML = `
+        <div class="node-header">
+          <div class="node-title">${TYPE_LABELS[type] || "Block"}</div>
+          <span class="node-tag">${type}</span>
+        </div>
+        <div class="node-body">${TYPE_DESC[type] || ""}</div>
+      `;
+
+      canvas.appendChild(el);
+
+      instance.draggable(el);
+
+      // Source endpoint (right)
+      instance.addEndpoint(id, {
+        anchors: "Right",
+        isSource: true,
+        maxConnections: -1
+      }, {
+        endpoint: "Dot",
+        paintStyle: { fill: "#3b82f6", radius: 5 },
+        connectorStyle: { stroke: "#4b5563", strokeWidth: 2 }
+      });
+
+      // Target endpoint (left)
+      instance.addEndpoint(id, {
+        anchors: "Left",
+        isTarget: true,
+        maxConnections: -1
+      }, {
+        endpoint: "Dot",
+        paintStyle: { fill: "#22c55e", radius: 5 }
+      });
+
+      nodesData.push({ id, type, x, y });
+    }
+
+    // Palette click → create node
+    document.querySelectorAll(".palette-item").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const type = btn.dataset.type;
+        const x = 80 + Math.random() * 400;
+        const y = 60 + Math.random() * 260;
+        addNode(type, x, y);
+      });
+    });
+
+    // Export JSON of nodes + connections
+    document.getElementById("btnExport2").addEventListener("click", () => {
+      const connections = instance.getAllConnections().map(c => ({
+        from: c.sourceId,
+        to: c.targetId
+      }));
+
+      const exportData = { nodes: nodesData, connections };
+      alert(JSON.stringify(exportData, null, 2));
+    });
+  });
+</script>
+</body>
+</html>

@@ -271,6 +271,14 @@ export default function HomePage() {
           <button className="signout-btn" type="button" onClick={signOut}>
             Sign out
           </button>
+          <button 
+            className="profile-btn"
+            onClick={() => navigate('/profile')}
+            title="View Profile"
+            type="button"
+          >
+            👤
+          </button>
         </div>
       </div>
 
