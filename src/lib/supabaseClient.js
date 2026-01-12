@@ -1,11 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://czqywmnordnnnvopeszm.supabase.co';
+const browserEnv = typeof import.meta !== 'undefined' ? import.meta.env : undefined;
+const nodeEnv = typeof process !== 'undefined' ? process.env : undefined;
+const supabaseUrl = browserEnv?.VITE_SUPABASE_URL ?? nodeEnv?.SUPABASE_URL;
 
 // Prefer the browser-friendly Vite env var, but allow Node usage via process.env fallback.
-const browserKey = typeof import.meta !== 'undefined' ? import.meta.env.VITE_SUPABASE_ANON_KEY : undefined;
-const nodeKey = typeof process !== 'undefined' ? process.env?.SUPABASE_KEY : undefined;
+const browserKey = browserEnv?.VITE_SUPABASE_ANON_KEY;
+const nodeKey = nodeEnv?.SUPABASE_KEY;
 const supabaseKey = browserKey ?? nodeKey;
+
+if (!supabaseUrl) {
+  console.warn('Supabase URL missing. Set VITE_SUPABASE_URL (and SUPABASE_URL for Node) in .env.');
+}
 
 if (!supabaseKey) {
   console.warn(
@@ -13,4 +19,4 @@ if (!supabaseKey) {
   );
 }
 
-export const supabase = supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+export const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
