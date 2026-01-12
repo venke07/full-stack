@@ -1,8 +1,24 @@
+* {
+  background-color: transparent !important;
+  color-scheme: dark !important;
+}
+
+html, body, #root {
+  background-color: #0f1220 !important;
+  color: rgba(255, 255, 255, 0.87) !important;
+}
+
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  background-color: #0f1220 !important;
+}
+
+body {
+  background: #0f1220 !important;
+  background-color: #0f1220 !important;
 }
 
 .logo {
@@ -39,4 +55,16 @@
 
 .read-the-docs {
   color: #888;
+}
+
+@media (prefers-color-scheme: light) {
+  * {
+    background-color: transparent !important;
+    color-scheme: dark !important;
+  }
+  
+  html, body, #root {
+    background-color: #0f1220 !important;
+    color: rgba(255, 255, 255, 0.87) !important;
+  }
 }
