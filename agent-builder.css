@@ -1,0 +1,452 @@
+/* ============================================================
+   Agent Builder — Organized CSS
+   Sections:
+     1. Variables (themes)
+     2. Reset & Base
+     3. Layout & Grid
+     4. Header / Brand
+     5. Cards & Panels
+     6. Form Controls
+     7. Controls (toggle / slider / switch)
+     8. Small UI bits (chip / badge / tool)
+     9. Preview / Chat
+    10. Footer / Buttons / Utilities
+    11. Responsive
+   ============================================================ */
+
+/* --------------------------
+   1. Variables (themes) - FORCE DARK THEME
+   -------------------------- */
+:root{
+  --bg: #0f1220 !important;
+  --surface: #151a2c !important;
+  --card: #1b2238 !important;
+  --muted: #aab3d0 !important;
+  --text: #e8ecff !important;
+  --accent: #6aa8ff !important;
+  --accent-2: #7af0d5 !important;
+  --danger: #ff6b6b !important;
+  --shadow: 0 10px 30px rgba(0,0,0,.35) !important;
+  --radius: 16px !important;
+  
+  color-scheme: dark !important;
+}
+
+/* Force dark theme even in light mode */
+@media (prefers-color-scheme: light) {
+  :root{
+    --bg: #0f1220 !important;
+    --surface: #151a2c !important;
+    --card: #1b2238 !important;
+    --muted: #aab3d0 !important;
+    --text: #e8ecff !important;
+    --accent: #6aa8ff !important;
+    --accent-2: #7af0d5 !important;
+    --danger: #ff6b6b !important;
+    --shadow: 0 10px 30px rgba(0,0,0,.35) !important;
+    
+    color-scheme: dark !important;
+  }
+}
+
+/* --------------------------
+   2. Reset & Base
+   -------------------------- */
+*{ 
+  box-sizing: border-box;
+  color-scheme: dark !important;
+}
+
+html,body{ 
+  height: 100%;
+  background-color: #0f1220 !important;
+  color: #e8ecff !important;
+}
+
+body{
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(106,168,255,.25), transparent),
+    radial-gradient(900px 600px at 120% 10%, rgba(122,240,213,.22), transparent),
+    #0f1220 !important;
+  color: #e8ecff !important;
+}
+
+/* Force all containers to use dark background */
+#root,
+.app,
+main,
+div {
+  background-color: transparent;
+}
+
+/* --------------------------
+   3. Layout & Grid
+   -------------------------- */
+.app{
+  max-width: 1200px;
+  margin: 32px auto;
+  padding: 0 20px 88px;
+  background-color: transparent !important;
+}
+
+.grid{
+  display: grid;
+  grid-template-columns: 260px 1fr 1fr;
+  gap: 16px;
+}
+
+/* responsive handled at bottom */
+
+/* --------------------------
+   4. Header / Brand
+   -------------------------- */
+header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  background-color: transparent !important;
+}
+
+.brand{ display:flex; align-items:center; gap:12px; }
+
+.logo{
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)) !important;
+  color: white !important;
+  font-weight: 800;
+  box-shadow: var(--shadow);
+}
+
+h1{ 
+  font-size: 22px; 
+  margin: 0;
+  color: var(--text) !important;
+}
+
+.sub{ 
+  color: var(--muted) !important; 
+  font-size: 13px;
+}
+
+/* --------------------------
+   5. Cards & Panels
+   -------------------------- */
+.card{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)),
+    var(--card) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.card .inner{ padding: 18px; }
+.card h3{ 
+  margin: 0 0 12px; 
+  font-size: 16px;
+  color: var(--text) !important;
+}
+
+/* --------------------------
+   6. Form Controls
+   -------------------------- */
+label{ 
+  font-size: 12px; 
+  color: var(--muted) !important; 
+  display: block; 
+  margin-bottom: 6px;
+}
+
+input[type="text"],
+textarea,
+select{
+  width: 100%;
+  background: rgba(255,255,255,.06) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 12px;
+  padding: 12px;
+  outline: none;
+  transition: .2s;
+}
+
+input[type="text"]::placeholder,
+textarea::placeholder{
+  color: var(--muted) !important;
+}
+
+input[type="text"]:focus,
+textarea:focus{
+  box-shadow: 0 0 0 3px rgba(106,168,255,.25) !important;
+  border-color: var(--accent) !important;
+}
+
+textarea{ min-height: 90px; resize: vertical; }
+
+/* form helpers */
+.row{ display:flex; gap:10px; }
+.row-split{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; }
+.help{ font-size: 12px; color: var(--muted) !important; }
+.hint{ font-size: 11px; color: var(--muted) !important; }
+
+/* --------------------------
+   7. Controls (toggle / slider / switch)
+   -------------------------- */
+.toggle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  border-radius:12px;
+  background:rgba(255,255,255,.04) !important;
+  border:1px solid rgba(255,255,255,.06) !important;
+  margin-bottom:8px;
+}
+
+.switch{
+  --w: 42px;
+  position: relative;
+  width: var(--w);
+  height: 24px;
+  background: rgba(255,255,255,.12) !important;
+  border-radius: 999px;
+  transition: .2s;
+  cursor: pointer;
+}
+
+.switch::after{
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff !important;
+  transition: .2s;
+}
+
+.switch.active{
+  background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
+}
+
+.switch.active::after{
+  left: calc(var(--w) - 21px);
+}
+
+.slider{
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.12) !important;
+  outline: none;
+}
+
+.slider::-webkit-slider-thumb{
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)) !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,.25);
+}
+
+/* metric */
+.metric{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin:8px 0 18px;
+}
+.metric b{ font-size:13px; color: var(--text) !important; }
+
+/* --------------------------
+   8. Small UI bits (chip / badge / tool)
+   -------------------------- */
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  background:rgba(255,255,255,.06) !important;
+  border:1px solid rgba(255,255,255,.08) !important;
+  border-radius:999px;
+  font-size:12px;
+  color: var(--text) !important;
+}
+
+/* Ghost variant: make it a pill (not a circle), keep spacing consistent */
+.chip.ghost{
+  padding:8px 12px;
+  border-radius:12px;
+  background: transparent !important;
+  border: 1px dashed rgba(255,255,255,.18) !important;
+  color: var(--muted) !important;
+  font-size:13px;
+  cursor: pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* Tool container: ensure left content grows, right controls align center */
+.tool{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:12px;
+  border:1px solid rgba(255,255,255,.06) !important;
+  background:rgba(255,255,255,.03) !important;
+  border-radius:12px;
+  margin-bottom:8px;
+}
+
+/* First child (description) should take available width */
+.tool > div:first-child{
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Controls wrapper (right side): align items and keep compact spacing */
+.tool > .row,
+.tool > div.row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+/* File label shouldn't expand unexpectedly */
+.tool .chip.ghost{ white-space:nowrap; }
+
+/* Small description text */
+.tool small{ color: var(--muted) !important; }
+
+/* Make selects match input styling in tools/forms */
+select{
+  background: rgba(255,255,255,.06) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+  transition: .15s;
+  min-width: 140px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* give a subtle arrow for selects (optional) */
+select{
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%),
+    linear-gradient(to right, rgba(255,255,255,.03), rgba(255,255,255,.03));
+  background-position: calc(100% - 18px) calc(1em + 2px), calc(100% - 12px) calc(1em + 2px), 0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+/* --------------------------
+   9. Preview / Chat
+   -------------------------- */
+.preview{ 
+  display:flex; 
+  flex-direction:column; 
+  height:100%;
+  background-color: transparent !important;
+}
+
+.chat{
+  flex: 1;
+  padding: 16px;
+  display:flex;
+  gap:12px;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.bubble{
+  max-width:80%;
+  padding:12px 14px;
+  border-radius:16px;
+  background:rgba(255,255,255,.08) !important;
+  border:1px solid rgba(255,255,255,.09) !important;
+  color: var(--text) !important;
+}
+
+.bubble.me{
+  margin-left: auto;
+  background: linear-gradient(135deg, rgba(106,168,255,.25), rgba(122,240,213,.22)) !important;
+  border-color: transparent !important;
+}
+
+.chatbar{
+  display:flex;
+  gap:10px;
+  padding:14px;
+  border-top:1px solid rgba(255,255,255,.08) !important;
+}
+
+/* --------------------------
+   10. Footer / Buttons / Utilities
+   -------------------------- */
+.footer{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.25)) !important;
+}
+
+.footer .wrap{
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.btn{
+  border: none;
+  cursor: pointer;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.btn.primary{
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)) !important;
+  color: white !important;
+}
+
+.btn.secondary{
+  background: rgba(255,255,255,.06) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+}
+
+.btn.danger{
+  background: rgba(255,0,0,.12) !important;
+  color: #ffb1b1 !important;
+  border: 1px solid rgba(255,0,0,.25) !important;
+}
+
+/* --------------------------
+   11. Responsive
+   -------------------------- */
+@media (max-width: 1000px){
+  .grid{ grid-template-columns: 1fr; }
+}

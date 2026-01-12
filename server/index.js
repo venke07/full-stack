@@ -1,0 +1,406 @@
+import express from 'express';
+import cors from 'cors';
+import fetch from 'node-fetch';
+import multer from 'multer';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import 'dotenv/config';
+
+const PORT = process.env.PORT || 4000;
+
+const MODEL_HANDLERS = {
+  'gemini-2.5-flash': {
+    envKey: 'GEMINI_API_KEY',
+    handler: callGemini,
+  },
+  'gpt-4o-mini': {
+    envKey: 'OPENAI_API_KEY',
+    handler: callOpenAICompatible,
+    baseUrl: 'https://api.openai.com/v1/chat/completions',
+  },
+  'deepseek-chat': {
+    envKey: 'DEEPSEEK_API_KEY',
+    handler: callOpenAICompatible,
+    baseUrl: 'https://api.deepseek.com/v1/chat/completions',
+  },
+};
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
+
+const storageEndpoint = process.env.SUPABASE_STORAGE_ENDPOINT;
+const storageRegion = process.env.SUPABASE_STORAGE_REGION || 'ap-south-1';
+const storageBucket = process.env.SUPABASE_STORAGE_BUCKET;
+const storageAccessKey = process.env.SUPABASE_STORAGE_ACCESS_KEY;
+const storageSecretKey = process.env.SUPABASE_STORAGE_SECRET_KEY;
+const storageBaseUrl = storageEndpoint?.replace('/storage/v1/s3', '') ?? '';
+const hasStorageConfig =
+  !!storageEndpoint &&
+  !!storageBucket &&
+  !!storageAccessKey &&
+  !!storageSecretKey;
+const MAX_ATTACHMENT_COUNT = 3;
+const MAX_ATTACHMENT_BYTES = 200 * 1024; // 200 KB per document sent to the model
+
+const s3Client = hasStorageConfig
+  ? new S3Client({
+      region: storageRegion,
+      endpoint: storageEndpoint,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: storageAccessKey,
+        secretAccessKey: storageSecretKey,
+      },
+    })
+  : null;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.post('/api/storage/files', upload.single('file'), async (req, res) => {
+  if (!hasStorageConfig || !s3Client) {
+    return res.status(500).json({ error: 'Supabase storage is not configured on the server.' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'Missing file payload.' });
+  }
+
+  const ownerId = req.body?.userId?.toString() || 'anonymous';
+  const safeOwnerId = ownerId.replace(/[^a-zA-Z0-9-_]/g, '').slice(0, 64) || 'anonymous';
+  const key = `${safeOwnerId}/${Date.now()}-${sanitizeFilename(req.file.originalname)}`;
+
+  try {
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: key,
+        Body: req.file.buffer,
+        ContentType: req.file.mimetype || 'application/octet-stream',
+      }),
+    );
+
+    const publicUrl = storageBaseUrl
+      ? `${storageBaseUrl}/storage/v1/object/public/${storageBucket}/${key}`
+      : null;
+
+    res.json({
+      bucket: storageBucket,
+      path: key,
+      url: publicUrl,
+      size: req.file.size,
+      contentType: req.file.mimetype,
+    });
+  } catch (error) {
+    console.error('[STORAGE_UPLOAD_ERROR]', error);
+    res.status(500).json({
+      error: `Upload failed: ${error.message || 'Unknown error'}`,
+      details: error,
+    });
+  }
+});
+
+app.get('/api/storage/files', async (req, res) => {
+  if (!hasStorageConfig || !s3Client) {
+    return res.status(500).json({ error: 'Supabase storage is not configured on the server.' });
+  }
+
+  const key = req.query?.path;
+  if (!key) {
+    return res.status(400).json({ error: 'Query parameter "path" is required.' });
+  }
+
+  try {
+    const item = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: storageBucket,
+        Key: key,
+      }),
+    );
+
+    if (item.ContentType) {
+      res.setHeader('Content-Type', item.ContentType);
+    }
+    if (item.ContentLength) {
+      res.setHeader('Content-Length', item.ContentLength.toString());
+    }
+
+    item.Body.pipe(res);
+  } catch (error) {
+    console.error('[STORAGE_FETCH_ERROR]', error);
+    res.status(404).json({ error: 'File not found.', details: error.message });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  const { modelId, messages, temperature = 0.3, attachments = [] } = req.body || {};
+
+  if (!modelId || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'modelId and messages are required.' });
+  }
+
+  const modelConfig = MODEL_HANDLERS[modelId];
+  if (!modelConfig) {
+    return res.status(400).json({ error: `Unknown model: ${modelId}` });
+  }
+
+  const apiKey = process.env[modelConfig.envKey];
+  if (!apiKey) {
+    return res.status(500).json({ error: `Missing API key for ${modelId}. Check ${modelConfig.envKey} in .env.` });
+  }
+
+  try {
+    const docMessages = await buildAttachmentMessages(attachments);
+    const finalMessages = docMessages.length ? [...docMessages, ...messages] : messages;
+    const reply = await modelConfig.handler({
+      modelId,
+      apiKey,
+      temperature,
+      messages: finalMessages,
+      baseUrl: modelConfig.baseUrl,
+    });
+    res.json({ reply });
+  } catch (error) {
+    console.error('[LLM_ERROR]', error);
+    res.status(500).json({ error: error.message || 'Model call failed.' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Agent Builder API running on http://localhost:${PORT}`);
+});
+
+function separateSystem(messages = []) {
+  const systemMessages = messages.filter((msg) => msg.role === 'system');
+  const conversation = messages.filter((msg) => msg.role !== 'system');
+  const systemPrompt = systemMessages.map((msg) => msg.content).join('\n');
+  return { systemPrompt, conversation };
+}
+
+async function callGemini({ apiKey, modelId, temperature, messages }) {
+  const { systemPrompt, conversation } = separateSystem(messages);
+
+  const body = {
+    contents: conversation.map((msg) => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.content }],
+    })),
+    generationConfig: {
+      temperature,
+    },
+  };
+
+  if (systemPrompt) {
+    body.systemInstruction = {
+      role: 'system',
+      parts: [{ text: systemPrompt }],
+    };
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(formatProviderError('Gemini', errorText));
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text)
+    .filter(Boolean)
+    .join('\n')
+    ?.trim();
+
+  if (!text) {
+    throw new Error('Gemini returned no text.');
+  }
+
+  return text;
+}
+
+async function callOpenAICompatible({ apiKey, modelId, temperature, messages, baseUrl }) {
+  const response = await fetch(baseUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages,
+      temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(formatProviderError(baseUrl.includes('deepseek') ? 'DeepSeek' : 'OpenAI', errorText));
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content?.trim();
+
+  if (!text) {
+    throw new Error('Provider returned no text.');
+  }
+
+  return text;
+}
+
+function formatProviderError(providerName, errorText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(errorText);
+  } catch (err) {
+    // keep text as-is
+  }
+
+  const baseMessage = `${providerName} request failed`;
+
+  if (!parsed) {
+    return `${baseMessage}: ${errorText}`;
+  }
+
+  const message = parsed?.error?.message || parsed?.message;
+  const status = parsed?.error?.status || parsed?.error?.code;
+
+  if (providerName === 'Gemini' && status === 'NOT_FOUND') {
+    return 'Gemini model not found. Use a supported model id (check ListModels or try gemini-1.5-pro-latest).';
+  }
+
+  if (providerName === 'DeepSeek' && message?.toLowerCase().includes('insufficient')) {
+    return 'DeepSeek request failed: account lacks sufficient balance. Top up credits or switch providers.';
+  }
+
+  return `${baseMessage}: ${message || errorText}`;
+}
+
+function sanitizeFilename(filename = 'file.bin') {
+  return filename
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    || 'file.bin';
+}
+
+async function buildAttachmentMessages(attachments = []) {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return [];
+  }
+
+  const limited = attachments.slice(0, MAX_ATTACHMENT_COUNT);
+  const docMessages = [];
+
+  for (const raw of limited) {
+    const attachment = normalizeAttachmentRecord(raw);
+    if (!attachment) {
+      continue;
+    }
+
+    try {
+      const text = await fetchAttachmentContent(attachment);
+      if (!text) {
+        continue;
+      }
+      const label = attachment.name || attachment.path || attachment.url || 'reference document';
+      docMessages.push({
+        role: 'system',
+        content: `Reference document "${label}":\n${text}`,
+      });
+    } catch (error) {
+      console.warn('[ATTACHMENT_SKIP]', error.message);
+    }
+  }
+
+  return docMessages;
+}
+
+function normalizeAttachmentRecord(record) {
+  if (!record) {
+    return null;
+  }
+  if (typeof record === 'string') {
+    return { name: record, path: record };
+  }
+
+  return {
+    name: record.name || record.originalName || record.path || record.url || 'attachment',
+    path: record.path || null,
+    bucket: record.bucket || null,
+    url: record.url || null,
+  };
+}
+
+async function fetchAttachmentContent(attachment) {
+  if (attachment.path && s3Client && hasStorageConfig) {
+    const bucket = attachment.bucket || storageBucket;
+    const object = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: attachment.path,
+      }),
+    );
+    const { text, truncated } = await streamToText(object.Body, MAX_ATTACHMENT_BYTES);
+    if (!text) {
+      return null;
+    }
+    return truncated ? `${text}\n\n[Truncated for model input]` : text;
+  }
+
+  if (attachment.url) {
+    const response = await fetch(attachment.url);
+    if (!response.ok) {
+      return null;
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const truncated = buffer.length > MAX_ATTACHMENT_BYTES;
+    const slice = truncated ? buffer.subarray(0, MAX_ATTACHMENT_BYTES) : buffer;
+    const text = slice.toString('utf8');
+    return truncated ? `${text}\n\n[Truncated for model input]` : text;
+  }
+
+  return null;
+}
+
+async function streamToText(body, limitBytes) {
+  if (!body) {
+    return { text: '', truncated: false };
+  }
+
+  const chunks = [];
+  let total = 0;
+  let truncated = false;
+
+  for await (const chunk of body) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > limitBytes) {
+      const available = limitBytes - (total - buffer.length);
+      if (available > 0) {
+        chunks.push(buffer.subarray(0, available));
+      }
+      truncated = true;
+      break;
+    }
+    chunks.push(buffer);
+  }
+
+  return {
+    text: Buffer.concat(chunks).toString('utf8'),
+    truncated,
+  };
+}
