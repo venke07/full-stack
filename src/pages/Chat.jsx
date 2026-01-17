@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 
 const fallbackChat = [
   {
@@ -193,6 +194,7 @@ export default function ChatPage() {
           </div>
         </div>
         <div className="header-actions">
+          <TutorialLauncher />
           <Link className="btn ghost compact" to="/builder">
             ← Back to Builder
           </Link>

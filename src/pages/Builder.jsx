@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 
 const sliderLabels = {
   formality: ['Casual', 'Balanced', 'Professional'],
@@ -582,6 +583,7 @@ export default function BuilderPage() {
             <span className="chip">🔒 Autosave enabled</span>
             <span className="chip">✨ Draft</span>
           </div>
+          <TutorialLauncher />
           <div className="account-pill">
             <div>
               <div className="pill-label">Account</div>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 
 const DATA_TRANSFER_TYPE = 'application/canvas-node';
 const AGENT_ACCENTS = ['#5da9ff', '#3dd6c5', '#ff9b6a', '#b58dff', '#ffd166', '#f472b6'];
@@ -499,6 +500,7 @@ export default function CanvasPage() {
           </div>
         </div>
         <div className="header-actions">
+          <TutorialLauncher />
           <button
             className="btn primary compact"
             onClick={() => setShowCreateModal(true)}

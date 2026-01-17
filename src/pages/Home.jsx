@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 
 const templateAgents = [
   { name: 'Marketing Advisor', desc: 'Provides marketing strategy advice', tags: ['Web Search', 'Research'], status: 'Template' },
@@ -250,6 +251,7 @@ export default function HomePage() {
               onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
+          <TutorialLauncher />
           {/* Multi-Agent Chat Button */}
           <button 
             className="multi-chat-icon-btn"

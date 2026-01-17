@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -171,6 +172,7 @@ export default function MultiAgentChat() {
           </div>
         </div>
         <div className="chat-controls">
+          <TutorialLauncher />
           <div className="mode-toggle">
             <button
               className={`mode-btn ${mode === 'multi' ? 'active' : ''}`}

@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { TutorialProvider } from './context/TutorialContext.jsx';
 import RequireAuth from './components/RequireAuth.jsx';
+import GuidedTour from './components/GuidedTour.jsx';
 import HomePage from './pages/Home.jsx';
 import BuilderPage from './pages/Builder.jsx';
 import CanvasPage from './pages/Canvas.jsx';
@@ -29,7 +31,8 @@ function LandingRedirect() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <TutorialProvider>
+        <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingRedirect />} />
           <Route path="/login" element={<LoginPage />} />
@@ -92,7 +95,9 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+        <GuidedTour />
+        </BrowserRouter>
+      </TutorialProvider>
     </AuthProvider>
   );
 }
