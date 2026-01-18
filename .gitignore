@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-node_modules
-=======
 # Environment variables (NEVER commit API keys!)
 .env
 .env.local
@@ -11,80 +7,54 @@ node_modules
 node_modules/
 */node_modules/
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
+# Lock files (optional, choose your team rule)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+build/
+.vite/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.swn
 *~
 .DS_Store
+Thumbs.db
 
-# Build outputs
-build/
-dist/
-*.log
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+ENV/
 
 # Testing
 .pytest_cache/
 .coverage
+.coverage/
+.nyc_output/
 htmlcov/
 
-# OS
-Thumbs.db
-.DS_Store
-
-# Temporary files
+# Temp
 *.tmp
 *.temp
 tmp/
 temp/
 
-# Node
-npm-debug.log
-yarn-error.log
-
 # Supabase / Firebase
 .supabase/
-
-# API Keys and Secrets (double protection)
-*_API_KEY
-*_SECRET
-*_TOKEN
-config/secrets.json
->>>>>>> origin/dev-chatinterface
-node_modules
-node_modules
-node_modules
-node_modules
-node_modules
-=======
-node_modules/
-dist/
-.vite/
-.env
->>>>>>> c43956d795d8b2d117e577e7651113ff94c9fbbc

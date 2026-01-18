@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
@@ -41,11 +41,35 @@ const initialForm = {
   },
   tools: {
     web: true,
-    rfd: false,
+    rfd: true,
     deep: false,
   },
   model: modelOptions[0].id,
   files: [],
+};
+
+const fileIconLookup = [
+  { match: ['pdf', 'application/pdf'], icon: '📕' },
+  { match: ['doc', 'docx', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], icon: '📘' },
+  { match: ['ppt', 'pptx', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'], icon: '📙' },
+  { match: ['xls', 'xlsx', 'csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'], icon: '📊' },
+  { match: ['txt', 'md', 'text/plain', 'text/markdown'], icon: '📄' },
+  { match: ['json', 'application/json'], icon: '🧾' },
+];
+
+const resolveFileIcon = (name = '', contentType = '') => {
+  const normalizedName = name.toLowerCase();
+  const normalizedType = contentType.toLowerCase();
+  const ext = normalizedName.includes('.') ? normalizedName.split('.').pop() : '';
+  const hit = fileIconLookup.find(({ match }) =>
+    match.some((token) => token === ext || normalizedType.includes(token)),
+  );
+  return hit?.icon || '🗂️';
+};
+
+const truncateFileLabel = (label = '') => {
+  if (!label) return 'Attachment';
+  return label.length > 30 ? `${label.slice(0, 27)}…` : label;
 };
 
 function Switch({ active, onToggle, label }) {
@@ -62,6 +86,7 @@ function Switch({ active, onToggle, label }) {
 
 export default function BuilderPage() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [chatInput, setChatInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
@@ -73,6 +98,7 @@ export default function BuilderPage() {
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const descCount = form.description.length;
 
@@ -136,8 +162,8 @@ export default function BuilderPage() {
     if (form.tools.web) {
       toolLines.push('• Web Search: consult the web for fresher facts when needed.');
     }
-    if (form.tools.rfd) {
-      toolLines.push('• Retrieve-from-Documents: ground answers in uploaded sources.');
+    if (form.tools.rfd && form.files.length > 0) {
+      toolLines.push(`• Retrieve-from-Documents: ground answers in ${form.files.length} uploaded source(s). Reference them when relevant.`);
     }
     if (form.tools.deep) {
       toolLines.push('• Deep Research: take multi-step reasoning when tasks are complex.');
@@ -161,6 +187,7 @@ export default function BuilderPage() {
     form.guardrails,
     form.prompt,
     form.tools,
+    form.files,
     personalitySnapshot.formality,
     personalitySnapshot.creativity,
   ]);
@@ -209,6 +236,9 @@ export default function BuilderPage() {
 
   const updateForm = (path, value) => {
     setForm((prev) => {
+      if (path === 'files') {
+        return { ...prev, files: value };
+      }
       if (path.startsWith('guardrails.')) {
         const key = path.split('.')[1];
         return { ...prev, guardrails: { ...prev.guardrails, [key]: value } };
@@ -225,9 +255,56 @@ export default function BuilderPage() {
     });
   };
 
-  const handleFileUpload = (event) => {
-    const files = Array.from(event.target.files || []);
-    updateForm('files', files.map((file) => file.name));
+  const handleFileUpload = async (event) => {
+    const pickedFiles = Array.from(event.target.files || []);
+    if (!pickedFiles.length) return;
+    if (!user) {
+      setStatus('Sign in to upload sources.');
+      return;
+    }
+
+    setIsUploadingFile(true);
+    const uploaded = [];
+
+    for (const file of pickedFiles) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', user.id);
+
+      try {
+        const response = await fetch('/api/storage/files', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          const message = body.error || body.details || 'Upload failed.';
+          throw new Error(message);
+        }
+
+        const payload = await response.json();
+        uploaded.push({
+          name: file.name,
+          path: payload.path,
+          bucket: payload.bucket,
+          url: payload.url || null,
+          size: payload.size,
+          contentType: payload.contentType,
+        });
+      } catch (error) {
+        console.error('File upload failed', error);
+        setStatus(`Upload error for ${file.name}: ${error.message}`);
+      }
+    }
+
+    if (uploaded.length) {
+      setForm((prev) => ({ ...prev, files: [...prev.files, ...uploaded] }));
+      setStatus(`Uploaded ${uploaded.length} file${uploaded.length > 1 ? 's' : ''}.`);
+    }
+
+    event.target.value = '';
+    setIsUploadingFile(false);
   };
 
   const hydrateFormFromAgent = (record) => {
@@ -242,7 +319,13 @@ export default function BuilderPage() {
         ? record.sliders
         : initialForm.sliders,
       tools: record.tools && typeof record.tools === 'object' ? record.tools : initialForm.tools,
-      files: Array.isArray(record.files) ? record.files : [],
+      files: Array.isArray(record.files)
+        ? record.files.map((file) =>
+            typeof file === 'string'
+              ? { name: file, path: file }
+              : file,
+          )
+        : [],
       model: record.model_id ?? initialForm.model,
     });
     const history = Array.isArray(record.chat_history) ? record.chat_history : [];
@@ -373,6 +456,7 @@ export default function BuilderPage() {
           modelId: selectedModel.id,
           messages: messagesForProvider,
           temperature: 0.35,
+          attachments: form.files,
         }),
       });
 
@@ -411,7 +495,7 @@ export default function BuilderPage() {
       sliders: form.sliders,
       personality: personalitySnapshot,
       tools: form.tools,
-      files: form.files,
+      files: form.files, // Now includes URLs and metadata
       model_id: selectedModel.id,
       model_label: selectedModel.label,
       model_provider: selectedModel.provider,
@@ -637,27 +721,53 @@ export default function BuilderPage() {
                   <br />
                   <small>Index PDFs/Docs you upload and ground answers in them.</small>
                 </div>
-                <div className="row">
-                  <label className="chip ghost" htmlFor="fileUp">
+                <div className="row file-chip-row">
+                  <label className="chip ghost file-upload-trigger" htmlFor="fileUp">
                     ⬆️ Add source
                   </label>
                   <input id="fileUp" type="file" multiple hidden onChange={handleFileUpload} />
-                  <Switch
-                    label="RFD"
-                    active={form.tools.rfd}
-                    onToggle={() => updateForm('tools.rfd', !form.tools.rfd)}
-                  />
+                  {form.files.length > 0 ? (
+                    <div className="file-chip-track">
+                      {form.files.map((file) => {
+                        const normalized =
+                          typeof file === 'string'
+                            ? { name: file, path: file }
+                            : file;
+                        const key = normalized.path || normalized.name || normalized.url;
+                        if (!key) {
+                          return null;
+                        }
+                        const href = normalized.url
+                          || (normalized.path
+                            ? `/api/storage/files?path=${encodeURIComponent(normalized.path)}`
+                            : '#');
+                        const label = normalized.name || normalized.path;
+                        const icon = resolveFileIcon(label, normalized.contentType || '');
+                        return (
+                          <a
+                            key={key}
+                            className="file-chip"
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={label}
+                          >
+                            <span className="file-chip-icon" aria-hidden="true">
+                              {icon}
+                            </span>
+                            <span className="file-chip-name">{truncateFileLabel(label)}</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="file-chip-placeholder">No sources added yet.</div>
+                  )}
                 </div>
+                <div className="help">Uploads are always enabled for this agent.</div>
+                {isUploadingFile && <div className="help">Uploading…</div>}
               </div>
-              {form.files.length > 0 && (
-                <div className="upload-list">
-                  {form.files.map((file) => (
-                    <span key={file} className="chip ghost">
-                      {file}
-                    </span>
-                  ))}
-                </div>
-              )}
+              
               <div className="tool">
                 <div>
                   <b>Custom GPT Model</b>

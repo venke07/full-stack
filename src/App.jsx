@@ -5,8 +5,11 @@ import HomePage from './pages/Home.jsx';
 import BuilderPage from './pages/Builder.jsx';
 import CanvasPage from './pages/Canvas.jsx';
 import ChatPage from './pages/Chat.jsx';
+import MultiAgentChat from './pages/MultiAgentChat.jsx';
 import LoginPage from './pages/Login.jsx';
 import SignupPage from './pages/Signup.jsx';
+import ProfilePage from './pages/Profile.jsx';
+import ChangePasswordPage from './pages/ChangePassword.jsx';
 
 function LandingRedirect() {
   const { user, loading } = useAuth();
@@ -60,6 +63,30 @@ export default function App() {
             element={(
               <RequireAuth>
                 <ChatPage />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/multi-chat"
+            element={(
+              <RequireAuth>
+                <MultiAgentChat />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/profile"
+            element={(
+              <RequireAuth>
+                <ProfilePage />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/change-password"
+            element={(
+              <RequireAuth>
+                <ChangePasswordPage />
               </RequireAuth>
             )}
           />

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Agent Dashboard</title>
+
+  <style>
+    /* ===== GLOBAL STYLES ===== */
+    body {
+      font-family: "Inter", sans-serif;
+      background-color: #f9fafb;
+      margin: 0;
+      color: #111827;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 2rem;
+      background: #ffffff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    header p {
+      color: #6b7280;
+      margin: 0.2rem 0 0;
+    }
+
+    /* ===== BUTTON & SEARCH ===== */
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .new-agent-btn {
+      background-color: #3b82f6;
+      color: white;
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 0.75rem;
+      cursor: pointer;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: 0.3s;
+    }
+
+    .new-agent-btn:hover {
+      background-color: #2563eb;
+    }
+
+    .search-box {
+      position: relative;
+    }
+
+    .search-box input {
+      padding: 0.5rem 0.75rem 0.5rem 2rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.75rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-box input:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .search-box svg {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 18px;
+      height: 18px;
+      color: #9ca3af;
+    }
+
+    /* ===== MAIN CONTENT ===== */
+    main {
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      transition: all 0.25s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-title {
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+
+    .status {
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+
+    .active {
+      background-color: #dcfce7;
+      color: #166534;
+    }
+
+    .draft {
+      background-color: #f3f4f6;
+      color: #4b5563;
+    }
+
+    .card p {
+      margin: 0.25rem 0 0.75rem;
+      color: #6b7280;
+      font-size: 0.95rem;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .tag {
+      background-color: #f3f4f6;
+      color: #374151;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+
+    .add-sources {
+      background-color: #f9fafb;
+      border: 1px solid #d1d5db;
+      padding: 0.35rem 0.75rem;
+      border-radius: 0.5rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .add-sources:hover {
+      background-color: #f3f4f6;
+    }
+
+    .last-used {
+      color: #9ca3af;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div>
+      <h1>Agent Dashboard</h1>
+      <p>Manage and monitor your AI Agents</p>
+    </div>
+    <div class="header-actions">
+      <button class="new-agent-btn">➕ New Agent</button>
+      <div class="search-box">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M10 18a8 8 0 100-16 8 8 0 000 16z"/>
+        </svg>
+        <input type="text" id="search" placeholder="Search agents..." />
+      </div>
+    </div>
+  </header>
+
+  <main id="agentList">
+    <!-- Agents will be rendered here by JS -->
+  </main>
+
+  <script>
+    // ===== SAMPLE DATA =====
+    const agents = [
+      {
+        name: "Business Analyst",
+        status: "Active",
+        desc: "Provides market insights",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "2 hours ago",
+      },
+      {
+        name: "Researcher",
+        status: "Draft",
+        desc: "Conducts in-depth research",
+        tags: [],
+        lastUsed: "1 day ago",
+      },
+      {
+        name: "Content Writer",
+        status: "Draft",
+        desc: "Creative writing assistant",
+        tags: [],
+        lastUsed: "4 hours ago",
+      },
+      {
+        name: "Wellness Coach",
+        status: "Draft",
+        desc: "Provides tips on motivation",
+        tags: [],
+        lastUsed: "5 hours ago",
+      },
+      {
+        name: "Sales Representative",
+        status: "Active",
+        desc: "Provides sales strategies",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "3 hours ago",
+      },
+      {
+        name: "Product Manager",
+        status: "Active",
+        desc: "Provides product insights",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "4 hours ago",
+      },
+      {
+        name: "Customer Support",
+        status: "Active",
+        desc: "Provides customer support",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "5 hours ago",
+      },
+      {
+        name: "Financial Analyst",
+        status: "Active",
+        desc: "Provides financial insights",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "6 hours ago",
+      },
+      {
+        name: "Marketing Strategist",
+        status: "Active",
+        desc: "Provides marketing strategies",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "7 hours ago",
+      },
+      {
+        name: "Sales Representative",
+        status: "Active",
+        desc: "Provides sales strategies",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "8 hours ago",
+      },
+      {
+        name: "Product Manager",
+        status: "Active",
+        desc: "Provides product insights",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "9 hours ago",
+      },
+      {
+        name: "Customer Support",
+        status: "Active",
+        desc: "Provides customer support",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "10 hours ago",
+      },
+      {
+        name: "Financial Analyst",
+        status: "Active",
+        desc: "Provides financial insights",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "11 hours ago",
+      },
+      {
+        name: "Marketing Strategist",
+        status: "Active",
+        desc: "Provides marketing strategies",
+        tags: ["Web Search", "RFD", "Deep Research"],
+        lastUsed: "12 hours ago",
+      }
+
+    ];
+
+
+    const agentList = document.getElementById("agentList");
+    const searchInput = document.getElementById("search");
+
+    // ===== RENDER FUNCTION =====
+    function renderAgents(filter = "") {
+      agentList.innerHTML = "";
+      agents
+        .filter(a => a.name.toLowerCase().includes(filter.toLowerCase()))
+        .forEach(agent => {
+          const card = document.createElement("div");
+          card.classList.add("card");
+          card.innerHTML = `
+            <div class="card-header">
+              <span class="card-title">${agent.name}</span>
+              <span class="status ${agent.status === "Active" ? "active" : "draft"}">${agent.status}</span>
+            </div>
+            <p>${agent.desc}</p>
+            <div class="tags">
+              ${
+                agent.tags.length > 0
+                  ? agent.tags.map(tag => `<span class="tag">${tag}</span>`).join("")
+                  : `<button class="add-sources">Add sources</button>`
+              }
+            </div>
+            <p class="last-used">Last used: ${agent.lastUsed}</p>
+          `;
+          agentList.appendChild(card);
+        });
+    }
+
+    // Initial render
+    renderAgents();
+
+    // ===== SEARCH FUNCTIONALITY =====
+    searchInput.addEventListener("input", e => {
+      renderAgents(e.target.value);
+    });
+  </script>
+</body>
+</html>
