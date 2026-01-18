@@ -16,6 +16,8 @@ const agentRoutes = require('./routes/agentRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const messageRoutes = require('./routes/messagesRoutes');
 const searchRoutes = require('./routes/searchRoutes');
+const venkeRoutes = require('./routes/venkeRoutes');
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -90,7 +92,7 @@ app.use('/api/agents', agentRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/message', messageRoutes);
 app.use('/api/search', searchRoutes);
-
+app.use('/api/venke', venkeRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

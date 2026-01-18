@@ -12,47 +12,76 @@ export default function HistoryPage() {
   
   const [loading, setLoading] = useState(true); // for agents
   const [agents, setAgents] = useState([]);
+
+  const [venkeLoading, setVenkeLoading] = useState(true);
+  const [venkeData, setVenkeData] = useState([]);
   
   const [convLoading, setConvLoading] = useState(false); // for conversations
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
-  
+
+  const [activeDescriptionId, setActiveDescriptionId] = useState(null);
+
   const [msgLoading, setMsgLoading] = useState(false); // for messages
   const [messages, setMessages] = useState([]);
   
+  const [chatPreviewLoading, setChatPreviewLoading] = useState(false);
+  const [chatPreviewMessages, setChatPreviewMessages] = useState([]);
+
   const [searchQuery, setSearchQuery] = useState(""); // for search input
   const [isSearching, setIsSearching] = useState(false);
 
   const [deleteMode, setDeleteMode] = useState("single"); 
 
+  const [personaSearchResults, setPersonaSearchResults] = useState([]);
+  const [personaSearchLoading, setPersonaSearchLoading] = useState(false);
+
+
   const deleteDialogRef = React.useRef();
   
   const handleSearch = async (value) => {
-    setSearchQuery(value);
+  setSearchQuery(value);
 
-    if (value.trim() === "") {
-      setIsSearching(false);     // stop search mode
-      setMessages([]);           // clear results
+  // empty input -> reset search state
+  if (value.trim() === "") {
+    setIsSearching(false);
+    setPersonaSearchResults([]);
+    return;
+  }
+
+  // must have an active agent selected
+  if (!selectedVenkeAgent?.name) {
+    setIsSearching(true);
+    setPersonaSearchResults([]);
+    return;
+  }
+
+  setIsSearching(true);
+  setPersonaSearchLoading(true);
+
+  try {
+    const res = await fetch(
+      `http://localhost:3000/api/venke/search-chat?name=${encodeURIComponent(
+        selectedVenkeAgent.name
+      )}&query=${encodeURIComponent(value)}`
+    );
+
+    const json = await res.json();
+
+    if (!json.success) {
+      setPersonaSearchResults([]);
       return;
     }
 
-    // If search is NOT empty:
-    setIsSearching(true);
-    setMsgLoading(true);
+    setPersonaSearchResults(json.data || []);
+  } catch (err) {
+    console.error("Persona search error:", err);
+    setPersonaSearchResults([]);
+  } finally {
+    setPersonaSearchLoading(false);
+  }
+};
 
-    try {
-      const res = await fetch(
-        `http://localhost:3000/api/search/messages?query=${value}`
-      );
-      const data = await res.json();
-      setMessages(data.messages || []);
-      
-    } catch (err) {
-      console.error("Search error:", err);
-    } finally {
-      setMsgLoading(false);
-    }
-  };
 
   const highlightText = (text, keyword) => {
     if (!keyword) return text;
@@ -75,6 +104,8 @@ export default function HistoryPage() {
   const diffDays = Math.floor(dateDiff / (1000 * 60 * 60 * 24));
   
 
+
+  // Return the largest time unit difference
   if (diffDays >= 1) {
     return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
   } 
@@ -89,37 +120,36 @@ export default function HistoryPage() {
   }
 };
 
-const handleDeleteConversation = async (conversationId) => {
-
+const handleDeleteDescription = async (agentId) => {
   const confirmed = await openDeleteDialog("single");
   if (!confirmed) return;
 
-
   try {
-    const res = await fetch(
-      `http://localhost:3000/api/conversations/${conversationId}`,
-      { method: "DELETE" }
-    );
+    const res = await fetch(`http://localhost:3000/api/venke/${agentId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: "" }) // clear description
+    });
 
     const data = await res.json();
 
     if (!data.success) {
-      alert("Error deleting conversation: " + data.message);
+      alert("Error deleting description: " + (data.message || "Unknown error"));
       return;
     }
 
-    setConversations((prev) =>
-      prev.filter((c) => c.id !== conversationId)
+    // update local cache
+   setVenkeData(prev =>
+      prev.map(agent => ({
+        ...agent,
+        descriptions: agent.descriptions.filter(d => String(d.id) !== String(agentId))
+      }))
     );
 
-    if (activeConversation === conversationId) {
-      setActiveConversation(null);
-      setMessages([]);
-    }
 
   } catch (err) {
     console.error("Delete failed:", err);
-    alert("Failed to delete conversation.");
+    alert("Failed to delete description.");
   }
 };
 
@@ -167,6 +197,37 @@ const handleDeleteAllConversations = async () => {
 };
 
 
+
+const safeParseChatHistory = (value) => {
+  if (!value) return [];
+  try {
+    return typeof value === "string" ? JSON.parse(value) : value;
+  } catch (e) {
+    console.error("chat_history parse error:", e);
+    return [];
+  }
+};
+
+const fetchChatHistoryById = async (id) => {
+    setChatPreviewLoading(true);
+    setChatPreviewMessages([]);
+
+    try {
+      const res = await fetch(`http://localhost:3000/api/venke/chat-history/${id}`);
+      const json = await res.json();
+
+      if (!json.success) return;
+
+      const history = safeParseChatHistory(json.data?.chat_history);
+      setChatPreviewMessages(history);
+    } catch (err) {
+      console.error("Fetch chat history failed:", err);
+    } finally {
+      setChatPreviewLoading(false);
+    }
+  };
+
+ // Fetch normal agents
   useEffect(() => {
     async function getAgents() {
       try {
@@ -182,32 +243,67 @@ const handleDeleteAllConversations = async () => {
     getAgents();
   }, []);
 
+
+ // Fetch Venke agents
+  useEffect(() => {
+    async function getVenkeAgentsData() {
+      setVenkeLoading(true);
+      try {
+        const response = await fetch('http://localhost:3000/api/venke/venke-descriptions');
+        const data = await response.json();
+        setVenkeData(data.data || []);
+        setVenkeLoading(false);
+      } catch (error) {
+        console.error('Error fetching venke agents:', error);
+        setVenkeLoading(false);
+      }
+    }
+    getVenkeAgentsData();
+  }, []);
+
+
   //  Handle agent click, then retrieve the conversations associated with the agent
   const handleAgentClick = async (agentId) => {
-    // toggle off if same agent clicked
-    if (activeAgent === agentId) {
-      setActiveAgent(null); // deselect agent
-      setConversations([]); // clear conversations
-      setMessages([]); // clear messages
-      return;
-    }
+  // toggle off if same agent clicked
+  if (activeAgent === agentId) {
+    setSearchQuery("");
+    setIsSearching(false);
+    setPersonaSearchResults([]);
 
-    setActiveAgent(agentId);
-    setShowSearch(false); //  hide search panel when switching agents
-    setConvLoading(true); // start loading conversations
+    setActiveAgent(null);          // deselect agent
+    setConversations([]);          // clear conversations
+    setMessages([]);      
+    
+    setSearchQuery("");
+    setIsSearching(false);
+    setPersonaSearchResults([]);// clear messages
 
-    setMessages([]); // clear messages when switching agents
+    setActiveDescriptionId(null);
+    setChatPreviewMessages([]);
 
-    try {
-      const response = await fetch(`http://localhost:3000/api/conversations/agent/${agentId}`);
-      const data = await response.json();
-      setConversations(data.conversations || []);
-    } catch (error) {
-      console.error('Error fetching conversations:', error);
-    } finally {
-      setConvLoading(false);
-    }
-  };
+    return;
+  }
+
+  setActiveAgent(agentId);
+  setShowSearch(false);            // hide search panel when switching agents
+  setConvLoading(true);            // start loading conversations
+
+  setMessages([]);                 // clear messages when switching agents
+
+  // ✅ clear old preview when switching agents
+  setActiveDescriptionId(null);
+  setChatPreviewMessages([]);
+
+  try {
+    const response = await fetch(`http://localhost:3000/api/conversations/agent/${agentId}`);
+    const data = await response.json();
+    setConversations(data.conversations || []);
+  } catch (error) {
+    console.error("Error fetching conversations:", error);
+  } finally {
+    setConvLoading(false);
+  }
+};
 
   const handleConversationClicked = async (conversationId) => {
     setActiveConversation(conversationId);
@@ -223,6 +319,8 @@ const handleDeleteAllConversations = async () => {
     } 
   }
 
+  const selectedVenkeAgent = venkeData.find(a => a.id === activeAgent);
+
   return (
     <div className="history-page">
       {/* Sidebar with agents */}
@@ -232,12 +330,12 @@ const handleDeleteAllConversations = async () => {
           <h3>Agents</h3>
         </div>
 
-        {loading ? (
+        {venkeLoading ? (
           <div className="loading-agent">Loading agents...</div>
-        ) : agents.length === 0 ? (
+        ) : venkeData.length === 0 ? (
           <div className="no-agent">No agents found.</div>
         ) : (
-          agents.map((agent) => (
+          venkeData.map((agent) => (
             <div
               key={agent.id}
               className={`agent-item ${activeAgent === agent.id ? 'active' : ''}`}
@@ -284,36 +382,56 @@ const handleDeleteAllConversations = async () => {
               </div>
             </div>
 
-            <div className="conversation-list">
-              {convLoading ? (
-                <div className="loading-agent">Loading conversations...</div>
-              ) : conversations.length === 0 ? (
-                <div className="no-agent">No conversations found.</div>
-              ) : (
-                conversations.map((c) => (
-                  <div key={c.id} 
-                  className={`conversation-item ${activeConversation === c.id ? 'active' : ''}`}
-                   onClick={() => handleConversationClicked(c.id)}
-                   convLoading={convLoading.toString()}
-                   >
-                    <div className="conversation-date">
-                      {new Date(c.date_created).toLocaleDateString()} -
+
+         <div className="conversation-list">
+            {venkeLoading ? (
+              <div className="loading-agent">Loading conversations...</div>
+            ) : !selectedVenkeAgent ? (
+              <div className="no-agent">No conversations</div>
+            ) : !selectedVenkeAgent.descriptions || selectedVenkeAgent.descriptions.length === 0 ? (
+              <div className="no-agent">No conversations</div>
+            ) : (
+              selectedVenkeAgent.descriptions.map((item) => (
+                <div
+                  key={item.id}
+                   className={`conversation-item ${activeDescriptionId === item.id ? 'active' : ''}`}
+                    onClick={() => {
+
+                      if (activeDescriptionId === item.id) {
+                        setActiveDescriptionId(item.id);
+                        fetchChatHistoryById(item.id);
+                        return;
+                      }
+
+                      setActiveDescriptionId(item.id);
+                      fetchChatHistoryById(item.id);
+                    }}
+                >
+                  <div className="conversation-date">
+                    {selectedVenkeAgent.name}
+                  </div>
+
+                  <div className="conversation-title-delete">
+                    <div className="conversation-title">
+                      {item.text}
                     </div>
 
-                   <div className="conversation-title-delete">
-                      <div className="conversation-title">{c.title}</div>
-
-                      <div className="delete-conversation" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteConversation(c.id);}}>
-                          Delete</div>
-                   </div>
+                    <div>
+                      <button
+                        className="delete-conversation"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteDescription(item.id);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
-                  
+                </div>
+              ))
+            )}
+          </div>
           </div>
         )}
 
@@ -352,47 +470,116 @@ const handleDeleteAllConversations = async () => {
         )}
 
         <div className="message-panel">
-          {isSearching && !msgLoading && (
-          <>
-            <div className="search-results">Showing results for "{searchQuery}"</div>
-            <div className="search-result-count">{messages.length} results</div>
-          </>
-        )}
+            {isSearching && (
+              <>
+                <div className="search-results">Showing results for "{searchQuery}"</div>
+                <div className="search-result-count">{personaSearchResults.length} results</div>
+              </>
+            )}
 
-          {msgLoading ? (
-            <div className="loading-agent">Loading messages...</div>
-          )  : (
-            messages.map((msg) => {
-              const agent = agents.find((agent) => agent.id === msg.conversations.agent_id);
+            {/* 1) SEARCH MODE (highest priority) */}
+            {isSearching ? (
+              personaSearchLoading ? (
+                <div className="loading-agent">Loading messages...</div>
+              ) : personaSearchResults.length === 0 ? (
+                <div>No messages found for this search.</div>
+              ) : (
+                personaSearchResults.map((r, idx) => {
+                  const isAI = r.role === "agent";
+                  const avatar = isAI ? aiAvatar : userAvatar;
 
-              if (!msg.conversations) {
-                return (<div>No messages found for this conversation.</div>);
-              }
-              
-              const isAI = agent && msg.sender !== "user"; 
-              const avatar = isAI ? aiAvatar : userAvatar;
+                  return (
+                    <div key={`${r.persona_id}-${idx}`} className="message-item">
+                      <img src={avatar} alt="avatar" className="message-avatar" />
 
-              return (
-                <div key={msg.id} className="message-item">
-                    <img src={avatar} alt="avatar" className="message-avatar" />
-                    <div className='message-header stack-sans-headline'>
-                      {agent ? agent.name : "Unknown agent" } ⋅ {msg.conversations.title}
+                      <div className="message-header stack-sans-headline">
+                        {isAI ? (r.agent_name || "Unknown agent") : "User"} ⋅ {r.description || "No description"}
+                      </div>
+
+                      <div className="search-date-info inter">
+                        Match in {r.role}
+                      </div>
+
+                      <div
+                        className="message-content"
+                        dangerouslySetInnerHTML={{
+                          __html: `"${highlightText(r.text || "", searchQuery)}"`
+                        }}
+                      ></div>
                     </div>
-                    <div className="search-date-info inter">
-                       Used in {messages.length} search  ⋅ last accessed {presentPast_difference(msg.last_accessed)}
-                    </div>
-                    <div
-                      className="message-content"
-                      dangerouslySetInnerHTML={{
-                        __html: `"${highlightText(msg.content, searchQuery)}"`
-                      }}
-                    ></div>
+                  );
+                })
+              )
+            ) : activeDescriptionId ? (
+              /* 2) PREVIEW MODE */
+              chatPreviewLoading ? (
+                <div className="loading-agent">Loading messages...</div>
+              ) : chatPreviewMessages.length === 0 ? (
+                <div>No messages found for this conversation.</div>
+              ) : (
+                chatPreviewMessages.map((m, idx) => {
+                  const isAI = m.role === "agent";
+                  const avatar = isAI ? aiAvatar : userAvatar;
 
-                </div>
-              );
-          })
-          )}
+                  return (
+                    <div key={`${activeDescriptionId}-${idx}`} className="message-item">
+                      <img src={avatar} alt="avatar" className="message-avatar" />
+
+                      <div className="message-header stack-sans-headline">
+                        {isAI ? (selectedVenkeAgent?.name || "Unknown agent") : "User"}
+                      </div>
+
+                      <div className="search-date-info inter">
+                        Preview chat
+                      </div>
+
+                      <div
+                        className="message-content"
+                        dangerouslySetInnerHTML={{
+                          __html: `"${highlightText(m.text || "", searchQuery)}"`
+                        }}
+                      ></div>
+                    </div>
+                  );
+                })
+              )
+            ) : (
+              /* 3) NORMAL MODE (your existing messages) */
+              msgLoading ? (
+                <div className="loading-agent">Loading messages...</div>
+              ) : (
+                messages.map((msg) => {
+                  const agent = agents.find((agent) => agent.id === msg.conversations.agent_id);
+
+                  if (!msg.conversations) {
+                    return (<div>No messages found for this conversation.</div>);
+                  }
+
+                  const isAI = agent && msg.sender !== "user";
+                  const avatar = isAI ? aiAvatar : userAvatar;
+
+                  return (
+                    <div key={msg.id} className="message-item">
+                      <img src={avatar} alt="avatar" className="message-avatar" />
+                      <div className='message-header stack-sans-headline'>
+                        {agent ? agent.name : "Unknown agent"} ⋅ {msg.conversations.title}
+                      </div>
+                      <div className="search-date-info inter">
+                        Used in {messages.length} search  ⋅ last accessed {presentPast_difference(msg.last_accessed)}
+                      </div>
+                      <div
+                        className="message-content"
+                        dangerouslySetInnerHTML={{
+                          __html: `"${highlightText(msg.content, searchQuery)}"`
+                        }}
+                      ></div>
+                    </div>
+                  );
+                })
+              )
+            )}
           </div>
+
         </div>
     </div>
   );
