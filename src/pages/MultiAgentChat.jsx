@@ -8,13 +8,16 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 export default function MultiAgentChat() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState('multi');
+  const [chatMode, setChatMode] = useState('independent'); // 'independent', 'orchestrated', 'auto'
+  const [workflowMode, setWorkflowMode] = useState('sequential'); // 'sequential' or 'parallel'
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [allAgents, setAllAgents] = useState([]);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [agentsLoading, setAgentsLoading] = useState(true);
+  const [intermediateSteps, setIntermediateSteps] = useState([]);
+  const [intentAnalysis, setIntentAnalysis] = useState(null);
 
   // Load user's agents from database
   useEffect(() => {
@@ -61,65 +64,273 @@ export default function MultiAgentChat() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
+    setIntermediateSteps([]);
+    setIntentAnalysis(null);
 
     try {
-      // Send message to each selected agent
-      for (const agentId of selectedAgents) {
-        const agent = allAgents.find(a => a.id === agentId);
-        if (!agent) continue;
-
-        // Build message array with system prompt
-        const messageArray = [
-          {
-            role: 'system',
-            content: agent.system_prompt || `You are a helpful assistant named ${agent.name}.`,
-          },
-          {
-            role: 'user',
-            content: input,
-          },
-        ];
-
-        try {
-          const response = await fetch(`${API_URL}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              modelId: agent.model_id || 'gemini-2.5-flash',
-              messages: messageArray,
-              temperature: 0.3,
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          const data = await response.json();
-
-          // Add agent response
-          setMessages(prev => [...prev, {
-            id: Date.now() + Math.random(),
-            sender: agentId,
-            senderName: agent.name,
-            content: data.reply || 'Unable to get response',
-            timestamp: new Date(),
-          }]);
-        } catch (error) {
-          console.error(`Error getting response from ${agent.name}:`, error);
-          setMessages(prev => [...prev, {
-            id: Date.now() + Math.random(),
-            sender: agentId,
-            senderName: agent.name,
-            content: `Error: ${error.message}`,
-            timestamp: new Date(),
-          }]);
-        }
+      if (chatMode === 'auto') {
+        await handleAutoChat(input);
+      } else if (chatMode === 'orchestrated') {
+        await handleOrchestratedChat(input);
+      } else {
+        await handleIndependentChat(input);
       }
     } catch (error) {
       console.error('Error sending message:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Handle auto mode - system-driven orchestration with real-time streaming
+   */
+  const handleAutoChat = async (prompt) => {
+    try {
+      const eventSource = new EventSource(
+        `${API_URL}/api/orchestrated-chat-stream?${new URLSearchParams({
+          userPrompt: prompt,
+          autoMode: 'true',
+          mode: workflowMode,
+        }).toString()}`
+      );
+
+      let isFirstEvent = true;
+
+      eventSource.addEventListener('message', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'task-analysis') {
+            setIntentAnalysis(data.data);
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              sender: 'system',
+              senderName: '🔍 Task Analysis',
+              content: `Detected: ${data.data.description}\nConfidence: ${(data.data.confidence).toFixed(1)}%`,
+              timestamp: new Date(),
+              type: 'intent',
+            }]);
+          }
+
+          if (data.type === 'agent-start') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              sender: 'system',
+              senderName: `📍 Step ${data.data.step}: ${data.data.agent}`,
+              content: 'Processing...',
+              timestamp: new Date(),
+              type: 'step-start',
+            }]);
+          }
+
+          if (data.type === 'agent-response') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              sender: data.data.agentId,
+              senderName: `✅ ${data.data.agent}`,
+              content: data.data.output,
+              timestamp: new Date(data.data.timestamp),
+              type: 'agent-response',
+            }]);
+          }
+
+          if (data.type === 'agent-error') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              sender: 'system',
+              senderName: `❌ ${data.data.agent}`,
+              content: `Error: ${data.data.error}`,
+              timestamp: new Date(),
+              type: 'error',
+            }]);
+          }
+
+          if (data.type === 'workflow-complete') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              sender: 'system',
+              senderName: '🎉 Workflow Complete',
+              content: data.data.finalResult,
+              timestamp: new Date(),
+              type: 'final',
+            }]);
+            eventSource.close();
+          }
+
+          if (data.type === 'error') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              sender: 'system',
+              senderName: '❌ Error',
+              content: data.data.error,
+              timestamp: new Date(),
+              type: 'error',
+            }]);
+            eventSource.close();
+          }
+        } catch (parseError) {
+          console.error('Parse error:', parseError);
+        }
+      });
+
+      eventSource.addEventListener('error', (error) => {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          sender: 'system',
+          senderName: '❌ Connection Error',
+          content: 'Lost connection to server',
+          timestamp: new Date(),
+          type: 'error',
+        }]);
+      });
+    } catch (error) {
+      console.error('Auto chat error:', error);
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sender: 'system',
+        senderName: '❌ Error',
+        content: `Error: ${error.message}`,
+        timestamp: new Date(),
+        type: 'error',
+      }]);
+    }
+  };
+
+  /**
+   * Handle independent chat - each agent responds separately
+   */
+  const handleIndependentChat = async (prompt) => {
+    for (const agentId of selectedAgents) {
+      const agent = allAgents.find(a => a.id === agentId);
+      if (!agent) continue;
+
+      const messageArray = [
+        {
+          role: 'system',
+          content: agent.system_prompt || `You are a helpful assistant named ${agent.name}.`,
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ];
+
+      try {
+        const response = await fetch(`${API_URL}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            modelId: agent.model_id || 'gpt-4o-mini',
+            messages: messageArray,
+            temperature: 0.3,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        setMessages(prev => [...prev, {
+          id: Date.now() + Math.random(),
+          sender: agentId,
+          senderName: agent.name,
+          content: data.reply || 'Unable to get response',
+          timestamp: new Date(),
+          type: 'independent',
+        }]);
+      } catch (error) {
+        console.error(`Error getting response from ${agent.name}:`, error);
+        setMessages(prev => [...prev, {
+          id: Date.now() + Math.random(),
+          sender: agentId,
+          senderName: agent.name,
+          content: `Error: ${error.message}`,
+          timestamp: new Date(),
+          type: 'error',
+        }]);
+      }
+    }
+  };
+
+  /**
+   * Handle orchestrated chat - agents work together
+   */
+  const handleOrchestratedChat = async (prompt) => {
+    try {
+      const response = await fetch(`${API_URL}/api/orchestrated-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: selectedAgents,
+          userPrompt: prompt,
+          mode: workflowMode,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Orchestration failed');
+      }
+
+      // Store intent analysis
+      if (data.intentAnalysis) {
+        setIntentAnalysis(data.intentAnalysis);
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          sender: 'system',
+          senderName: '🔍 Intent Analysis',
+          content: `Detected: ${data.intentAnalysis.description}\nConfidence: ${(data.intentAnalysis.confidence * 100).toFixed(0)}%`,
+          timestamp: new Date(),
+          type: 'intent',
+        }]);
+      }
+
+      // Display intermediate steps if sequential mode
+      if (workflowMode === 'sequential' && data.result.intermediateSteps) {
+        setIntermediateSteps(data.result.intermediateSteps);
+        
+        data.result.intermediateSteps.forEach((step, index) => {
+          setMessages(prev => [...prev, {
+            id: Date.now() + index,
+            sender: 'system',
+            senderName: `📊 Step ${step.stepNumber}: ${step.agent}`,
+            content: `Input: ${step.input.substring(0, 100)}...\n\nOutput: ${step.output.substring(0, 200)}...`,
+            timestamp: step.timestamp || new Date(),
+            type: 'step',
+          }]);
+        });
+      }
+
+      // Add final result
+      setMessages(prev => [...prev, {
+        id: Date.now() + 999,
+        sender: 'system',
+        senderName: '✅ Final Result',
+        content: data.result.finalResult || data.result.agentResponses,
+        timestamp: new Date(),
+        type: 'final',
+      }]);
+
+    } catch (error) {
+      console.error('Orchestration error:', error);
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sender: 'system',
+        senderName: '❌ Error',
+        content: `Orchestration failed: ${error.message}`,
+        timestamp: new Date(),
+        type: 'error',
+      }]);
     }
   };
 
@@ -154,7 +365,7 @@ export default function MultiAgentChat() {
   }
 
   return (
-    <div className={`multi-agent-chat ${mode === 'single' ? 'single-agent-mode' : ''}`}>
+    <div className="multi-agent-chat">
       <div className="chat-header-bar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button 
@@ -173,45 +384,75 @@ export default function MultiAgentChat() {
         <div className="chat-controls">
           <div className="mode-toggle">
             <button
-              className={`mode-btn ${mode === 'multi' ? 'active' : ''}`}
-              onClick={() => setMode('multi')}
+              className={`mode-btn ${chatMode === 'independent' ? 'active' : ''}`}
+              onClick={() => setChatMode('independent')}
+              title="Agents respond independently"
             >
-              Multi
+              Independent
             </button>
             <button
-              className={`mode-btn ${mode === 'single' ? 'active' : ''}`}
-              onClick={() => setMode('single')}
+              className={`mode-btn ${chatMode === 'orchestrated' ? 'active' : ''}`}
+              onClick={() => setChatMode('orchestrated')}
+              title="Agents collaborate in a workflow"
             >
-              Single
+              Orchestrated
+            </button>
+            <button
+              className={`mode-btn ${chatMode === 'auto' ? 'active' : ''}`}
+              onClick={() => setChatMode('auto')}
+              title="Auto-detect agents & stream results"
+            >
+              Auto
             </button>
           </div>
+          
+          {(chatMode === 'orchestrated' || chatMode === 'auto') && (
+            <div className="workflow-toggle">
+              <button
+                className={`mode-btn ${workflowMode === 'sequential' ? 'active' : ''}`}
+                onClick={() => setWorkflowMode('sequential')}
+                title="Agents work in sequence"
+              >
+                Sequential
+              </button>
+              <button
+                className={`mode-btn ${workflowMode === 'parallel' ? 'active' : ''}`}
+                onClick={() => setWorkflowMode('parallel')}
+                title="Agents work in parallel"
+              >
+                Parallel
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="chat-container">
         {/* Agent Selector */}
-        <div className="agent-selector">
-          <div className="selector-header">Select Agents ({selectedAgents.length})</div>
-          <ul className="agent-list-selector">
-            {allAgents.map((agent, idx) => (
-              <li key={agent.id} className="agent-option">
-                <input
-                  type="checkbox"
-                  id={agent.id}
-                  checked={selectedAgents.includes(agent.id)}
-                  onChange={() => toggleAgent(agent.id)}
-                />
-                <label htmlFor={agent.id} style={{ flex: 1, cursor: 'pointer', margin: 0 }}>
-                  <div className="agent-info">
-                    <span className="agent-name">{agent.name}</span>
-                    <span className="agent-desc">{agent.description}</span>
-                  </div>
-                </label>
-                <span className="agent-status-dot" />
-              </li>
-            ))}
-          </ul>
-        </div>
+        {chatMode !== 'auto' && (
+          <div className="agent-selector">
+            <div className="selector-header">Select Agents ({selectedAgents.length})</div>
+            <ul className="agent-list-selector">
+              {allAgents.map((agent, idx) => (
+                <li key={agent.id} className="agent-option">
+                  <input
+                    type="checkbox"
+                    id={agent.id}
+                    checked={selectedAgents.includes(agent.id)}
+                    onChange={() => toggleAgent(agent.id)}
+                  />
+                  <label htmlFor={agent.id} style={{ flex: 1, cursor: 'pointer', margin: 0 }}>
+                    <div className="agent-info">
+                      <span className="agent-name">{agent.name}</span>
+                      <span className="agent-desc">{agent.description}</span>
+                    </div>
+                  </label>
+                  <span className="agent-status-dot" />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Chat Area */}
         <div className="chat-area">
@@ -220,13 +461,24 @@ export default function MultiAgentChat() {
               <div className="empty-chat">
                 <div className="empty-icon">💬</div>
                 <div className="empty-text">
-                  <p>Start a conversation with {selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''}</p>
-                  <p style={{ fontSize: '0.8rem', marginTop: '8px' }}>Each agent will provide their perspective</p>
+                  <p>
+                    {chatMode === 'auto' 
+                      ? 'Describe what you need, the system will auto-detect agents'
+                      : `Start a conversation with ${selectedAgents.length} agent${selectedAgents.length !== 1 ? 's' : ''}`
+                    }
+                  </p>
+                  <p style={{ fontSize: '0.8rem', marginTop: '8px' }}>
+                    {chatMode === 'independent' 
+                      ? 'Each agent will provide their perspective'
+                      : chatMode === 'auto'
+                      ? 'Real-time step-by-step agent communication'
+                      : 'Agents will collaborate to complete the task'}
+                  </p>
                 </div>
               </div>
             ) : (
               messages.map(msg => (
-                <div key={msg.id} className={`message-group ${msg.sender === 'user' ? 'user' : ''}`}>
+                <div key={msg.id} className={`message-group ${msg.sender === 'user' ? 'user' : ''} ${msg.type || ''}`}>
                   {msg.sender !== 'user' && (
                     <span className="agent-badge">
                       {msg.senderName || 'Agent'}
@@ -234,16 +486,22 @@ export default function MultiAgentChat() {
                   )}
                   <div className="message">{msg.content}</div>
                   <span className="message-time">
-                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {(msg.timestamp instanceof Date ? msg.timestamp : new Date(msg.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
               ))
-            
             )}
             {loading && (
               <div className="message-group">
                 <span className="agent-badge">Processing...</span>
-                <div className="message">⏳ Waiting for responses from {selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''}...</div>
+                <div className="message">
+                  {chatMode === 'auto'
+                    ? '🤖 Auto-orchestrating agents...'
+                    : chatMode === 'orchestrated' 
+                    ? '🔗 Orchestrating agents workflow...'
+                    : `⏳ Waiting for responses from ${selectedAgents.length} agent${selectedAgents.length !== 1 ? 's' : ''}...`
+                  }
+                </div>
               </div>
             )}
           </div>
@@ -251,11 +509,14 @@ export default function MultiAgentChat() {
           <div className="input-area">
             <input
               type="text"
-              placeholder={selectedAgents.length === 0 ? 'Select agents first...' : 'Ask something to all agents...'}
+              placeholder={chatMode === 'auto' 
+                ? 'Describe what you need...'
+                : selectedAgents.length === 0 ? 'Select agents first...' : 
+                chatMode === 'orchestrated' ? 'Describe the task for agents to collaborate on...' : 'Ask something to all agents...'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              disabled={selectedAgents.length === 0 || loading}
+              disabled={(chatMode !== 'auto' && selectedAgents.length === 0) || loading}
             />
             <button 
               className="send-btn" 
@@ -267,13 +528,34 @@ export default function MultiAgentChat() {
           </div>
         </div>
 
-        {/* Comparison Panel */}
+        {/* Info Panel */}
         <div className="comparison-panel">
-          <div className="comparison-header">Active Agents ({selectedAgents.length})</div>
+          <div className="comparison-header">
+            {chatMode === 'orchestrated' ? '🔗 Workflow Info' : '👥 Active Agents'} ({selectedAgents.length})
+          </div>
           {selectedAgents.length === 0 ? (
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px' }}>
-              Select agents to compare responses
+              Select agents to get started
             </p>
+          ) : chatMode === 'orchestrated' && intentAnalysis ? (
+            <div className="workflow-info">
+              <div className="info-section">
+                <span className="info-label">Intent</span>
+                <span className="info-value">{intentAnalysis.description}</span>
+              </div>
+              <div className="info-section">
+                <span className="info-label">Confidence</span>
+                <span className="info-value">{(intentAnalysis.confidence * 100).toFixed(0)}%</span>
+              </div>
+              <div className="info-section">
+                <span className="info-label">Workflow</span>
+                <span className="info-value">{workflowMode}</span>
+              </div>
+              <div className="info-section">
+                <span className="info-label">Steps</span>
+                <span className="info-value">{intermediateSteps.length}</span>
+              </div>
+            </div>
           ) : (
             selectedAgents.map((agentId, idx) => {
               const agent = allAgents.find(a => a.id === agentId);
@@ -289,7 +571,7 @@ export default function MultiAgentChat() {
                     {agent?.description}
                   </div>
                   <div className="response-footer">
-                    <span className="response-metric">Model: {agent?.model_id || 'gemini-2.5-flash'}</span>
+                    <span className="response-metric">Model: {agent?.model_id || 'gpt-4o-mini'}</span>
                   </div>
                 </div>
               );

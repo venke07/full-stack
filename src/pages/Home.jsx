@@ -259,6 +259,15 @@ export default function HomePage() {
           >
             🤖💬
           </button>
+          {/* Autonomous Task Button */}
+          <button 
+            className="autonomous-icon-btn"
+            onClick={() => navigate('/autonomous')}
+            title="Autonomous Task Executor"
+            type="button"
+          >
+            🤖⚡
+          </button>
           {/* Single Chat Button */}
           <button 
             className="chat-icon-btn"
