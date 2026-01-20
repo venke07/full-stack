@@ -17,6 +17,7 @@ const conversationRoutes = require('./routes/conversationRoutes');
 const messageRoutes = require('./routes/messagesRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const venkeRoutes = require('./routes/venkeRoutes');
+const summaryRoutes = require("./routes/summaryRoutes");
 
 
 const app = express();
@@ -93,6 +94,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/message', messageRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/venke', venkeRoutes);
+app.use("/api/summary", summaryRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

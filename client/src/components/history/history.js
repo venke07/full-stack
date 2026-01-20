@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import aiAvatar from "./imported_img/ai.png";
 import userAvatar from "./imported_img/user.png";
+import { useNavigate } from "react-router-dom";
 
 import './history.css';
 
-
 export default function HistoryPage() {
+
+  const navigate = useNavigate();
   
   const [activeAgent, setActiveAgent] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
@@ -376,6 +378,16 @@ const fetchChatHistoryById = async (id) => {
                   value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
                  />
+
+                 <button
+                    type="button"
+                    className="addSummary"
+                    onClick={() => navigate("/chat-summary")}
+                  >
+                    <span className="addSummaryIcon" aria-hidden="true">📄</span>
+                    <span className="addSummaryText">Chat Summary</span>
+                  </button>
+
               </div>
               <div className='delete-all-container'>
                 <div className='delete-all'onClick={handleDeleteAllConversations} >Delete all</div>

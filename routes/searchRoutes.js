@@ -11,10 +11,6 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-/* =========================================
-   Search messages
-   URL: GET /api/search/messages?query=hello
-========================================= */
 router.get('/messages', async (req, res) => {
   try {
     const query = req.query.query;
