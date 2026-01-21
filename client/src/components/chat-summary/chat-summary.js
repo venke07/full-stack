@@ -15,6 +15,7 @@ export default function ChatSummaryPage() {
 
   // backend data state
   const [agents, setAgents] = useState([]);
+  
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   
@@ -75,7 +76,7 @@ export default function ChatSummaryPage() {
       {/* Header */}
       <header className="cs-header">
         <button className="icon-btn" aria-label="Open menu">
-          ☰
+          Back
         </button>
 
         <h1 className="cs-title">Chat Summary</h1>

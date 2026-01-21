@@ -16,6 +16,7 @@ async function getChatHistoryByPersonaId(personaId) {
   return data?.chat_history || [];
 }
 
+// Extracts the messages, since its in { "id": "","role": "","text": "" } format
 function toGeminiMessages(chatHistory) {
   const trimmed = chatHistory.slice(-50);
 

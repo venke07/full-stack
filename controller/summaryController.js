@@ -26,11 +26,12 @@ exports.generateSummaryController = async (req, res) => {
     const { id } = req.params;
 
     const chatHistory = await getChatHistoryByPersonaId(id);
+
     if (!Array.isArray(chatHistory) || chatHistory.length === 0) {
       return res.status(400).json({ message: "No chat history found." });
     }
 
-    const geminiMessages = toGeminiMessages(chatHistory);
+    const geminiMessages = toGeminiMessages(chatHistory); // { role: "assistant/user", content: "" }
     const persona = await getPersonaMetaById(id);
 
     const summary = await summarizeConversation({
@@ -59,7 +60,7 @@ exports.listSummariesController = async (req, res) => {
 };
 
 
-
+// Resets the summary automatically after 5 user inputs
 exports.appendUserMessageController = async (req, res) => {
   try {
     const { id } = req.params; // persona id
