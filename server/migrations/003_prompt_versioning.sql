@@ -14,11 +14,7 @@ CREATE TABLE IF NOT EXISTS agent_prompt_versions (
   is_active BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_by UUID,
-  
-  -- Unique constraint: only one active version per agent
-  CONSTRAINT unique_active_per_agent UNIQUE (agent_id, is_active) WHERE is_active = TRUE,
-  CONSTRAINT unique_version_number_per_agent UNIQUE (agent_id, version_number)
+  created_by UUID
 );
 
 -- Table: a_b_test_sessions

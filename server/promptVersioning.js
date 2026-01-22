@@ -197,41 +197,126 @@ class PromptVersioning {
    * Get A/B test sessions for an agent
    */
   async getABTestSessions(agentId) {
-    const { data, error } = await supabase
-      .from('a_b_test_sessions')
-      .select(
-        `
-        *,
-        version_a:agent_prompt_versions!version_a_id(id, version_name, version_number),
-        version_b:agent_prompt_versions!version_b_id(id, version_name, version_number)
-        `
-      )
-      .eq('agent_id', agentId)
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('a_b_test_sessions')
+        .select(
+          `
+          *,
+          version_a:agent_prompt_versions!version_a_id(id, version_name, version_number),
+          version_b:agent_prompt_versions!version_b_id(id, version_name, version_number)
+          `
+        )
+        .eq('agent_id', agentId)
+        .order('created_at', { ascending: false });
 
-    if (error) throw error;
-    return data || [];
+      if (error) {
+        console.error('Error fetching with relationships:', error);
+        // Fallback: fetch without relationships
+        const { data: sessionsData, error: sessionsError } = await supabase
+          .from('a_b_test_sessions')
+          .select('*')
+          .eq('agent_id', agentId)
+          .order('created_at', { ascending: false });
+
+        if (sessionsError) throw sessionsError;
+
+        // Fetch versions separately and attach them
+        if (sessionsData && sessionsData.length > 0) {
+          const versionIds = new Set();
+          sessionsData.forEach(session => {
+            versionIds.add(session.version_a_id);
+            versionIds.add(session.version_b_id);
+          });
+
+          const { data: versionsData } = await supabase
+            .from('agent_prompt_versions')
+            .select('id, version_name, version_number')
+            .in('id', Array.from(versionIds));
+
+          const versionsMap = {};
+          versionsData?.forEach(v => {
+            versionsMap[v.id] = v;
+          });
+
+          return sessionsData.map(session => ({
+            ...session,
+            version_a: versionsMap[session.version_a_id] || null,
+            version_b: versionsMap[session.version_b_id] || null,
+          }));
+        }
+
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error in getABTestSessions:', error);
+      throw error;
+    }
   }
 
   /**
    * Get A/B test session details with results
    */
   async getABTestSessionDetails(sessionId) {
-    const { data, error } = await supabase
-      .from('a_b_test_sessions')
-      .select(
-        `
-        *,
-        version_a:agent_prompt_versions!version_a_id(*),
-        version_b:agent_prompt_versions!version_b_id(*),
-        test_results:a_b_test_results(*)
-        `
-      )
-      .eq('id', sessionId)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('a_b_test_sessions')
+        .select(
+          `
+          *,
+          version_a:agent_prompt_versions!version_a_id(*),
+          version_b:agent_prompt_versions!version_b_id(*),
+          test_results:a_b_test_results(*)
+          `
+        )
+        .eq('id', sessionId)
+        .single();
 
-    if (error) throw error;
-    return data;
+      if (error) {
+        console.error('Error fetching session details with relationships:', error);
+        // Fallback: fetch without relationships
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('a_b_test_sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+
+        if (sessionError) throw sessionError;
+
+        // Fetch versions separately
+        const { data: versionA } = await supabase
+          .from('agent_prompt_versions')
+          .select('*')
+          .eq('id', sessionData.version_a_id)
+          .single();
+
+        const { data: versionB } = await supabase
+          .from('agent_prompt_versions')
+          .select('*')
+          .eq('id', sessionData.version_b_id)
+          .single();
+
+        // Fetch test results
+        const { data: testResults } = await supabase
+          .from('a_b_test_results')
+          .select('*')
+          .eq('test_session_id', sessionId);
+
+        return {
+          ...sessionData,
+          version_a: versionA,
+          version_b: versionB,
+          test_results: testResults || [],
+        };
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in getABTestSessionDetails:', error);
+      throw error;
+    }
   }
 
   /**
@@ -315,76 +400,125 @@ class PromptVersioning {
    * Get statistics for an A/B test
    */
   async getTestStatistics(sessionId) {
-    const { data: testSession, error: sessionError } = await supabase
-      .from('a_b_test_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
+    try {
+      const { data: testSession, error: sessionError } = await supabase
+        .from('a_b_test_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single();
 
-    if (sessionError) throw sessionError;
+      if (sessionError) throw sessionError;
 
-    // Get results for both versions
-    const { data: results } = await supabase
-      .from('a_b_test_results')
-      .select(
-        `
-        id,
-        version_id,
-        response_time_ms,
-        response_ratings(rating, quality_score, relevance_score, helpfulness_score)
-        `
-      )
-      .eq('test_session_id', sessionId);
+      // Get results for both versions - first try with relationships
+      let results;
+      const { data: resultsData, error: resultsError } = await supabase
+        .from('a_b_test_results')
+        .select(
+          `
+          id,
+          version_id,
+          response_time_ms,
+          response_ratings(rating, quality_score, relevance_score, helpfulness_score)
+          `
+        )
+        .eq('test_session_id', sessionId);
 
-    // Calculate statistics
-    const versionAResults = results?.filter(r => r.version_id === testSession.version_a_id) || [];
-    const versionBResults = results?.filter(r => r.version_id === testSession.version_b_id) || [];
+      if (resultsError) {
+        console.error('Error fetching results with ratings:', resultsError);
+        // Fallback: fetch results without relationships
+        const { data: fallbackResults, error: fallbackError } = await supabase
+          .from('a_b_test_results')
+          .select('id, version_id, response_time_ms')
+          .eq('test_session_id', sessionId);
 
-    const calculateStats = (versionResults) => {
-      const totalTests = versionResults.length;
-      const avgResponseTime = versionResults.length > 0
-        ? versionResults.reduce((sum, r) => sum + (r.response_time_ms || 0), 0) / versionResults.length
-        : 0;
+        if (fallbackError) throw fallbackError;
 
-      // Get all ratings for this version's results
-      const allRatings = versionResults.flatMap(r => r.response_ratings || []);
-      const avgRating = allRatings.length > 0
-        ? allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length
-        : 0;
+        results = fallbackResults;
 
-      const avgQuality = allRatings.length > 0
-        ? allRatings.filter(r => r.quality_score).reduce((sum, r) => sum + r.quality_score, 0) / 
-          allRatings.filter(r => r.quality_score).length
-        : 0;
+        // Fetch ratings separately
+        if (results && results.length > 0) {
+          const resultIds = results.map(r => r.id);
+          const { data: ratingsData } = await supabase
+            .from('response_ratings')
+            .select('test_result_id, rating, quality_score, relevance_score, helpfulness_score')
+            .in('test_result_id', resultIds);
 
-      const avgRelevance = allRatings.length > 0
-        ? allRatings.filter(r => r.relevance_score).reduce((sum, r) => sum + r.relevance_score, 0) / 
-          allRatings.filter(r => r.relevance_score).length
-        : 0;
+          // Attach ratings to results
+          const ratingsMap = {};
+          ratingsData?.forEach(rating => {
+            if (!ratingsMap[rating.test_result_id]) {
+              ratingsMap[rating.test_result_id] = [];
+            }
+            ratingsMap[rating.test_result_id].push({
+              rating: rating.rating,
+              quality_score: rating.quality_score,
+              relevance_score: rating.relevance_score,
+              helpfulness_score: rating.helpfulness_score,
+            });
+          });
+
+          results = results.map(r => ({
+            ...r,
+            response_ratings: ratingsMap[r.id] || [],
+          }));
+        }
+      } else {
+        results = resultsData;
+      }
+
+      // Calculate statistics
+      const versionAResults = results?.filter(r => r.version_id === testSession.version_a_id) || [];
+      const versionBResults = results?.filter(r => r.version_id === testSession.version_b_id) || [];
+
+      const calculateStats = (versionResults) => {
+        const totalTests = versionResults.length;
+        const avgResponseTime = versionResults.length > 0
+          ? versionResults.reduce((sum, r) => sum + (r.response_time_ms || 0), 0) / versionResults.length
+          : 0;
+
+        // Get all ratings for this version's results
+        const allRatings = versionResults.flatMap(r => r.response_ratings || []);
+        const avgRating = allRatings.length > 0
+          ? allRatings.reduce((sum, r) => sum + (r.rating || 0), 0) / allRatings.length
+          : 0;
+
+        const qualityScores = allRatings.filter(r => r.quality_score !== null && r.quality_score !== undefined);
+        const avgQuality = qualityScores.length > 0
+          ? qualityScores.reduce((sum, r) => sum + r.quality_score, 0) / qualityScores.length
+          : 0;
+
+        const relevanceScores = allRatings.filter(r => r.relevance_score !== null && r.relevance_score !== undefined);
+        const avgRelevance = relevanceScores.length > 0
+          ? relevanceScores.reduce((sum, r) => sum + r.relevance_score, 0) / relevanceScores.length
+          : 0;
+
+        return {
+          totalTests,
+          avgResponseTime: parseFloat(avgResponseTime.toFixed(2)),
+          avgRating: parseFloat(avgRating.toFixed(2)),
+          avgQuality: parseFloat(avgQuality.toFixed(3)),
+          avgRelevance: parseFloat(avgRelevance.toFixed(3)),
+          totalRatings: allRatings.length,
+        };
+      };
+
+      const statsA = calculateStats(versionAResults);
+      const statsB = calculateStats(versionBResults);
+
+      // Determine winner (higher average rating)
+      const winner = statsA.avgRating > statsB.avgRating ? 'A' : statsB.avgRating > statsA.avgRating ? 'B' : 'tie';
 
       return {
-        totalTests,
-        avgResponseTime: parseFloat(avgResponseTime.toFixed(2)),
-        avgRating: parseFloat(avgRating.toFixed(2)),
-        avgQuality: parseFloat(avgQuality.toFixed(3)),
-        avgRelevance: parseFloat(avgRelevance.toFixed(3)),
-        totalRatings: allRatings.length,
+        test_session: testSession,
+        version_a_stats: statsA,
+        version_b_stats: statsB,
+        winner,
+        total_results: results?.length || 0,
       };
-    };
-
-    const statsA = calculateStats(versionAResults);
-    const statsB = calculateStats(versionBResults);
-
-    // Determine winner (higher average rating)
-    const winner = statsA.avgRating > statsB.avgRating ? 'A' : statsB.avgRating > statsA.avgRating ? 'B' : 'tie';
-
-    return {
-      test_session: testSession,
-      version_a_stats: statsA,
-      version_b_stats: statsB,
-      winner,
-      total_results: results?.length || 0,
-    };
+    } catch (error) {
+      console.error('Error in getTestStatistics:', error);
+      throw error;
+    }
   }
 
   /**

@@ -40,6 +40,11 @@ const PromptVersioning = ({ agentId, currentPrompt, onVersionSelect }) => {
       return;
     }
 
+    if (!currentPrompt || !currentPrompt.trim()) {
+      alert('Please create or edit a prompt first before creating a version');
+      return;
+    }
+
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/api/agents/${agentId}/prompt-versions`, {
@@ -59,10 +64,12 @@ const PromptVersioning = ({ agentId, currentPrompt, onVersionSelect }) => {
         setNewVersionName('');
         setNewVersionDescription('');
         setShowNewVersion(false);
+      } else {
+        throw new Error(data.error || 'Failed to create version');
       }
     } catch (error) {
       console.error('Error creating version:', error);
-      alert('Failed to create version');
+      alert(`Failed to create version: ${error.message}`);
     } finally {
       setLoading(false);
     }

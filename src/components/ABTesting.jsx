@@ -25,12 +25,18 @@ const ABTesting = ({ agentId }) => {
   const loadVersions = async () => {
     try {
       const res = await fetch(`${API_URL}/api/agents/${agentId}/prompt-versions`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
       const data = await res.json();
       if (data.versions) {
         setVersions(data.versions);
+      } else if (Array.isArray(data)) {
+        setVersions(data);
       }
     } catch (error) {
       console.error('Error loading versions:', error);
+      setVersions([]);
     }
   };
 
@@ -38,12 +44,18 @@ const ABTesting = ({ agentId }) => {
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/api/agents/${agentId}/a-b-tests`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
       const data = await res.json();
       if (data.sessions) {
         setTestSessions(data.sessions);
+      } else if (Array.isArray(data)) {
+        setTestSessions(data);
       }
     } catch (error) {
       console.error('Error loading test sessions:', error);
+      setTestSessions([]);
     } finally {
       setLoading(false);
     }
@@ -73,6 +85,10 @@ const ABTesting = ({ agentId }) => {
         }),
       });
 
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.session) {
         setTestSessions([data.session, ...testSessions]);
@@ -81,10 +97,12 @@ const ABTesting = ({ agentId }) => {
         setSelectedVersionB('');
         setSampleSize(20);
         setShowNewTest(false);
+      } else {
+        throw new Error(data.error || 'Failed to create test');
       }
     } catch (error) {
       console.error('Error creating test:', error);
-      alert('Failed to create test');
+      alert(`Failed to create test: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -94,11 +112,17 @@ const ABTesting = ({ agentId }) => {
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/api/a-b-tests/${sessionId}/statistics`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
       const data = await res.json();
-      setSessionStats(data);
-      setSelectedSession(sessionId);
+      if (data) {
+        setSessionStats(data);
+        setSelectedSession(sessionId);
+      }
     } catch (error) {
       console.error('Error loading test details:', error);
+      alert(`Failed to load test details: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -109,9 +133,13 @@ const ABTesting = ({ agentId }) => {
 
     try {
       setLoading(true);
-      await fetch(`${API_URL}/api/a-b-tests/${sessionId}/end`, {
+      const res = await fetch(`${API_URL}/api/a-b-tests/${sessionId}/end`, {
         method: 'POST',
       });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
       
       // Reload sessions
       await loadTestSessions();
@@ -119,7 +147,7 @@ const ABTesting = ({ agentId }) => {
       setSessionStats(null);
     } catch (error) {
       console.error('Error ending test:', error);
-      alert('Failed to end test');
+      alert(`Failed to end test: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -128,7 +156,7 @@ const ABTesting = ({ agentId }) => {
   const renderStatistics = () => {
     if (!sessionStats) return null;
 
-    const { version_a_stats, version_b_stats, winner } = sessionStats;
+    const { version_a_stats = {}, version_b_stats = {}, winner } = sessionStats;
 
     return (
       <div className="test-statistics">
@@ -138,23 +166,23 @@ const ABTesting = ({ agentId }) => {
             <h4>Version A</h4>
             <div className="stat-item">
               <span>Tests Completed:</span>
-              <strong>{version_a_stats?.totalTests || 0}</strong>
+              <strong>{version_a_stats.totalTests || 0}</strong>
             </div>
             <div className="stat-item">
               <span>Avg Rating:</span>
-              <strong>{version_a_stats?.avgRating || 0} / 5</strong>
+              <strong>{version_a_stats.avgRating ? version_a_stats.avgRating.toFixed(2) : 0} / 5</strong>
             </div>
             <div className="stat-item">
               <span>Quality Score:</span>
-              <strong>{(version_a_stats?.avgQuality || 0).toFixed(2)}</strong>
+              <strong>{(version_a_stats.avgQuality || 0).toFixed(2)}</strong>
             </div>
             <div className="stat-item">
               <span>Relevance:</span>
-              <strong>{(version_a_stats?.avgRelevance || 0).toFixed(2)}</strong>
+              <strong>{(version_a_stats.avgRelevance || 0).toFixed(2)}</strong>
             </div>
             <div className="stat-item">
               <span>Avg Response Time:</span>
-              <strong>{version_a_stats?.avgResponseTime?.toFixed(0) || 0}ms</strong>
+              <strong>{version_a_stats.avgResponseTime ? version_a_stats.avgResponseTime.toFixed(0) : 0}ms</strong>
             </div>
           </div>
 
@@ -164,28 +192,28 @@ const ABTesting = ({ agentId }) => {
             <h4>Version B</h4>
             <div className="stat-item">
               <span>Tests Completed:</span>
-              <strong>{version_b_stats?.totalTests || 0}</strong>
+              <strong>{version_b_stats.totalTests || 0}</strong>
             </div>
             <div className="stat-item">
               <span>Avg Rating:</span>
-              <strong>{version_b_stats?.avgRating || 0} / 5</strong>
+              <strong>{version_b_stats.avgRating ? version_b_stats.avgRating.toFixed(2) : 0} / 5</strong>
             </div>
             <div className="stat-item">
               <span>Quality Score:</span>
-              <strong>{(version_b_stats?.avgQuality || 0).toFixed(2)}</strong>
+              <strong>{(version_b_stats.avgQuality || 0).toFixed(2)}</strong>
             </div>
             <div className="stat-item">
               <span>Relevance:</span>
-              <strong>{(version_b_stats?.avgRelevance || 0).toFixed(2)}</strong>
+              <strong>{(version_b_stats.avgRelevance || 0).toFixed(2)}</strong>
             </div>
             <div className="stat-item">
               <span>Avg Response Time:</span>
-              <strong>{version_b_stats?.avgResponseTime?.toFixed(0) || 0}ms</strong>
+              <strong>{version_b_stats.avgResponseTime ? version_b_stats.avgResponseTime.toFixed(0) : 0}ms</strong>
             </div>
           </div>
         </div>
 
-        {winner !== 'tie' && (
+        {winner && winner !== 'tie' && (
           <div className={`winner-badge winner-${winner}`}>
             🏆 Version {winner} is winning!
           </div>
@@ -296,11 +324,11 @@ const ABTesting = ({ agentId }) => {
               <div className="session-details">
                 <div className="detail-item">
                   <span>Version A:</span>
-                  <strong>{session.version_a?.version_name}</strong>
+                  <strong>{session.version_a?.version_name || 'Unknown'}</strong>
                 </div>
                 <div className="detail-item">
                   <span>Version B:</span>
-                  <strong>{session.version_b?.version_name}</strong>
+                  <strong>{session.version_b?.version_name || 'Unknown'}</strong>
                 </div>
                 <div className="detail-item">
                   <span>Progress:</span>
