@@ -35,6 +35,7 @@ async function updateChatHistoryAndCounter(personaId, newChatHistory, newCount) 
     .update({
       chat_history: newChatHistory,
       unsummarized_user_count: newCount,
+      last_used: new Date().toISOString(),
     })
     .eq("id", personaId);
 

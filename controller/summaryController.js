@@ -89,6 +89,7 @@ exports.appendUserMessageController = async (req, res) => {
     // save history + count
     await updateChatHistoryAndCounter(id, chatHistory, newCount);
 
+
     // summarize when threshold reached
     if (newCount >= 5) {
       const geminiMessages = toGeminiMessages(chatHistory);

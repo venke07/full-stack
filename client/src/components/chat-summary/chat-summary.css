@@ -41,18 +41,46 @@
   width: fit-content;
   border: 1px solid black;
   color: rgb(255, 255, 255);
+   position: relative;
+  z-index: 9999;
 } .back-btn:hover {
+  background: rgb(2, 61, 81);
+  color: #fff;
+} .back-btn span {
+  font-size: 16px;
+}
+
+.dashboard-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 12px;
+  background: rgb(134, 221, 250);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 700;
+  width: fit-content;
+  border: 1px solid black;
+  color: rgb(255, 255, 255);
+  /* To put the button above the screen because the screen is covering certain area of the button */
+  z-index: 9999;
+} .dashboard-btn:hover {
   background: rgb(2, 61, 81);
   color: #fff;
 }
 
-.back-btn span {
+.dashboard-btn span {
   font-size: 16px;
 }
 
-.icon-btn:hover {
+.dashboard-btn:hover {
   background: #f4f4f4;
 }
+
+
 
 /* Search */
 .cs-search-wrap {

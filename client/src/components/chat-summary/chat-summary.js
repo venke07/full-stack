@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
 import "./chat-summary.css";
 
 function BotAvatar() {
@@ -10,6 +12,9 @@ function BotAvatar() {
 }
 
 export default function ChatSummaryPage() {
+
+  const navigate = useNavigate();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [activeAgentId, setActiveAgentId] = useState(null);
 
@@ -75,14 +80,17 @@ export default function ChatSummaryPage() {
     <div className="cs-page">
       {/* Header */}
       <header className="cs-header">
-        <button className="icon-btn" aria-label="Open menu">
-          Back
+        <button className="back-btn" aria-label="Open menu" onClick={() => navigate(-1)}>
+          <span>←</span>
+          <span>Back</span>
         </button>
 
         <h1 className="cs-title">Chat Summary</h1>
 
-        <button className="icon-btn" aria-label="Open settings">
-          ⚙
+        <button className="dashboard-btn" aria-label="Open settings" 
+          onClick={() => navigate("/usage-dashboard")}>
+          <span>📊</span>
+          <span>Dashboard</span>
         </button>
       </header>
 
