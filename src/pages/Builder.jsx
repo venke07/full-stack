@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
 import PromptVersioning from '../components/PromptVersioning.jsx';
 import ABTesting from '../components/ABTesting.jsx';
+import ModelComparison from '../components/ModelComparison.jsx';
 
 const sliderLabels = {
   formality: ['Casual', 'Balanced', 'Professional'],
@@ -97,11 +98,14 @@ export default function BuilderPage() {
   const [isResponding, setIsResponding] = useState(false);
   const [myAgents, setMyAgents] = useState([]);
   const [isFetchingAgents, setIsFetchingAgents] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [selectedAgentId, setSelectedAgentId] = useState(() => {
+    // Restore selected agent from sessionStorage on mount
+    return sessionStorage.getItem('selectedAgentId') || null;
+  });
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
-  const [builderTab, setBuilderTab] = useState('config'); // 'config', 'versions', 'testing'
+  const [builderTab, setBuilderTab] = useState('config'); // 'config', 'versions', 'testing', 'comparison'
 
   const descCount = form.description.length;
 
@@ -388,6 +392,15 @@ export default function BuilderPage() {
     }
   }, []);
 
+  // Persist selectedAgentId to sessionStorage
+  useEffect(() => {
+    if (selectedAgentId) {
+      sessionStorage.setItem('selectedAgentId', selectedAgentId);
+    } else {
+      sessionStorage.removeItem('selectedAgentId');
+    }
+  }, [selectedAgentId]);
+
   const agentSelectBase =
     'id, name, description, system_prompt, guardrails, sliders, tools, files, model_id';
 
@@ -631,6 +644,12 @@ export default function BuilderPage() {
                   onClick={() => setBuilderTab('testing')}
                 >
                   ⚔️ A/B Testing
+                </button>
+                <button
+                  className={`tab ${builderTab === 'comparison' ? 'active' : ''}`}
+                  onClick={() => setBuilderTab('comparison')}
+                >
+                  🏆 Model Comparison
                 </button>
               </>
             )}
@@ -887,6 +906,13 @@ export default function BuilderPage() {
           {builderTab === 'testing' && selectedAgentId && (
             <div style={{ padding: '20px', background: 'var(--card)', borderRadius: '8px', marginTop: '20px' }}>
               <ABTesting agentId={selectedAgentId} />
+            </div>
+          )}
+
+          {/* Model Comparison Tab */}
+          {builderTab === 'comparison' && selectedAgentId && (
+            <div style={{ padding: '20px', background: 'var(--card)', borderRadius: '8px', marginTop: '20px' }}>
+              <ModelComparison agentId={selectedAgentId} systemPrompt={form.prompt} />
             </div>
           )}
         </div>

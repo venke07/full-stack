@@ -4,6 +4,15 @@ import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
+/**
+ * Randomly pick between version A and B for the test
+ */
+const pickRandomVersion = (versionAId, versionBId) => {
+  return Math.random() < 0.5 ? versionAId : versionBId;
+};
+
 const fallbackChat = [
   {
     id: 'fallback-agent',
@@ -48,6 +57,9 @@ export default function ChatPage() {
   const [status, setStatus] = useState('');
   const [isResponding, setIsResponding] = useState(false);
   const [isLoadingAgents, setIsLoadingAgents] = useState(false);
+  const [activeTestSession, setActiveTestSession] = useState(null);
+  const [testedVersionId, setTestedVersionId] = useState(null);
+  const [ratedMessages, setRatedMessages] = useState({});
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -88,7 +100,43 @@ export default function ChatPage() {
     if (!selectedAgent) return;
     setChatLog(normalizeHistory(selectedAgent));
     setStatus('');
+    loadActiveABTest(selectedAgent.id);
   }, [selectedAgent]);
+
+  /**
+   * Load active A/B test sessions for the agent
+   */
+  const loadActiveABTest = async (agentId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agentId}/a-b-tests`);
+      const data = await res.json();
+      
+      let sessions = [];
+      if (data.sessions) {
+        sessions = data.sessions;
+      } else if (Array.isArray(data)) {
+        sessions = data;
+      }
+
+      // Find first active test session
+      const activeTest = sessions.find(s => s.status === 'active');
+      
+      if (activeTest) {
+        // Randomly pick version A or B
+        const versionId = pickRandomVersion(activeTest.version_a_id, activeTest.version_b_id);
+        setActiveTestSession(activeTest);
+        setTestedVersionId(versionId);
+        setStatus(`📊 A/B Test Active: "${activeTest.test_name}"`);
+      } else {
+        setActiveTestSession(null);
+        setTestedVersionId(null);
+      }
+    } catch (error) {
+      console.error('Error loading A/B tests:', error);
+      setActiveTestSession(null);
+      setTestedVersionId(null);
+    }
+  };
 
   const compileSystemPrompt = useMemo(() => {
     if (!selectedAgent) return '';
@@ -147,6 +195,7 @@ export default function ChatPage() {
       return;
     }
 
+    const requestStartTime = Date.now();
     const timestamp = Date.now();
     const userEntry = { id: `user-${timestamp}`, role: 'user', text: trimmed };
     setChatLog((prev) => [...prev, userEntry]);
@@ -171,14 +220,92 @@ export default function ChatPage() {
       }
 
       const data = await response.json();
-      setChatLog((prev) => [...prev, { id: `agent-${timestamp}`, role: 'agent', text: data.reply }]);
+      const agentResponse = data.reply;
+      const responseTimeMs = Date.now() - requestStartTime;
+      
+      setChatLog((prev) => [...prev, { id: `agent-${timestamp}`, role: 'agent', text: agentResponse }]);
+      
+      // Record test result if there's an active test
+      if (activeTestSession && testedVersionId) {
+        recordTestResult(trimmed, agentResponse, responseTimeMs);
+      }
     } catch (error) {
+      const errorText = `⚠️ ${error?.message || 'Provider error.'}`;
       setChatLog((prev) => [
         ...prev,
-        { id: `agent-${timestamp}`, role: 'agent', text: `⚠️ ${error?.message || 'Provider error.'}` },
+        { id: `agent-${timestamp}`, role: 'agent', text: errorText },
       ]);
     } finally {
       setIsResponding(false);
+    }
+  };
+
+  /**
+   * Record test result to the A/B test database
+   */
+  const recordTestResult = async (userPrompt, agentResponse, responseTimeMs) => {
+    try {
+      const res = await fetch(`${API_URL}/api/a-b-tests/${activeTestSession.id}/results`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: selectedAgent.id,
+          versionId: testedVersionId,
+          userPrompt,
+          agentResponse,
+          responseTimeMs,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        console.error('Error recording test result:', data);
+      } else {
+        console.log('✓ Test result recorded');
+      }
+    } catch (error) {
+      console.error('Error recording test result:', error);
+    }
+  };
+
+  /**
+   * Rate a response (thumbs up/down)
+   */
+  const handleRateResponse = async (messageId, liked) => {
+    try {
+      if (!selectedAgent) return;
+
+      const rating = liked ? 5 : 1;
+      const qualityScore = liked ? 90 : 30;
+      const relevanceScore = liked ? 85 : 35;
+      const helpfulnessScore = liked ? 88 : 32;
+
+      const res = await fetch(`${API_URL}/api/agents/${selectedAgent.id}/rate-response`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: messageId,
+          test_result_id: activeTestSession ? messageId : null,
+          rating,
+          quality_score: qualityScore,
+          relevance_score: relevanceScore,
+          helpfulness_score: helpfulnessScore,
+          feedback_text: liked ? 'Helpful response' : 'Not helpful',
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        console.error('Error rating response:', data);
+      } else {
+        console.log('✓ Response rated');
+        setRatedMessages((prev) => ({
+          ...prev,
+          [messageId]: liked ? 'thumbs-up' : 'thumbs-down',
+        }));
+      }
+    } catch (error) {
+      console.error('Error rating response:', error);
     }
   };
 
@@ -300,6 +427,95 @@ export default function ChatPage() {
                     : 'None'}
                 </b>
               </div>
+
+              {activeTestSession && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                  <p className="rail-label">📊 A/B Test</p>
+                  <div className="cap-card">
+                    <span className="cap-label">Test Name</span>
+                    <b>{activeTestSession.test_name}</b>
+                  </div>
+                  <div className="cap-card">
+                    <span className="cap-label">Testing Version</span>
+                    <b style={{ color: '#10b981' }}>
+                      {testedVersionId === activeTestSession.version_a_id ? 'A' : 'B'}
+                    </b>
+                  </div>
+                  <div className="cap-card">
+                    <span className="cap-label">Progress</span>
+                    <b>Recording responses…</b>
+                  </div>
+                </div>
+              )}
+
+              {chatLog.length > 0 && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                  <p className="rail-label">⭐ Rate Response</p>
+                  {(() => {
+                    const lastAgentMessage = [...chatLog].reverse().find((m) => m.role === 'agent');
+                    if (!lastAgentMessage) return <p className="muted">No response yet</p>;
+                    if (ratedMessages[lastAgentMessage.id]) {
+                      return (
+                        <p className="muted">
+                          {ratedMessages[lastAgentMessage.id] === 'thumbs-up' ? '👍 Marked helpful' : '👎 Marked unhelpful'}
+                        </p>
+                      );
+                    }
+                    return (
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleRateResponse(lastAgentMessage.id, true)}
+                          style={{
+                            background: 'none',
+                            border: '1px solid var(--border)',
+                            fontSize: '24px',
+                            cursor: 'pointer',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = 'var(--success-light)';
+                            e.target.style.borderColor = '#10b981';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'none';
+                            e.target.style.borderColor = 'var(--border)';
+                          }}
+                          title="Helpful"
+                        >
+                          👍
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRateResponse(lastAgentMessage.id, false)}
+                          style={{
+                            background: 'none',
+                            border: '1px solid var(--border)',
+                            fontSize: '24px',
+                            cursor: 'pointer',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = 'var(--error-light)';
+                            e.target.style.borderColor = '#ef4444';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'none';
+                            e.target.style.borderColor = 'var(--border)';
+                          }}
+                          title="Not helpful"
+                        >
+                          👎
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           ) : (
             <p className="muted">Select an agent to view its configuration.</p>
