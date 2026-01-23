@@ -4,6 +4,12 @@ import fetch from 'node-fetch';
 import multer from 'multer';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import 'dotenv/config';
+import agentManager from './agentManager.js';
+import intentClassifier from './intentClassifier.js';
+import agentRegistry from './agentRegistry.js';
+import taskPlanner from './taskPlanner.js';
+import outputGenerators from './outputGenerators.js';
+import promptVersioning from './promptVersioning.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -172,9 +178,780 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+/**
+ * Orchestrated Multi-Agent Chat Endpoint
+ * Agents work together in a coordinated workflow to complete complex tasks
+ */
+app.post('/api/orchestrated-chat', async (req, res) => {
+  const { agentIds, userPrompt, mode = 'sequential', autoMode = false } = req.body || {};
+
+  if (!autoMode && (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0)) {
+    return res.status(400).json({ error: 'agentIds array is required (unless autoMode is true)' });
+  }
+
+  if (!userPrompt || typeof userPrompt !== 'string') {
+    return res.status(400).json({ error: 'userPrompt is required' });
+  }
+
+  try {
+    let selectedAgentIds = agentIds || [];
+
+    // Auto-mode: detect agents needed
+    if (autoMode) {
+      // Register default agents if not already registered
+      if (agentRegistry.getAllAgents().length === 0) {
+        const defaultAgents = [
+          {
+            id: 'research-agent',
+            name: 'Research Agent',
+            description: 'Gathers and analyzes data',
+            systemPrompt: 'You are a research specialist. Gather comprehensive information on topics.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['data_research', 'analysis'],
+            outputFormat: 'text',
+          },
+          {
+            id: 'planning-agent',
+            name: 'Planning Agent',
+            description: 'Creates plans and strategies',
+            systemPrompt: 'You are a planning expert. Create detailed, actionable plans.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['planning', 'analysis'],
+            outputFormat: 'text',
+          },
+          {
+            id: 'document-agent',
+            name: 'Document Agent',
+            description: 'Formats and creates documents',
+            systemPrompt: 'You are a document specialist. Format content professionally and clearly.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['document_generation', 'creative_writing'],
+            outputFormat: 'document',
+          },
+          {
+            id: 'data-processor',
+            name: 'Data Processor',
+            description: 'Processes and transforms data',
+            systemPrompt: 'You are a data processing specialist. Process data accurately and efficiently.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['data_processing', 'analysis'],
+            outputFormat: 'json',
+          },
+          {
+            id: 'code-agent',
+            name: 'Code Agent',
+            description: 'Writes and generates code',
+            systemPrompt: 'You are a code generation specialist. Write clean, well-documented code.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['code_generation'],
+            outputFormat: 'code',
+          },
+          {
+            id: 'qa-agent',
+            name: 'QA Agent',
+            description: 'Reviews and validates output',
+            systemPrompt: 'You are a quality assurance specialist. Review and validate the output quality.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['quality_assurance', 'analysis'],
+            outputFormat: 'text',
+          },
+        ];
+
+        for (const agent of defaultAgents) {
+          agentRegistry.registerAgent(agent.id, agent);
+        }
+      }
+
+      // Get agents for this task
+      const agentsForTask = agentRegistry.getAgentsForTask(userPrompt);
+      selectedAgentIds = agentsForTask.map(a => a.id);
+
+      if (selectedAgentIds.length === 0) {
+        selectedAgentIds = ['research-agent', 'planning-agent', 'document-agent'];
+      }
+    }
+
+    // Register agents if not already registered
+    for (const agentId of selectedAgentIds) {
+      if (!agentManager.getAgent(agentId)) {
+        const registeredAgent = agentRegistry.getAgent(agentId);
+        if (registeredAgent) {
+          agentManager.registerAgent(agentId, registeredAgent);
+        } else {
+          agentManager.registerAgent(agentId, {
+            name: agentId,
+            modelId: 'gpt-4o-mini',
+            role: 'specialist',
+          });
+        }
+      }
+    }
+
+    // Classify intent
+    const intentAnalysis = intentClassifier.classify(userPrompt);
+
+    // Create workflow
+    const workflowId = `workflow-${Date.now()}`;
+    agentManager.createWorkflow(workflowId, selectedAgentIds, mode);
+
+    // Helper function to call LLM
+    const callAgentHandler = async (config) => {
+      const modelConfig = MODEL_HANDLERS[config.modelId];
+      if (!modelConfig) {
+        throw new Error(`Unknown model: ${config.modelId}`);
+      }
+      const apiKey = process.env[modelConfig.envKey];
+      if (!apiKey) {
+        throw new Error(`Missing API key for ${config.modelId}`);
+      }
+
+      return await modelConfig.handler({
+        ...config,
+        apiKey,
+      });
+    };
+
+    let result;
+
+    if (mode === 'parallel') {
+      // Execute all agents in parallel
+      result = await agentManager.orchestrateParallel(
+        selectedAgentIds,
+        userPrompt,
+        callAgentHandler
+      );
+    } else {
+      // Sequential mode (default)
+      result = await agentManager.executeWorkflow(
+        workflowId,
+        userPrompt,
+        { sessionId: workflowId },
+        callAgentHandler
+      );
+    }
+
+    res.json({
+      success: true,
+      intentAnalysis,
+      workflow: {
+        id: workflowId,
+        mode,
+        autoMode,
+      },
+      result,
+    });
+  } catch (error) {
+    console.error('[ORCHESTRATION_ERROR]', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Orchestration failed',
+    });
+  }
+});
+
+/**
+ * Streaming Orchestrated Chat Endpoint
+ * Real-time agent communication as messages appear
+ * Uses GET with query parameters for EventSource compatibility
+ */
+app.get('/api/orchestrated-chat-stream', async (req, res) => {
+  const { agentIds, userPrompt, mode = 'sequential', autoMode = 'false' } = req.query || {};
+  
+  const isModeAutoTrue = autoMode === 'true';
+  const parsedAgentIds = agentIds ? JSON.parse(agentIds) : [];
+
+  if (!isModeAutoTrue && (!parsedAgentIds || !Array.isArray(parsedAgentIds) || parsedAgentIds.length === 0)) {
+    return res.status(400).json({ error: 'agentIds array is required (unless autoMode is true)' });
+  }
+
+  if (!userPrompt || typeof userPrompt !== 'string') {
+    return res.status(400).json({ error: 'userPrompt is required' });
+  }
+
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const sendEvent = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    let selectedAgentIds = parsedAgentIds || [];
+
+    // Auto-mode: detect agents needed
+    if (isModeAutoTrue) {
+      // Register default agents if not already registered
+      if (agentRegistry.getAllAgents().length === 0) {
+        const defaultAgents = [
+          {
+            id: 'research-agent',
+            name: 'Research Agent',
+            description: 'Gathers and analyzes data',
+            systemPrompt: 'You are a research specialist. Gather comprehensive information on topics.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['data_research', 'analysis'],
+            outputFormat: 'text',
+          },
+          {
+            id: 'planning-agent',
+            name: 'Planning Agent',
+            description: 'Creates plans and strategies',
+            systemPrompt: 'You are a planning expert. Create detailed, actionable plans.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['planning', 'analysis'],
+            outputFormat: 'text',
+          },
+          {
+            id: 'document-agent',
+            name: 'Document Agent',
+            description: 'Formats and creates documents',
+            systemPrompt: 'You are a document specialist. Format content professionally and clearly.',
+            modelId: 'gpt-4o-mini',
+            capabilities: ['document_generation', 'creative_writing'],
+            outputFormat: 'document',
+          },
+        ];
+
+        for (const agent of defaultAgents) {
+          agentRegistry.registerAgent(agent.id, agent);
+        }
+      }
+
+      // Get agents for this task
+      const agentsForTask = agentRegistry.getAgentsForTask(userPrompt);
+      selectedAgentIds = agentsForTask.map(a => a.id);
+
+      if (selectedAgentIds.length === 0) {
+        selectedAgentIds = ['research-agent', 'planning-agent', 'document-agent'];
+      }
+    }
+
+    // Register agents if not already registered
+    for (const agentId of selectedAgentIds) {
+      if (!agentManager.getAgent(agentId)) {
+        const registeredAgent = agentRegistry.getAgent(agentId);
+        if (registeredAgent) {
+          agentManager.registerAgent(agentId, registeredAgent);
+        } else {
+          agentManager.registerAgent(agentId, {
+            name: agentId,
+            modelId: 'gpt-4o-mini',
+            role: 'specialist',
+          });
+        }
+      }
+    }
+
+    // Analyze task
+    const taskAnalysis = taskPlanner.analyzTask(userPrompt);
+    sendEvent({
+      type: 'task-analysis',
+      data: taskAnalysis,
+    });
+
+    // Create workflow
+    const workflowId = `workflow-${Date.now()}`;
+    const workflow = agentManager.createWorkflow(workflowId, selectedAgentIds, mode);
+    
+    sendEvent({
+      type: 'workflow-created',
+      data: {
+        workflowId,
+        totalSteps: workflow.steps.length,
+        agents: workflow.agents.map(a => ({ id: a.id, name: a.name })),
+      },
+    });
+
+    // Helper function to call LLM
+    const callAgentHandler = async (config) => {
+      const modelConfig = MODEL_HANDLERS[config.modelId];
+      if (!modelConfig) {
+        throw new Error(`Unknown model: ${config.modelId}`);
+      }
+      const apiKey = process.env[modelConfig.envKey];
+      if (!apiKey) {
+        throw new Error(`Missing API key for ${config.modelId}`);
+      }
+
+      return await modelConfig.handler({
+        ...config,
+        apiKey,
+      });
+    };
+
+    // Execute agents sequentially and stream results
+    let currentInput = userPrompt;
+
+    for (let i = 0; i < workflow.steps.length; i++) {
+      const step = workflow.steps[i];
+      const agent = agentManager.getAgent(step.agentId);
+
+      sendEvent({
+        type: 'agent-start',
+        data: {
+          step: step.stepNumber,
+          agent: agent.name,
+          agentId: agent.id,
+        },
+      });
+
+      try {
+        // Build messages for this agent
+        const messages = [
+          {
+            role: 'system',
+            content: agent.systemPrompt ||
+              `You are a ${agent.role} specialized in helping with tasks. Your role: ${step.agentName}`,
+          },
+          {
+            role: 'user',
+            content: currentInput,
+          },
+        ];
+
+        // Call the agent
+        const output = await callAgentHandler({
+          modelId: agent.modelId,
+          temperature: 0.3,
+          messages,
+        });
+
+        // Send agent response
+        sendEvent({
+          type: 'agent-response',
+          data: {
+            step: step.stepNumber,
+            agent: agent.name,
+            agentId: agent.id,
+            output: output,
+            timestamp: new Date().toISOString(),
+          },
+        });
+
+        currentInput = output;
+      } catch (error) {
+        sendEvent({
+          type: 'agent-error',
+          data: {
+            step: step.stepNumber,
+            agent: agent.name,
+            error: error.message,
+          },
+        });
+
+        currentInput = `Previous agent failed. Continuing with: ${currentInput}`;
+      }
+    }
+
+    // Send final result
+    sendEvent({
+      type: 'workflow-complete',
+      data: {
+        finalResult: currentInput,
+        workflowId,
+      },
+    });
+
+    res.end();
+  } catch (error) {
+    console.error('[STREAM_ORCHESTRATION_ERROR]', error);
+    try {
+      sendEvent({
+        type: 'error',
+        data: {
+          error: error.message || 'Orchestration failed',
+        },
+      });
+    } catch (sendError) {
+      console.error('[SEND_EVENT_ERROR]', sendError);
+    }
+    res.end();
+  }
+});
+
+/**
+ * PROMPT VERSIONING & A/B TESTING ENDPOINTS
+ */
+
+// Create a new prompt version for an agent
+app.post('/api/agents/:agentId/prompt-versions', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const version = await promptVersioning.createPromptVersion(agentId, req.body);
+    res.json({ success: true, version });
+  } catch (error) {
+    console.error('[PROMPT_VERSION_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get all prompt versions for an agent
+app.get('/api/agents/:agentId/prompt-versions', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const versions = await promptVersioning.getPromptVersions(agentId);
+    res.json({ success: true, versions });
+  } catch (error) {
+    console.error('[GET_VERSIONS_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get a specific prompt version
+app.get('/api/prompt-versions/:versionId', async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    const version = await promptVersioning.getPromptVersion(versionId);
+    res.json({ success: true, version });
+  } catch (error) {
+    console.error('[GET_VERSION_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Update a prompt version
+app.put('/api/prompt-versions/:versionId', async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    const updated = await promptVersioning.updatePromptVersion(versionId, req.body);
+    res.json({ success: true, version: updated });
+  } catch (error) {
+    console.error('[UPDATE_VERSION_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Delete a prompt version
+app.delete('/api/prompt-versions/:versionId', async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    await promptVersioning.deletePromptVersion(versionId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[DELETE_VERSION_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Create an A/B test session
+app.post('/api/agents/:agentId/a-b-tests', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const session = await promptVersioning.createABTestSession(agentId, req.body);
+    res.json({ success: true, session });
+  } catch (error) {
+    console.error('[CREATE_AB_TEST_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get A/B test sessions for an agent
+app.get('/api/agents/:agentId/a-b-tests', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const sessions = await promptVersioning.getABTestSessions(agentId);
+    res.json({ success: true, sessions });
+  } catch (error) {
+    console.error('[GET_AB_TESTS_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get A/B test details
+app.get('/api/a-b-tests/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await promptVersioning.getABTestSessionDetails(sessionId);
+    res.json({ success: true, session });
+  } catch (error) {
+    console.error('[GET_AB_TEST_DETAILS_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Record A/B test result
+app.post('/api/a-b-tests/:sessionId/results', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { agentId, versionId, userPrompt, agentResponse, responseTimeMs } = req.body;
+    
+    const result = await promptVersioning.recordTestResult(
+      sessionId,
+      agentId,
+      versionId,
+      {
+        user_prompt: userPrompt,
+        agent_response: agentResponse,
+        response_time_ms: responseTimeMs,
+      }
+    );
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('[RECORD_TEST_RESULT_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Rate a response
+app.post('/api/agents/:agentId/rate-response', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const rating = await promptVersioning.rateResponse(agentId, req.body);
+    res.json({ success: true, rating });
+  } catch (error) {
+    console.error('[RATE_RESPONSE_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get A/B test statistics
+app.get('/api/a-b-tests/:sessionId/statistics', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const stats = await promptVersioning.getTestStatistics(sessionId);
+    res.json({ success: true, ...stats });
+  } catch (error) {
+    console.error('[GET_STATS_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// End an A/B test
+app.post('/api/a-b-tests/:sessionId/end', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await promptVersioning.endABTest(sessionId);
+    res.json({ success: true, session });
+  } catch (error) {
+    console.error('[END_AB_TEST_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Generate improvement suggestions
+app.post('/api/prompt-versions/:versionId/suggestions', async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    const suggestions = await promptVersioning.generateImprovementSuggestions(versionId);
+    res.json({ success: true, suggestions });
+  } catch (error) {
+    console.error('[GENERATE_SUGGESTIONS_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get improvement suggestions
+app.get('/api/prompt-versions/:versionId/suggestions', async (req, res) => {
+  try {
+    const { versionId } = req.params;
+    const suggestions = await promptVersioning.getImprovementSuggestions(versionId);
+    res.json({ success: true, suggestions });
+  } catch (error) {
+    console.error('[GET_SUGGESTIONS_ERROR]', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Agent Builder API running on http://localhost:${PORT}`);
 });
+
+/**
+ * Autonomous Task Execution Endpoint
+ * System automatically determines needed agents and generates output
+ */
+app.post('/api/autonomous-task', async (req, res) => {
+  const { taskDescription, outputFormat = 'document', userId = null } = req.body || {};
+
+  if (!taskDescription || typeof taskDescription !== 'string') {
+    return res.status(400).json({ error: 'taskDescription is required' });
+  }
+
+  try {
+    // Step 1: Register default agents if not already registered
+    if (agentRegistry.getAllAgents().length === 0) {
+      const defaultAgents = [
+        {
+          id: 'research-agent',
+          name: 'Research Agent',
+          description: 'Gathers and analyzes data',
+          systemPrompt: 'You are a research specialist. Gather comprehensive information on topics.',
+          modelId: 'gpt-4o-mini',
+          capabilities: ['data_research', 'analysis'],
+          outputFormat: 'text',
+        },
+        {
+          id: 'planning-agent',
+          name: 'Planning Agent',
+          description: 'Creates plans and strategies',
+          systemPrompt: 'You are a planning expert. Create detailed, actionable plans.',
+          modelId: 'gpt-4o-mini',
+          capabilities: ['planning', 'analysis'],
+          outputFormat: 'text',
+        },
+        {
+          id: 'document-agent',
+          name: 'Document Agent',
+          description: 'Formats and creates documents',
+          systemPrompt: 'You are a document specialist. Format content professionally and clearly.',
+          modelId: 'gpt-4o-mini',
+          capabilities: ['document_generation', 'creative_writing'],
+          outputFormat: 'document',
+        },
+        {
+          id: 'data-processor',
+          name: 'Data Processor',
+          description: 'Processes and transforms data',
+          systemPrompt: 'You are a data processing specialist. Process data accurately and efficiently.',
+          modelId: 'gpt-4o-mini',
+          capabilities: ['data_processing', 'analysis'],
+          outputFormat: 'json',
+        },
+        {
+          id: 'code-agent',
+          name: 'Code Agent',
+          description: 'Writes and generates code',
+          systemPrompt: 'You are a code generation specialist. Write clean, well-documented code.',
+          modelId: 'gpt-4o-mini',
+          capabilities: ['code_generation'],
+          outputFormat: 'code',
+        },
+        {
+          id: 'qa-agent',
+          name: 'QA Agent',
+          description: 'Reviews and validates output',
+          systemPrompt: 'You are a quality assurance specialist. Review and validate the output quality.',
+          modelId: 'gpt-4o-mini',
+          capabilities: ['quality_assurance', 'analysis'],
+          outputFormat: 'text',
+        },
+      ];
+
+      for (const agent of defaultAgents) {
+        agentRegistry.registerAgent(agent.id, agent);
+      }
+    }
+
+    // Helper function to call LLM
+    const callAgentHandler = async (config) => {
+      const modelConfig = MODEL_HANDLERS[config.modelId];
+      if (!modelConfig) {
+        throw new Error(`Unknown model: ${config.modelId}`);
+      }
+      const apiKey = process.env[modelConfig.envKey];
+      if (!apiKey) {
+        throw new Error(`Missing API key for ${config.modelId}`);
+      }
+
+      return await modelConfig.handler({
+        ...config,
+        apiKey,
+      });
+    };
+
+    // Execute the autonomous task
+    const result = await agentManager.executeAutonomousTask(
+      taskDescription,
+      callAgentHandler
+    );
+
+    // Generate output document if requested
+    let documentResult = null;
+    if (result.finalResult && outputFormat && outputFormat !== 'none') {
+      try {
+        const docFilename = `task-output-${result.taskId}.${getFileExtension(outputFormat)}`;
+        documentResult = await outputGenerators.generateDocument(
+          result.finalResult,
+          outputFormat,
+          docFilename
+        );
+      } catch (docError) {
+        console.warn('Document generation failed:', docError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      result,
+      document: documentResult,
+    });
+  } catch (error) {
+    console.error('[AUTONOMOUS_TASK_ERROR]', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Autonomous task execution failed',
+    });
+  }
+});
+
+/**
+ * Get generated file
+ */
+app.get('/api/generated-files/:filename', async (req, res) => {
+  try {
+    const file = outputGenerators.getFile(req.params.filename);
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    res.setHeader('Content-Type', getContentType(file.filename));
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.content);
+  } catch (error) {
+    console.error('[FILE_DOWNLOAD_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * List generated files
+ */
+app.get('/api/generated-files', async (req, res) => {
+  try {
+    const files = outputGenerators.listFiles();
+    res.json({ files });
+  } catch (error) {
+    console.error('[LIST_FILES_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Helper: Get file extension from format
+ */
+function getFileExtension(format) {
+  const extensions = {
+    word: 'docx',
+    docx: 'docx',
+    pdf: 'pdf',
+    html: 'html',
+    markdown: 'md',
+    md: 'md',
+    json: 'json',
+    text: 'txt',
+    txt: 'txt',
+  };
+  return extensions[format.toLowerCase()] || 'txt';
+}
+
+/**
+ * Helper: Get content type from filename
+ */
+function getContentType(filename) {
+  const types = {
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.pdf': 'application/pdf',
+    '.html': 'text/html',
+    '.md': 'text/markdown',
+    '.json': 'application/json',
+    '.txt': 'text/plain',
+  };
+  const ext = filename.substring(filename.lastIndexOf('.'));
+  return types[ext] || 'application/octet-stream';
+}
 
 function separateSystem(messages = []) {
   const systemMessages = messages.filter((msg) => msg.role === 'system');

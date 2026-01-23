@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
+import PromptVersioning from '../components/PromptVersioning.jsx';
+import ABTesting from '../components/ABTesting.jsx';
+import ModelComparison from '../components/ModelComparison.jsx';
 
 const sliderLabels = {
   formality: ['Casual', 'Balanced', 'Professional'],
@@ -95,10 +98,14 @@ export default function BuilderPage() {
   const [isResponding, setIsResponding] = useState(false);
   const [myAgents, setMyAgents] = useState([]);
   const [isFetchingAgents, setIsFetchingAgents] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [selectedAgentId, setSelectedAgentId] = useState(() => {
+    // Restore selected agent from sessionStorage on mount
+    return sessionStorage.getItem('selectedAgentId') || null;
+  });
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [builderTab, setBuilderTab] = useState('config'); // 'config', 'versions', 'testing', 'comparison'
 
   const descCount = form.description.length;
 
@@ -385,6 +392,15 @@ export default function BuilderPage() {
     }
   }, []);
 
+  // Persist selectedAgentId to sessionStorage
+  useEffect(() => {
+    if (selectedAgentId) {
+      sessionStorage.setItem('selectedAgentId', selectedAgentId);
+    } else {
+      sessionStorage.removeItem('selectedAgentId');
+    }
+  }, [selectedAgentId]);
+
   const agentSelectBase =
     'id, name, description, system_prompt, guardrails, sliders, tools, files, model_id';
 
@@ -607,6 +623,41 @@ export default function BuilderPage() {
 
       <div className="grid builder-grid">
         <div className="config-column">
+          {/* Builder Tabs */}
+          <div className="builder-tabs">
+            <button
+              className={`tab ${builderTab === 'config' ? 'active' : ''}`}
+              onClick={() => setBuilderTab('config')}
+            >
+              ⚙️ Configuration
+            </button>
+            {selectedAgentId && (
+              <>
+                <button
+                  className={`tab ${builderTab === 'versions' ? 'active' : ''}`}
+                  onClick={() => setBuilderTab('versions')}
+                >
+                  📝 Prompt Versions
+                </button>
+                <button
+                  className={`tab ${builderTab === 'testing' ? 'active' : ''}`}
+                  onClick={() => setBuilderTab('testing')}
+                >
+                  ⚔️ A/B Testing
+                </button>
+                <button
+                  className={`tab ${builderTab === 'comparison' ? 'active' : ''}`}
+                  onClick={() => setBuilderTab('comparison')}
+                >
+                  🏆 Model Comparison
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Configuration Tab */}
+          {builderTab === 'config' && (
+            <>
           <section className="card">
             <div className="inner">
               <h3>Details</h3>
@@ -834,6 +885,36 @@ export default function BuilderPage() {
               )}
             </div>
           </section>
+            </>
+          )}
+
+          {/* Prompt Versions Tab */}
+          {builderTab === 'versions' && selectedAgentId && (
+            <div style={{ padding: '20px', background: 'var(--card)', borderRadius: '8px', marginTop: '20px' }}>
+              <PromptVersioning 
+                agentId={selectedAgentId}
+                currentPrompt={form.prompt}
+                onVersionSelect={(version) => {
+                  updateForm('prompt', version.prompt_text);
+                  setStatus('✨ Switched to version: ' + version.version_name);
+                }}
+              />
+            </div>
+          )}
+
+          {/* A/B Testing Tab */}
+          {builderTab === 'testing' && selectedAgentId && (
+            <div style={{ padding: '20px', background: 'var(--card)', borderRadius: '8px', marginTop: '20px' }}>
+              <ABTesting agentId={selectedAgentId} />
+            </div>
+          )}
+
+          {/* Model Comparison Tab */}
+          {builderTab === 'comparison' && selectedAgentId && (
+            <div style={{ padding: '20px', background: 'var(--card)', borderRadius: '8px', marginTop: '20px' }}>
+              <ModelComparison agentId={selectedAgentId} systemPrompt={form.prompt} />
+            </div>
+          )}
         </div>
 
         <section className="card preview">
@@ -870,7 +951,7 @@ export default function BuilderPage() {
             </button>
           </div>
         </section>
-      </div>
+        </div>
 
       <div className="footer">
         <div className="wrap">
