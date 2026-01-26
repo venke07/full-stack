@@ -1,0 +1,347 @@
+/* usageDashboard.css */
+
+/* Page */
+.ud-page {
+  background: #ffffff;
+  min-height: 100vh;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #222;
+  padding: 18px;
+}
+
+/* Outer shell (matches wireframe window look) */
+.ud-shell {
+  border: 2px solid #bdbdbd;
+  height: calc(100vh - 60px);
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  background: #fff;
+}
+
+/* Sidebar */
+.ud-sidebar {
+  border-right: 2px solid #bdbdbd;
+  display: flex;
+  flex-direction: column;
+}
+
+.ud-sidebarHeader {
+  padding: 18px 16px;
+  border-bottom: 2px solid #bdbdbd;
+  background: #f5f5f5;
+}
+
+.ud-sidebarTitle {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.ud-searchWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 2px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.ud-searchInput {
+  width: 100%;
+  padding: 10px 10px;
+  border: 2px solid #cfcfcf;
+  border-radius: 4px;
+  outline: none;
+  font-size: 14px;
+}
+
+.ud-searchIcon {
+  font-size: 16px;
+  opacity: 0.8;
+}
+
+.ud-agentList{
+  padding: 8px 0;
+  max-height: 420px;   /* pick any height you want */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.ud-agentItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid #ededed;
+  border-bottom: 1px solid #ededed;
+  font-size: 15px;
+}
+
+.ud-agentItem:hover {
+  background: #f4f4f4;
+}
+
+.ud-agentItem--active {
+  background: #e9e9e9;
+  font-weight: 700;
+}
+
+.ud-agentBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.ud-agentChevron {
+  margin-right: 8px;
+  cursor: pointer;
+  width: 16px;
+}
+
+.ud-agentExpand {
+  padding: 6px 0 10px 28px; /* indent under arrow */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ud-agentDescBtn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ud-agentDescBtn:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(220, 83, 83, 0.05);
+}
+
+.ud-agentDescBtn--active {
+  border-color: rgba(134, 221, 250, 0.9);
+  background: rgba(134, 221, 250, 0.14);
+}
+
+.ud-agentDescDivider {
+  height: 1px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ud-agentName {
+  flex: 1;
+}
+
+/* Main */
+.ud-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.ud-topHeader {
+  padding: 18px 18px;
+  border-bottom: 2px solid #bdbdbd;
+  background: #f5f5f5;
+}
+
+.ud-topHeaderTitle {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* Content sections */
+.ud-section {
+  padding: 16px 18px;
+}
+
+.ud-agentTitle {
+  font-size: 26px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.ud-metaRow {
+  font-size: 14px;
+  color: #333;
+  border-top: 1px solid #dcdcdc;
+  padding-top: 10px;
+}
+
+.ud-metaLabel {
+  font-weight: 700;
+}
+
+.ud-metaValue {
+  font-weight: 500;
+}
+
+.ud-metaSep {
+  margin: 0 8px;
+  color: #777;
+}
+
+.ud-insightCard {
+  border: 1px solid #ddd;
+  padding: 14px;
+  border-radius: 8px;
+  margin-top: 14px;
+  background: #fff;
+}
+
+.ud-insightTitle {
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+.ud-insightRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.ud-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #bbb;
+  font-weight: 700;
+}
+
+.ud-muted {
+  color: #666;
+  font-size: 14px;
+}
+
+.ud-kv {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.ud-k {
+  color: #666;
+  font-weight: 700;
+}
+
+.ud-v {
+  color: #111;
+}
+
+
+/* KPI row */
+.ud-kpiRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding: 14px 18px;
+}
+
+.ud-kpiCard {
+  border: 2px solid #cfcfcf;
+  background: #f8f8f8;
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.ud-kpiLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.ud-kpiValue{
+  font-size: 40px;
+  font-weight: 800;
+  color: #222;
+}
+
+.ud-kpiValue-activeAgo {
+  font-size: 30px;
+  font-weight: 800;
+  color: #222;
+  position: relative;
+  top: 6px;
+}
+
+/* Divider line */
+.ud-divider {
+  border-top: 2px solid #bdbdbd;
+  margin: 6px 18px;
+}
+
+/* Patterns */
+.ud-h2 {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.ud-subtitle {
+  font-size: 14px;
+  color: #444;
+  margin-bottom: 10px;
+}
+
+.usage-patternBox {
+  border: 2px solid #cfcfcf;
+  background: #fff;
+  padding: 14px 16px;
+}
+
+.ud-bullets {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.8;
+  font-size: 15px;
+}
+
+/* Usage status */
+.ud-statusRow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.ud-statusLabel {
+  font-weight: 700;
+  color: #333;
+}
+
+.ud-statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid #cbbd7b;
+  background: #f6e7b5;
+  padding: 10px 14px;
+  font-weight: 800;
+}
+
+.ud-statusIcon {
+  font-size: 16px;
+}
+
+.ud-statusText {
+  font-size: 14px;
+}
+
+/* Optional back button (bottom-left-ish) */
+.ud-backBtn {
+  margin-top: 12px;
+  border: 2px solid #bdbdbd;
+  background: #f5f5f5;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
