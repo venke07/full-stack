@@ -10,6 +10,7 @@ import agentRegistry from './agentRegistry.js';
 import taskPlanner from './taskPlanner.js';
 import outputGenerators from './outputGenerators.js';
 import promptVersioning from './promptVersioning.js';
+import conversationMemory from './conversationMemory.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -27,6 +28,11 @@ const MODEL_HANDLERS = {
     envKey: 'DEEPSEEK_API_KEY',
     handler: callOpenAICompatible,
     baseUrl: 'https://api.deepseek.com/v1/chat/completions',
+  },
+  'llama-3.3-70b-versatile': {
+    envKey: 'GROQ_API_KEY',
+    handler: callOpenAICompatible,
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
   },
 };
 
@@ -223,7 +229,16 @@ app.post('/api/orchestrated-chat', async (req, res) => {
             id: 'document-agent',
             name: 'Document Agent',
             description: 'Formats and creates documents',
-            systemPrompt: 'You are a document specialist. Format content professionally and clearly.',
+            systemPrompt: `You are a document creation specialist. Generate clear, well-structured, ready-to-save document content.
+
+Rules:
+- Output only document body text (no markdown fences or JSON).
+- Include a short title on the first line.
+- Separate paragraphs with blank lines.
+- If user implies a filename, mention it as: filename: <safe_name>.
+- Avoid links to non-existent URLs. If unsure, omit links.
+- Keep it concise and professional.
+`,
             modelId: 'gpt-4o-mini',
             capabilities: ['document_generation', 'creative_writing'],
             outputFormat: 'document',
@@ -305,9 +320,12 @@ app.post('/api/orchestrated-chat', async (req, res) => {
         throw new Error(`Missing API key for ${config.modelId}`);
       }
 
+      const baseUrl = config.baseUrl || modelConfig.baseUrl || 'https://api.openai.com/v1/chat/completions';
+
       return await modelConfig.handler({
         ...config,
         apiKey,
+        baseUrl,
       });
     };
 
@@ -513,11 +531,18 @@ app.get('/api/orchestrated-chat-stream', async (req, res) => {
         ];
 
         // Call the agent
-        const output = await callAgentHandler({
+        const response = await callAgentHandler({
           modelId: agent.modelId,
           temperature: 0.3,
           messages,
         });
+
+        // Normalize output shape (LLM handlers may return { reply })
+        const output = response?.reply ?? response;
+
+        if (typeof output !== 'string') {
+          throw new Error('Document agent returned non-text output');
+        }
 
         // Send agent response
         sendEvent({
@@ -554,6 +579,21 @@ app.get('/api/orchestrated-chat-stream', async (req, res) => {
         workflowId,
       },
     });
+
+    // Check if output should be saved as a file
+    const generatedFile = await detectAndGenerateFile(currentInput, userPrompt);
+    if (generatedFile && generatedFile.success) {
+      sendEvent({
+        type: 'file-generated',
+        data: {
+          filename: generatedFile.filename,
+          filepath: generatedFile.filepath,
+          type: generatedFile.type,
+          downloadUrl: `/api/generated-files/${generatedFile.filename}`,
+          size: generatedFile.size,
+        },
+      });
+    }
 
     res.end();
   } catch (error) {
@@ -796,7 +836,16 @@ app.post('/api/autonomous-task', async (req, res) => {
           id: 'document-agent',
           name: 'Document Agent',
           description: 'Formats and creates documents',
-          systemPrompt: 'You are a document specialist. Format content professionally and clearly.',
+          systemPrompt: `You are a document creation specialist. Generate clear, well-structured, ready-to-save document content.
+
+Rules:
+- Output only document body text (no markdown fences or JSON).
+- Include a short title on the first line.
+- Separate paragraphs with blank lines.
+- If user implies a filename, mention it as: filename: <safe_name>.
+- Avoid links to non-existent URLs. If unsure, omit links.
+- Keep it concise and professional.
+`,
           modelId: 'gpt-4o-mini',
           capabilities: ['document_generation', 'creative_writing'],
           outputFormat: 'document',
@@ -918,6 +967,103 @@ app.get('/api/generated-files', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * Generate file on demand from AI output
+ */
+app.post('/api/generate-file', async (req, res) => {
+  try {
+    const { content, format = 'text', filename } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+
+    const result = await outputGenerators.generateDocument(content, format, filename);
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error });
+    }
+
+    res.json({
+      success: true,
+      file: result,
+      downloadUrl: `/api/generated-files/${result.filename}`,
+    });
+  } catch (error) {
+    console.error('[GENERATE_FILE_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Detect if output should be saved as a file and generate it
+ */
+async function detectAndGenerateFile(agentOutput, userPrompt) {
+  try {
+    // Keywords to detect file generation requests
+    const fileKeywords = {
+      word: [
+        'word document',
+        'create document',
+        'write document',
+        'document',
+        'doc',
+        'report',
+        '.docx',
+        'word doc',
+      ],
+      image: ['generate image', 'create image', 'draw image', 'image of', 'picture of', 'png', 'jpg'],
+      pdf: ['pdf document', 'create pdf', 'pdf file', '.pdf'],
+      csv: ['csv file', 'spreadsheet', 'data file', 'export data', '.csv'],
+      html: ['html page', 'web page', 'html file', '.html'],
+      json: ['json data', 'json file', 'json format', '.json'],
+      markdown: ['markdown', 'readme', '.md'],
+    };
+
+    const lowerPrompt = userPrompt.toLowerCase();
+    const lowerOutput = agentOutput.toLowerCase();
+
+    let detectedFormat = null;
+
+    // Check prompt for file type hints
+    for (const [format, keywords] of Object.entries(fileKeywords)) {
+      if (keywords.some(kw => lowerPrompt.includes(kw))) {
+        detectedFormat = format;
+        break;
+      }
+    }
+
+    // If no format detected in prompt, check output
+    if (!detectedFormat) {
+      for (const [format, keywords] of Object.entries(fileKeywords)) {
+        if (keywords.some(kw => lowerOutput.includes(kw))) {
+          detectedFormat = format;
+          break;
+        }
+      }
+    }
+
+    // Generate file if format detected
+    if (detectedFormat) {
+      let filename = null;
+
+      // Try to extract filename from output
+      const filenameMatch = agentOutput.match(/filename[:\s]+([^\n]+)/i) ||
+                           agentOutput.match(/name[:\s]+([^\n]+)/i);
+      if (filenameMatch) {
+        filename = filenameMatch[1].trim().replace(/[^a-zA-Z0-9._-]/g, '');
+      }
+
+      return await outputGenerators.generateDocument(agentOutput, detectedFormat, filename);
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[DETECT_FILE_ERROR]', error);
+    return null;
+  }
+}
 
 /**
  * Helper: Get file extension from format
@@ -1181,3 +1327,145 @@ async function streamToText(body, limitBytes) {
     truncated,
   };
 }
+
+/**
+ * CONVERSATION MEMORY ENDPOINTS
+ */
+
+/**
+ * Save a conversation
+ */
+app.post('/api/conversations/save', async (req, res) => {
+  try {
+    const { userId, agentId, messages, summary, tags } = req.body;
+
+    if (!userId || !agentId || !messages) {
+      return res.status(400).json({ error: 'userId, agentId, and messages are required' });
+    }
+
+    const result = await conversationMemory.saveConversation(userId, agentId, messages, {
+      summary,
+      tags,
+    });
+
+    if (!result) {
+      return res.status(500).json({ error: 'Failed to save conversation' });
+    }
+
+    res.json({ success: true, conversation: result });
+  } catch (error) {
+    console.error('[SAVE_CONVERSATION_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get conversations for a user/agent
+ */
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const { userId, agentId, limit = 50 } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const conversations = await conversationMemory.getConversations(userId, agentId, parseInt(limit));
+
+    res.json({ success: true, conversations });
+  } catch (error) {
+    console.error('[GET_CONVERSATIONS_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get a specific conversation with all messages
+ */
+app.get('/api/conversations/:conversationId', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required' });
+    }
+
+    const conversation = await conversationMemory.getConversation(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    res.json({ success: true, conversation });
+  } catch (error) {
+    console.error('[GET_CONVERSATION_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get recent context for agent memory
+ */
+app.get('/api/conversations/context/:userId/:agentId', async (req, res) => {
+  try {
+    const { userId, agentId } = req.params;
+    const { limit = 10 } = req.query;
+
+    if (!userId || !agentId) {
+      return res.status(400).json({ error: 'userId and agentId are required' });
+    }
+
+    const context = await conversationMemory.getRecentContext(userId, agentId, parseInt(limit));
+
+    res.json({ success: true, context });
+  } catch (error) {
+    console.error('[GET_CONTEXT_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Delete a conversation
+ */
+app.delete('/api/conversations/:conversationId', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required' });
+    }
+
+    const success = await conversationMemory.deleteConversation(conversationId);
+
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to delete conversation' });
+    }
+
+    res.json({ success: true, message: 'Conversation deleted' });
+  } catch (error) {
+    console.error('[DELETE_CONVERSATION_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Search conversations
+ */
+app.get('/api/conversations/search/:userId/:agentId', async (req, res) => {
+  try {
+    const { userId, agentId } = req.params;
+    const { keyword } = req.query;
+
+    if (!userId || !agentId || !keyword) {
+      return res.status(400).json({ error: 'userId, agentId, and keyword are required' });
+    }
+
+    const results = await conversationMemory.searchConversations(userId, agentId, keyword);
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('[SEARCH_CONVERSATIONS_ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+

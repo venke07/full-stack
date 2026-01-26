@@ -282,6 +282,7 @@ class AgentManager {
       'gemini-2.5-flash': 'GEMINI_API_KEY',
       'gpt-4o-mini': 'OPENAI_API_KEY',
       'deepseek-chat': 'DEEPSEEK_API_KEY',
+      'llama-3.3-70b-versatile': 'GROQ_API_KEY',
     };
     return mapping[modelId] || 'OPENAI_API_KEY';
   }
@@ -293,8 +294,9 @@ class AgentManager {
     const mapping = {
       'gpt-4o-mini': 'https://api.openai.com/v1/chat/completions',
       'deepseek-chat': 'https://api.deepseek.com/v1/chat/completions',
+      'llama-3.3-70b-versatile': 'https://api.groq.com/openai/v1/chat/completions',
     };
-    return mapping[modelId];
+    return mapping[modelId] || 'https://api.openai.com/v1/chat/completions';
   }
 
   /**

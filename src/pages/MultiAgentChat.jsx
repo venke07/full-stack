@@ -5,6 +5,21 @@ import { supabase } from '../lib/supabaseClient.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
+// Generate reasonably unique ids for message keys
+const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+/**
+ * Download generated file
+ */
+const downloadFile = (url, filename) => {
+  const link = document.createElement('a');
+  link.href = `${API_URL}${url}`;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 export default function MultiAgentChat() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -55,7 +70,7 @@ export default function MultiAgentChat() {
     if (!input.trim() || selectedAgents.length === 0) return;
 
     const userMessage = {
-      id: Date.now(),
+      id: makeId(),
       sender: 'user',
       content: input,
       timestamp: new Date(),
@@ -77,6 +92,14 @@ export default function MultiAgentChat() {
       }
     } catch (error) {
       console.error('Error sending message:', error);
+      setMessages(prev => [...prev, {
+        id: makeId(),
+        sender: 'system',
+        senderName: '❌ Error',
+        content: error.message,
+        timestamp: new Date(),
+        type: 'error',
+      }]);
     } finally {
       setLoading(false);
     }
@@ -104,7 +127,7 @@ export default function MultiAgentChat() {
           if (data.type === 'task-analysis') {
             setIntentAnalysis(data.data);
             setMessages(prev => [...prev, {
-              id: Date.now(),
+              id: makeId(),
               sender: 'system',
               senderName: '🔍 Task Analysis',
               content: `Detected: ${data.data.description}\nConfidence: ${(data.data.confidence).toFixed(1)}%`,
@@ -115,7 +138,7 @@ export default function MultiAgentChat() {
 
           if (data.type === 'agent-start') {
             setMessages(prev => [...prev, {
-              id: Date.now(),
+              id: makeId(),
               sender: 'system',
               senderName: `📍 Step ${data.data.step}: ${data.data.agent}`,
               content: 'Processing...',
@@ -126,7 +149,7 @@ export default function MultiAgentChat() {
 
           if (data.type === 'agent-response') {
             setMessages(prev => [...prev, {
-              id: Date.now(),
+              id: makeId(),
               sender: data.data.agentId,
               senderName: `✅ ${data.data.agent}`,
               content: data.data.output,
@@ -137,7 +160,7 @@ export default function MultiAgentChat() {
 
           if (data.type === 'agent-error') {
             setMessages(prev => [...prev, {
-              id: Date.now(),
+              id: makeId(),
               sender: 'system',
               senderName: `❌ ${data.data.agent}`,
               content: `Error: ${data.data.error}`,
@@ -148,7 +171,7 @@ export default function MultiAgentChat() {
 
           if (data.type === 'workflow-complete') {
             setMessages(prev => [...prev, {
-              id: Date.now(),
+              id: makeId(),
               sender: 'system',
               senderName: '🎉 Workflow Complete',
               content: data.data.finalResult,
@@ -160,7 +183,7 @@ export default function MultiAgentChat() {
 
           if (data.type === 'error') {
             setMessages(prev => [...prev, {
-              id: Date.now(),
+              id: makeId(),
               sender: 'system',
               senderName: '❌ Error',
               content: data.data.error,
@@ -178,7 +201,7 @@ export default function MultiAgentChat() {
         console.error('EventSource error:', error);
         eventSource.close();
         setMessages(prev => [...prev, {
-          id: Date.now(),
+          id: makeId(),
           sender: 'system',
           senderName: '❌ Connection Error',
           content: 'Lost connection to server',
@@ -189,7 +212,7 @@ export default function MultiAgentChat() {
     } catch (error) {
       console.error('Auto chat error:', error);
       setMessages(prev => [...prev, {
-        id: Date.now(),
+        id: makeId(),
         sender: 'system',
         senderName: '❌ Error',
         content: `Error: ${error.message}`,
@@ -236,7 +259,7 @@ export default function MultiAgentChat() {
         const data = await response.json();
 
         setMessages(prev => [...prev, {
-          id: Date.now() + Math.random(),
+          id: makeId(),
           sender: agentId,
           senderName: agent.name,
           content: data.reply || 'Unable to get response',
@@ -246,7 +269,7 @@ export default function MultiAgentChat() {
       } catch (error) {
         console.error(`Error getting response from ${agent.name}:`, error);
         setMessages(prev => [...prev, {
-          id: Date.now() + Math.random(),
+          id: makeId(),
           sender: agentId,
           senderName: agent.name,
           content: `Error: ${error.message}`,
@@ -286,7 +309,7 @@ export default function MultiAgentChat() {
       if (data.intentAnalysis) {
         setIntentAnalysis(data.intentAnalysis);
         setMessages(prev => [...prev, {
-          id: Date.now(),
+          id: makeId(),
           sender: 'system',
           senderName: '🔍 Intent Analysis',
           content: `Detected: ${data.intentAnalysis.description}\nConfidence: ${(data.intentAnalysis.confidence * 100).toFixed(0)}%`,
@@ -301,7 +324,7 @@ export default function MultiAgentChat() {
         
         data.result.intermediateSteps.forEach((step, index) => {
           setMessages(prev => [...prev, {
-            id: Date.now() + index,
+            id: makeId(),
             sender: 'system',
             senderName: `📊 Step ${step.stepNumber}: ${step.agent}`,
             content: `Input: ${step.input.substring(0, 100)}...\n\nOutput: ${step.output.substring(0, 200)}...`,
@@ -313,7 +336,7 @@ export default function MultiAgentChat() {
 
       // Add final result
       setMessages(prev => [...prev, {
-        id: Date.now() + 999,
+        id: makeId(),
         sender: 'system',
         senderName: '✅ Final Result',
         content: data.result.finalResult || data.result.agentResponses,
@@ -324,7 +347,7 @@ export default function MultiAgentChat() {
     } catch (error) {
       console.error('Orchestration error:', error);
       setMessages(prev => [...prev, {
-        id: Date.now(),
+        id: makeId(),
         sender: 'system',
         senderName: '❌ Error',
         content: `Orchestration failed: ${error.message}`,
@@ -332,6 +355,135 @@ export default function MultiAgentChat() {
         type: 'error',
       }]);
     }
+  };
+
+  /**
+   * Format message text with basic markdown-like formatting
+   */
+  const formatMessage = (text) => {
+    if (!text) return '';
+    
+    // Split by double line breaks for paragraphs
+    const paragraphs = text.split('\n\n');
+    
+    return paragraphs.map((para, pIndex) => {
+      // Split by single line breaks
+      const lines = para.split('\n');
+      
+      return (
+        <div key={pIndex} style={{ marginBottom: pIndex < paragraphs.length - 1 ? '4px' : '0' }}>
+          {lines.map((line, lIndex) => {
+            // Check if it's a bullet point
+            if (line.trim().match(/^[-•*]\s/)) {
+              const content = line.trim().replace(/^[-•*]\s/, '');
+              return (
+                <div key={lIndex} style={{ paddingLeft: '14px', position: 'relative', marginBottom: '0px' }}>
+                  <span style={{ position: 'absolute', left: '0', top: '0' }}>•</span>
+                  <span>{formatInlineText(content)}</span>
+                </div>
+              );
+            }
+            
+            // Check if it's a numbered list
+            if (line.trim().match(/^\d+\.\s/)) {
+              return (
+                <div key={lIndex} style={{ paddingLeft: '14px', marginBottom: '0px' }}>
+                  {formatInlineText(line.trim())}
+                </div>
+              );
+            }
+            
+            // Check if it's a heading (starts with ###, ##, or #)
+            if (line.trim().match(/^#{1,3}\s/)) {
+              const level = line.match(/^(#{1,3})/)[0].length;
+              const content = line.replace(/^#{1,3}\s/, '');
+              const fontSize = level === 1 ? '1em' : level === 2 ? '0.95em' : '0.9em';
+              return (
+                <div key={lIndex} style={{ 
+                  fontWeight: '700', 
+                  fontSize, 
+                  marginTop: lIndex > 0 ? '3px' : '0',
+                  marginBottom: '2px',
+                  color: '#84ffe1'
+                }}>
+                  {formatInlineText(content)}
+                </div>
+              );
+            }
+            
+            // Skip empty lines
+            if (!line.trim()) return null;
+            
+            // Regular line
+            return (
+              <span key={lIndex} style={{ display: 'block', marginBottom: '0px' }}>
+                {formatInlineText(line)}
+              </span>
+            );
+          })}
+        </div>
+      );
+    });
+  };
+
+  /**
+   * Format inline text (bold, italic, code)
+   */
+  const formatInlineText = (text) => {
+    const parts = [];
+    let currentText = text;
+    let key = 0;
+    
+    // Bold text **text**
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    // Inline code `code`
+    const codeRegex = /`([^`]+)`/g;
+    
+    // Combine patterns
+    const combined = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = combined.exec(currentText)) !== null) {
+      // Add text before match
+      if (match.index > lastIndex) {
+        parts.push(
+          <span key={key++}>{currentText.substring(lastIndex, match.index)}</span>
+        );
+      }
+      
+      // Add formatted match
+      if (match[0].startsWith('**')) {
+        // Bold
+        parts.push(
+          <strong key={key++} style={{ fontWeight: '700', color: '#84ffe1' }}>
+            {match[2]}
+          </strong>
+        );
+      } else if (match[0].startsWith('`')) {
+        // Inline code
+        parts.push(
+          <code key={key++} style={{ 
+            background: 'rgba(255, 255, 255, 0.1)', 
+            padding: '2px 6px', 
+            borderRadius: '4px',
+            fontFamily: 'monospace',
+            fontSize: '0.9em'
+          }}>
+            {match[3]}
+          </code>
+        );
+      }
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // Add remaining text
+    if (lastIndex < currentText.length) {
+      parts.push(<span key={key++}>{currentText.substring(lastIndex)}</span>);
+    }
+    
+    return parts.length > 0 ? parts : text;
   };
 
   if (agentsLoading) {
@@ -484,7 +636,9 @@ export default function MultiAgentChat() {
                       {msg.senderName || 'Agent'}
                     </span>
                   )}
-                  <div className="message">{msg.content}</div>
+                  <div className="message">
+                    {msg.sender === 'user' ? msg.content : formatMessage(msg.content)}
+                  </div>
                   <span className="message-time">
                     {(msg.timestamp instanceof Date ? msg.timestamp : new Date(msg.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
