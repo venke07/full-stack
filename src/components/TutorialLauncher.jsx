@@ -1,13 +1,33 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTutorial } from '../context/TutorialContext';
-import { getAllTutorials } from '../lib/tutorialSteps';
+import { getAllTutorials, getTutorial } from '../lib/tutorialSteps';
 import '../styles/TutorialLauncher.css';
 
 const TutorialLauncher = () => {
+  const navigate = useNavigate();
   const { startTutorial } = useTutorial();
   const [showMenu, setShowMenu] = React.useState(false);
 
   const tutorials = getAllTutorials();
+
+  const handleTutorialClick = (tutorialId) => {
+    const tutorial = getTutorial(tutorialId);
+    
+    // If tutorial has a route, navigate to it first
+    if (tutorial?.route) {
+      navigate(tutorial.route);
+      // Give the page time to mount, then start the tutorial
+      setTimeout(() => {
+        startTutorial(tutorialId);
+      }, 500);
+    } else {
+      // Start tutorial immediately if no route
+      startTutorial(tutorialId);
+    }
+    
+    setShowMenu(false);
+  };
 
   return (
     <div className="tutorial-launcher">
@@ -35,10 +55,7 @@ const TutorialLauncher = () => {
               <button
                 key={tutorial.id}
                 className="tutorial-menu-item"
-                onClick={() => {
-                  startTutorial(tutorial.id);
-                  setShowMenu(false);
-                }}
+                onClick={() => handleTutorialClick(tutorial.id)}
               >
                 <div className="tutorial-menu-item-title">{tutorial.title}</div>
                 <div className="tutorial-menu-item-meta">

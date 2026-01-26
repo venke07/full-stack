@@ -252,6 +252,15 @@ export default function HomePage() {
             />
           </div>
           <TutorialLauncher />
+          {/* Voice Chat Button */}
+          <button 
+            className="voice-chat-icon-btn"
+            onClick={() => navigate('/voice-chat')}
+            title="Voice Chat"
+            type="button"
+          >
+            🎤
+          </button>
           {/* Multi-Agent Chat Button */}
           <button 
             className="multi-chat-icon-btn"

@@ -17,7 +17,7 @@ const GuidedTour = () => {
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
   const [highlightPos, setHighlightPos] = useState(null);
 
-  useEffect(() => {
+  const updatePositions = () => {
     if (!isTutorialOpen || !activeTutorial) {
       return;
     }
@@ -44,7 +44,7 @@ const GuidedTour = () => {
       const rect = targetElement.getBoundingClientRect();
       const highlightOffset = 8;
 
-      // Calculate highlight position
+      // Calculate highlight position (viewport-relative for fixed positioning)
       setHighlightPos({
         top: rect.top - highlightOffset,
         left: rect.left - highlightOffset,
@@ -52,7 +52,7 @@ const GuidedTour = () => {
         height: rect.height + highlightOffset * 2,
       });
 
-      // Calculate popover position based on placement
+      // Calculate popover position based on placement (viewport-relative for fixed positioning)
       let popoverTop = rect.top;
       let popoverLeft = rect.left;
 
@@ -92,6 +92,9 @@ const GuidedTour = () => {
         popoverLeft = window.innerWidth - popoverWidth - 10;
       }
       if (popoverTop < 10) popoverTop = 10;
+      if (popoverTop + popoverHeight > window.innerHeight) {
+        popoverTop = window.innerHeight - popoverHeight - 10;
+      }
 
       setPopoverPos({ top: popoverTop, left: popoverLeft });
     } else {
@@ -102,6 +105,19 @@ const GuidedTour = () => {
       });
       setHighlightPos(null);
     }
+  };
+
+  useEffect(() => {
+    updatePositions();
+    
+    // Add scroll and resize listeners
+    window.addEventListener('scroll', updatePositions);
+    window.addEventListener('resize', updatePositions);
+    
+    return () => {
+      window.removeEventListener('scroll', updatePositions);
+      window.removeEventListener('resize', updatePositions);
+    };
   }, [activeTutorial, currentStep, isTutorialOpen]);
 
   if (!isTutorialOpen || !activeTutorial) {

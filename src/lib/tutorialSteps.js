@@ -5,6 +5,7 @@ export const tutorialSteps = {
     description: 'Learn the basics of AI agents and how to use them',
     duration: '5 min',
     difficulty: 'beginner',
+    route: '/home',
     steps: [
       {
         target: '.brand',
@@ -51,6 +52,7 @@ export const tutorialSteps = {
     description: 'Step-by-step guide to create your first AI agent',
     duration: '10 min',
     difficulty: 'beginner',
+    route: '/builder',
     steps: [
       {
         target: 'body',
@@ -103,6 +105,7 @@ export const tutorialSteps = {
     description: 'Learn how to have a conversation with an AI agent',
     duration: '3 min',
     difficulty: 'beginner',
+    route: '/chat',
     steps: [
       {
         target: '.chat-rail',
@@ -148,6 +151,7 @@ export const tutorialSteps = {
     title: 'Multi-Agent Chat',
     description: 'Learn how to have conversations with multiple agents',
     duration: '8 min',
+    route: '/multi-chat',
     difficulty: 'intermediate',
     steps: [
       {
@@ -194,6 +198,7 @@ export const tutorialSteps = {
     title: 'Advanced Agent Builder',
     description: 'Create powerful AI agents with detailed configurations',
     duration: '12 min',
+    route: '/builder',
     difficulty: 'intermediate',
     steps: [
       {
@@ -331,38 +336,121 @@ export const tutorialSteps = {
         action: 'highlight',
       },
       {
-        target: '.palette-block',
-        content: 'Drag blocks from the palette onto the canvas to add them to your workflow.',
+        target: '.palette-chip',
+        content: 'Click or drag a block from the palette. For example, drag a trigger to start your workflow.',
+        placement: 'right',
+        action: 'highlight',
+      },
+      {
+        target: '.agent-palette',
+        content: "Scroll down in the palette to see your AI agents. You can drag any agent directly into the workflow!",
         placement: 'right',
         action: 'highlight',
       },
       {
         target: '.canvas-board',
-        content: 'The main canvas area is where you build your workflow. Click and drag to pan, scroll to zoom.',
-        placement: 'center',
+        content: 'The canvas is where you build your workflow. Drop blocks here, arrange them, and connect them together.',
+        placement: 'left',
         action: 'highlight',
       },
       {
-        target: '.node',
-        content: 'Each block on the canvas is a node. Click a node to select it and see its details.',
+        target: '.canvas-node',
+        content: 'Each block on the canvas is a node. Click a node to select it. You can drag to move it around the canvas.',
         placement: 'bottom',
         action: 'highlight',
       },
       {
-        target: '.canvas-board',
-        content: 'To connect nodes, click the connection button on one node, then click another node to create a link.',
-        placement: 'center',
+        target: '.node-actions button',
+        content: 'Click the "Connect" button on a node to start creating connections. Then click another node to link them.',
+        placement: 'bottom',
         action: 'highlight',
       },
       {
-        target: '.canvas-board',
-        content: 'Build workflows like: CRM Trigger → LLM Agent (analyze) → Slack Action (notify). Automate complex processes!',
-        placement: 'center',
+        target: '.canvas-lines',
+        content: 'Lines between nodes show your workflow connections. Data and control flow through these connections.',
+        placement: 'left',
+        action: 'highlight',
+      },
+      {
+        target: '.inspector',
+        content: 'The Inspector on the right shows details about the selected node and lets you bind AI models to it.',
+        placement: 'left',
+        action: 'highlight',
+      },
+      {
+        target: '.header-actions button',
+        content: 'When your workflow is complete, click "Save as Agent" to create an agent from this workflow!',
+        placement: 'bottom',
         action: 'highlight',
       },
       {
         target: 'body',
-        content: 'You\'re ready to create powerful automated workflows! Combine agents, data, and actions to solve real problems.',
+        content: 'You now master Workflow Canvas! Create powerful automated workflows by combining triggers, agents, and actions.',
+        placement: 'center',
+        action: 'complete',
+      },
+    ],
+  },
+
+  voiceChat: {
+    id: 'voiceChat',
+    title: 'Voice Chat with Agents',
+    description: 'Have real-time conversations with AI agents using your voice',
+    duration: '4 min',
+    difficulty: 'intermediate',
+    route: '/voice-chat',
+    steps: [
+      {
+        target: '.brand',
+        content: 'Welcome to Voice Chat! Have real-time conversations with your AI agents using speech recognition.',
+        placement: 'bottom',
+        action: 'highlight',
+      },
+      {
+        target: '.agent-selector',
+        content: 'First, select an agent from this list. Your published agents will appear here.',
+        placement: 'right',
+        action: 'highlight',
+      },
+      {
+        target: '.agent-option',
+        content: 'Click on any agent to select it. The agent will be highlighted when active.',
+        placement: 'right',
+        action: 'highlight',
+      },
+      {
+        target: '.voice-stage',
+        content: 'This is the main chat area. Agent responses will appear here, and you can see your conversation history.',
+        placement: 'left',
+        action: 'highlight',
+      },
+      {
+        target: '.status-badge',
+        content: 'Check this status badge to see if you are listening, speaking, or ready to chat.',
+        placement: 'top',
+        action: 'highlight',
+      },
+      {
+        target: '.control-btn',
+        content: 'Click "Start Listening" to begin recording. Your speech will be converted to text automatically.',
+        placement: 'top',
+        action: 'highlight',
+      },
+      {
+        target: '.transcript-box',
+        content: 'Your transcribed speech will appear here. You can verify it before sending.',
+        placement: 'top',
+        action: 'highlight',
+      },
+      {
+        target: '.info-panel',
+        content: 'Check out the tips panel for best practices. Speak clearly and in quiet environments for best results!',
+        placement: 'left',
+        action: 'highlight',
+      },
+      {
+        target: 'body',
+        content: 'Perfect! You now know how to use Voice Chat. Start a conversation with your AI agents!',
         placement: 'center',
         action: 'complete',
       },
