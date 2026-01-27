@@ -161,7 +161,7 @@ export default function ConversationHistory({ agentId, onLoadConversation, isOpe
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         .conversation-history-modal {
           position: fixed;
           top: 0;

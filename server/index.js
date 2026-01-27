@@ -11,6 +11,9 @@ import taskPlanner from './taskPlanner.js';
 import outputGenerators from './outputGenerators.js';
 import promptVersioning from './promptVersioning.js';
 import conversationMemory from './conversationMemory.js';
+import toolExecutor from './toolExecutor.js';
+import toolRegistry from './toolRegistry.js';
+import historyStore from './historyStore.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -185,6 +188,73 @@ app.post('/api/chat', async (req, res) => {
 });
 
 /**
+ * Get Available Tools for Agents
+ */
+app.get('/api/tools', (req, res) => {
+  try {
+    const tools = toolExecutor.getAvailableTools();
+    res.json({
+      success: true,
+      tools,
+      count: tools.length,
+    });
+  } catch (error) {
+    console.error('[GET_TOOLS_ERROR]', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get tools',
+    });
+  }
+});
+
+/**
+ * Execute Agent Tool Manually
+ */
+app.post('/api/tools/execute', async (req, res) => {
+  const { toolId, params } = req.body || {};
+
+  if (!toolId) {
+    return res.status(400).json({ error: 'toolId is required' });
+  }
+
+  try {
+    const result = await toolRegistry.executeTool(toolId, params || {});
+    res.json(result);
+  } catch (error) {
+    console.error('[TOOL_EXECUTION_ERROR]', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Tool execution failed',
+    });
+  }
+});
+
+/**
+ * Process Tool Calls from Agent Response
+ */
+app.post('/api/tools/process-response', async (req, res) => {
+  const { responseText } = req.body || {};
+
+  if (!responseText) {
+    return res.status(400).json({ error: 'responseText is required' });
+  }
+
+  try {
+    const result = await toolExecutor.executeToolCalls(responseText);
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[PROCESS_RESPONSE_ERROR]', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to process response',
+    });
+  }
+});
+
+/**
  * Orchestrated Multi-Agent Chat Endpoint
  * Agents work together in a coordinated workflow to complete complex tasks
  */
@@ -211,7 +281,16 @@ app.post('/api/orchestrated-chat', async (req, res) => {
             id: 'research-agent',
             name: 'Research Agent',
             description: 'Gathers and analyzes data',
-            systemPrompt: 'You are a research specialist. Gather comprehensive information on topics.',
+            systemPrompt: `You are a research specialist. Gather comprehensive information on topics.
+
+You have access to tools to help complete tasks:
+- readFile: Read files from the outputs directory
+- writeFile: Save findings to files
+- analyzeData: Analyze CSV/JSON data and compute statistics
+- listFiles: See what files are available
+- generateReport: Create formatted reports
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['data_research', 'analysis'],
             outputFormat: 'text',
@@ -220,7 +299,14 @@ app.post('/api/orchestrated-chat', async (req, res) => {
             id: 'planning-agent',
             name: 'Planning Agent',
             description: 'Creates plans and strategies',
-            systemPrompt: 'You are a planning expert. Create detailed, actionable plans.',
+            systemPrompt: `You are a planning expert. Create detailed, actionable plans.
+
+You have access to tools:
+- writeFile: Document plans and strategies
+- generateReport: Create formatted plans
+- readFile: Reference existing documents
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['planning', 'analysis'],
             outputFormat: 'text',
@@ -231,14 +317,18 @@ app.post('/api/orchestrated-chat', async (req, res) => {
             description: 'Formats and creates documents',
             systemPrompt: `You are a document creation specialist. Generate clear, well-structured, ready-to-save document content.
 
+You have access to tools:
+- writeFile: Save documents to outputs
+- generateReport: Create formatted HTML or Markdown reports
+- readFile: Reference existing documents
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.
+
 Rules:
-- Output only document body text (no markdown fences or JSON).
-- Include a short title on the first line.
-- Separate paragraphs with blank lines.
-- If user implies a filename, mention it as: filename: <safe_name>.
-- Avoid links to non-existent URLs. If unsure, omit links.
-- Keep it concise and professional.
-`,
+- Include a short title
+- Separate paragraphs with blank lines
+- Keep content professional and organized
+- Use writeFile to save your work`,
             modelId: 'gpt-4o-mini',
             capabilities: ['document_generation', 'creative_writing'],
             outputFormat: 'document',
@@ -247,7 +337,15 @@ Rules:
             id: 'data-processor',
             name: 'Data Processor',
             description: 'Processes and transforms data',
-            systemPrompt: 'You are a data processing specialist. Process data accurately and efficiently.',
+            systemPrompt: `You are a data processing specialist. Process data accurately and efficiently.
+
+You have access to tools:
+- readFile: Load CSV and JSON files
+- analyzeData: Compute statistics and analysis
+- writeFile: Save processed data
+- listFiles: See available data files
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['data_processing', 'analysis'],
             outputFormat: 'json',
@@ -256,7 +354,14 @@ Rules:
             id: 'code-agent',
             name: 'Code Agent',
             description: 'Writes and generates code',
-            systemPrompt: 'You are a code generation specialist. Write clean, well-documented code.',
+            systemPrompt: `You are a code generation specialist. Write clean, well-documented code.
+
+You have access to tools:
+- executeCode: Run JavaScript code and see results
+- writeFile: Save code to files
+- readFile: Reference existing code
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['code_generation'],
             outputFormat: 'code',
@@ -265,7 +370,15 @@ Rules:
             id: 'qa-agent',
             name: 'QA Agent',
             description: 'Reviews and validates output',
-            systemPrompt: 'You are a quality assurance specialist. Review and validate the output quality.',
+            systemPrompt: `You are a quality assurance specialist. Review and validate the output quality.
+
+You have access to tools:
+- readFile: Review generated content
+- writeFile: Save QA reports
+- analyzeData: Validate data integrity
+- generateReport: Create quality assessments
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['quality_assurance', 'analysis'],
             outputFormat: 'text',
@@ -408,7 +521,16 @@ app.get('/api/orchestrated-chat-stream', async (req, res) => {
             id: 'research-agent',
             name: 'Research Agent',
             description: 'Gathers and analyzes data',
-            systemPrompt: 'You are a research specialist. Gather comprehensive information on topics.',
+            systemPrompt: `You are a research specialist. Gather comprehensive information on topics.
+
+You have access to tools to help complete tasks:
+- readFile: Read files from the outputs directory
+- writeFile: Save findings to files
+- analyzeData: Analyze CSV/JSON data and compute statistics
+- listFiles: See what files are available
+- generateReport: Create formatted reports
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['data_research', 'analysis'],
             outputFormat: 'text',
@@ -417,7 +539,14 @@ app.get('/api/orchestrated-chat-stream', async (req, res) => {
             id: 'planning-agent',
             name: 'Planning Agent',
             description: 'Creates plans and strategies',
-            systemPrompt: 'You are a planning expert. Create detailed, actionable plans.',
+            systemPrompt: `You are a planning expert. Create detailed, actionable plans.
+
+You have access to tools:
+- writeFile: Document plans and strategies
+- generateReport: Create formatted plans
+- readFile: Reference existing documents
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
             modelId: 'gpt-4o-mini',
             capabilities: ['planning', 'analysis'],
             outputFormat: 'text',
@@ -426,7 +555,20 @@ app.get('/api/orchestrated-chat-stream', async (req, res) => {
             id: 'document-agent',
             name: 'Document Agent',
             description: 'Formats and creates documents',
-            systemPrompt: 'You are a document specialist. Format content professionally and clearly.',
+            systemPrompt: `You are a document creation specialist. Generate clear, well-structured, ready-to-save document content.
+
+You have access to tools:
+- writeFile: Save documents to outputs
+- generateReport: Create formatted HTML or Markdown reports
+- readFile: Reference existing documents
+
+Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.
+
+Rules:
+- Include a short title
+- Separate paragraphs with blank lines
+- Keep content professional and organized
+- Use writeFile to save your work`,
             modelId: 'gpt-4o-mini',
             capabilities: ['document_generation', 'creative_writing'],
             outputFormat: 'document',
@@ -483,21 +625,53 @@ app.get('/api/orchestrated-chat-stream', async (req, res) => {
       },
     });
 
-    // Helper function to call LLM
+    // Helper function to call LLM with graceful fallbacks when quota is exceeded
     const callAgentHandler = async (config) => {
-      const modelConfig = MODEL_HANDLERS[config.modelId];
-      if (!modelConfig) {
-        throw new Error(`Unknown model: ${config.modelId}`);
-      }
-      const apiKey = process.env[modelConfig.envKey];
-      if (!apiKey) {
-        throw new Error(`Missing API key for ${config.modelId}`);
+      const fallbackPriority = [
+        config.modelId,
+        'llama-3.3-70b-versatile',
+        'deepseek-chat',
+        'gemini-2.5-flash',
+      ];
+
+      const tried = [];
+      let lastError;
+
+      for (const candidate of [...new Set(fallbackPriority)]) {
+        const modelConfig = MODEL_HANDLERS[candidate];
+        if (!modelConfig) {
+          continue;
+        }
+
+        const apiKey = process.env[modelConfig.envKey];
+        if (!apiKey) {
+          continue;
+        }
+
+        tried.push(candidate);
+
+        try {
+          return await modelConfig.handler({
+            ...config,
+            modelId: candidate,
+            apiKey,
+            baseUrl: modelConfig.baseUrl,
+          });
+        } catch (err) {
+          lastError = err;
+          const msg = err?.message?.toLowerCase?.() || '';
+          const isQuotaOrRateLimit =
+            msg.includes('quota') || msg.includes('insufficient_quota') || msg.includes('rate limit') || msg.includes('429');
+
+          if (!isQuotaOrRateLimit) {
+            // Non-quota errors should bubble up immediately
+            throw err;
+          }
+        }
       }
 
-      return await modelConfig.handler({
-        ...config,
-        apiKey,
-      });
+      const triedStr = tried.length ? ` Tried: ${tried.join(', ')}` : '';
+      throw lastError || new Error(`No available model or API key.${triedStr}`);
     };
 
     // Execute agents sequentially and stream results
@@ -884,21 +1058,53 @@ Rules:
       }
     }
 
-    // Helper function to call LLM
+    // Helper function to call LLM with graceful fallbacks when quota is exceeded
     const callAgentHandler = async (config) => {
-      const modelConfig = MODEL_HANDLERS[config.modelId];
-      if (!modelConfig) {
-        throw new Error(`Unknown model: ${config.modelId}`);
-      }
-      const apiKey = process.env[modelConfig.envKey];
-      if (!apiKey) {
-        throw new Error(`Missing API key for ${config.modelId}`);
+      const fallbackPriority = [
+        config.modelId,
+        'llama-3.3-70b-versatile',
+        'deepseek-chat',
+        'gemini-2.5-flash',
+      ];
+
+      const tried = [];
+      let lastError;
+
+      for (const candidate of [...new Set(fallbackPriority)]) {
+        const modelConfig = MODEL_HANDLERS[candidate];
+        if (!modelConfig) {
+          continue;
+        }
+
+        const apiKey = process.env[modelConfig.envKey];
+        if (!apiKey) {
+          continue;
+        }
+
+        tried.push(candidate);
+
+        try {
+          return await modelConfig.handler({
+            ...config,
+            modelId: candidate,
+            apiKey,
+            baseUrl: modelConfig.baseUrl,
+          });
+        } catch (err) {
+          lastError = err;
+          const msg = err?.message?.toLowerCase?.() || '';
+          const isQuotaOrRateLimit =
+            msg.includes('quota') || msg.includes('insufficient_quota') || msg.includes('rate limit') || msg.includes('429');
+
+          if (!isQuotaOrRateLimit) {
+            // Non-quota errors should bubble up immediately
+            throw err;
+          }
+        }
       }
 
-      return await modelConfig.handler({
-        ...config,
-        apiKey,
-      });
+      const triedStr = tried.length ? ` Tried: ${tried.join(', ')}` : '';
+      throw lastError || new Error(`No available model or API key.${triedStr}`);
     };
 
     // Execute the autonomous task
@@ -927,6 +1133,20 @@ Rules:
       result,
       document: documentResult,
     });
+
+    // Persist lightweight history entry for quick reuse
+    const safeSummary = result?.finalResult
+      ? result.finalResult.slice(0, 600)
+      : null;
+
+    historyStore.addEntry({
+      id: result?.taskId,
+      taskDescription,
+      outputFormat,
+      summary: safeSummary,
+      document: documentResult?.filename || null,
+      createdAt: Date.now(),
+    });
   } catch (error) {
     console.error('[AUTONOMOUS_TASK_ERROR]', error);
     res.status(500).json({
@@ -934,6 +1154,21 @@ Rules:
       error: error.message || 'Autonomous task execution failed',
     });
   }
+});
+
+// Autonomous task history - list
+app.get('/api/autonomous-history', (_req, res) => {
+  const entries = historyStore.listEntries(20);
+  res.json({ entries });
+});
+
+// Autonomous task history - single entry
+app.get('/api/autonomous-history/:id', (req, res) => {
+  const entry = historyStore.getEntry(req.params.id);
+  if (!entry) {
+    return res.status(404).json({ error: 'History item not found' });
+  }
+  res.json({ entry });
 });
 
 /**

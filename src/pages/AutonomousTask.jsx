@@ -20,6 +20,9 @@ export default function AutonomousTask() {
   const [executionTimes, setExecutionTimes] = useState({});
   const [copiedToClipboard, setCopiedToClipboard] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
 
   const handleSubmitTask = async () => {
     if (!taskDescription.trim()) return;
@@ -112,6 +115,34 @@ export default function AutonomousTask() {
         setTimeout(() => setCopiedToClipboard(false), 2000);
       });
     }
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/autonomous-history`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      setHistoryEntries(data.entries || []);
+    } catch (err) {
+      setHistoryError(err.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleUseHistory = (entry) => {
+    setTaskDescription(entry.taskDescription || '');
+    setOutputFormat(entry.outputFormat || 'document');
+    setResult(null);
+    setIntermediateSteps([]);
+    setError(null);
+    setTaskAnalysis(null);
+    setActiveTab('overview');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleExportJSON = () => {
@@ -392,6 +423,15 @@ export default function AutonomousTask() {
               >
                 🎯 Analysis
               </button>
+              <button
+                className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveTab('history');
+                  loadHistory();
+                }}
+              >
+                🕑 History
+              </button>
             </div>
 
             {activeTab === 'overview' && (
@@ -566,11 +606,50 @@ export default function AutonomousTask() {
                 )}
               </div>
             )}
+
+            {activeTab === 'history' && (
+              <div className="tab-content">
+                <div className="history-list">
+                  {historyLoading && <p className="info-text">Loading history...</p>}
+                  {historyError && <p className="error-message">⚠️ {historyError}</p>}
+                  {!historyLoading && !historyError && historyEntries.length === 0 && (
+                    <p className="info-text">No past runs yet. Complete a task to see it here.</p>
+                  )}
+                  {!historyLoading && historyEntries.length > 0 && (
+                    <div className="history-grid">
+                      {historyEntries.map((item) => (
+                        <div key={item.id} className="history-card">
+                          <div className="history-meta">
+                            <span className="history-format">{item.outputFormat?.toUpperCase?.() || 'DOCUMENT'}</span>
+                            <span className="history-date">{new Date(item.createdAt).toLocaleString()}</span>
+                          </div>
+                          <div className="history-title">{item.taskDescription || 'Untitled task'}</div>
+                          {item.summary && (
+                            <div className="history-summary">
+                              {item.summary.slice(0, 160)}{item.summary.length > 160 ? '…' : ''}
+                            </div>
+                          )}
+                          <div className="history-actions">
+                            <button
+                              type="button"
+                              className="action-btn"
+                              onClick={() => handleUseHistory(item)}
+                            >
+                              ↩️ Load Task
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         * {
           box-sizing: border-box;
         }
@@ -1302,6 +1381,64 @@ export default function AutonomousTask() {
           border-radius: 20px;
           font-size: 13px;
           font-weight: 500;
+        }
+
+        /* History */
+        .history-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .history-grid {
+          display: grid;
+          gap: 12px;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        }
+
+        .history-card {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .history-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 12px;
+          color: var(--muted);
+        }
+
+        .history-format {
+          font-weight: 700;
+          color: var(--accent);
+        }
+
+        .history-title {
+          font-weight: 700;
+          font-size: 14px;
+          color: var(--text);
+        }
+
+        .history-summary {
+          font-size: 13px;
+          color: var(--muted);
+          line-height: 1.5;
+        }
+
+        .history-actions {
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .info-text {
+          color: var(--muted);
+          font-size: 13px;
         }
       `}</style>
     </div>
