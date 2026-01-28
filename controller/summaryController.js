@@ -1,11 +1,10 @@
-
 const {
   getChatHistoryByPersonaId,
   toGeminiMessages,
   saveChatSummary,
-  getAllPersonaSummaries, 
+  getAllPersonaSummaries,
   updateChatHistoryAndCounter,
-  getPersonaMetaById
+  getPersonaMetaById,
 } = require("../model/summaryModel");
 
 const { summarizeConversation } = require("../services/geminiSummaryService");
@@ -13,7 +12,9 @@ const { summarizeConversation } = require("../services/geminiSummaryService");
 exports.getChatHistoryController = async (req, res) => {
   try {
     const { id } = req.params;
-    const chatHistory = await getChatHistoryByPersonaId(id);
+    const userId = req.user?.userId;
+
+    const chatHistory = await getChatHistoryByPersonaId(id, userId);
     res.json({ id, chat_history: chatHistory });
   } catch (err) {
     console.error(err);
@@ -24,22 +25,23 @@ exports.getChatHistoryController = async (req, res) => {
 exports.generateSummaryController = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.userId;
 
-    const chatHistory = await getChatHistoryByPersonaId(id);
+    const chatHistory = await getChatHistoryByPersonaId(id, userId);
 
     if (!Array.isArray(chatHistory) || chatHistory.length === 0) {
       return res.status(400).json({ message: "No chat history found." });
     }
 
-    const geminiMessages = toGeminiMessages(chatHistory); // { role: "assistant/user", content: "" }
-    const persona = await getPersonaMetaById(id);
+    const geminiMessages = toGeminiMessages(chatHistory);
+    const persona = await getPersonaMetaById(id, userId);
 
     const summary = await summarizeConversation({
       geminiMessages,
       agentDescription: persona.description,
     });
 
-    await saveChatSummary(id, summary);
+    await saveChatSummary(id, userId, summary);
 
     return res.json({ persona_id: id, summary, saved: true });
   } catch (err) {
@@ -48,10 +50,10 @@ exports.generateSummaryController = async (req, res) => {
   }
 };
 
-
 exports.listSummariesController = async (req, res) => {
   try {
-    const summaries = await getAllPersonaSummaries();
+    const userId = req.user?.userId;
+    const summaries = await getAllPersonaSummaries(userId);
     res.json(summaries);
   } catch (err) {
     console.error(err);
@@ -59,18 +61,18 @@ exports.listSummariesController = async (req, res) => {
   }
 };
 
-
 // Resets the summary automatically after 5 user inputs
 exports.appendUserMessageController = async (req, res) => {
   try {
     const { id } = req.params; // persona id
+    const userId = req.user?.userId;
     const { text } = req.body;
 
     if (!text || typeof text !== "string" || text.trim() === "") {
       return res.status(400).json({ message: "text is required" });
     }
 
-    const persona = await getPersonaMetaById(id);
+    const persona = await getPersonaMetaById(id, userId);
     const chatHistory = Array.isArray(persona.chat_history)
       ? persona.chat_history
       : [];
@@ -86,9 +88,7 @@ exports.appendUserMessageController = async (req, res) => {
     const prevCount = persona.unsummarized_user_count || 0;
     const newCount = prevCount + 1;
 
-    // save history + count
-    await updateChatHistoryAndCounter(id, chatHistory, newCount);
-
+    await updateChatHistoryAndCounter(id, userId, chatHistory, newCount);
 
     // summarize when threshold reached
     if (newCount >= 5) {
@@ -99,7 +99,7 @@ exports.appendUserMessageController = async (req, res) => {
         agentDescription: persona.description,
       });
 
-      await saveChatSummary(id, summary); // should reset count to 0 in model
+      await saveChatSummary(id, userId, summary); // resets count to 0
 
       return res.json({
         ok: true,
