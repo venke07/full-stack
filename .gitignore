@@ -58,3 +58,6 @@ temp/
 
 # Supabase / Firebase
 .supabase/
+
+node_modules/
+
