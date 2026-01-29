@@ -66,6 +66,14 @@ export default function ChatPage() {
   const [messageMetadata, setMessageMetadata] = useState({}); // Track version, timestamp per message
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  
+  // Voice Chat States
+  const [isListening, setIsListening] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [recognition, setRecognition] = useState(null);
+  const [synthesis, setSynthesis] = useState(null);
+  const [voiceSupported, setVoiceSupported] = useState(false);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -101,6 +109,101 @@ export default function ChatPage() {
 
     fetchAgents();
   }, [user?.id]);
+
+  // Initialize Web Speech API
+  useEffect(() => {
+    // Check if browser supports Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (SpeechRecognition) {
+      const recognitionInstance = new SpeechRecognition();
+      recognitionInstance.continuous = false;
+      recognitionInstance.interimResults = false;
+      recognitionInstance.lang = 'en-US';
+      
+      recognitionInstance.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setChatInput(transcript);
+        setIsListening(false);
+      };
+      
+      recognitionInstance.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setStatus(`Voice error: ${event.error}`);
+        setTimeout(() => setStatus(''), 3000);
+        setIsListening(false);
+      };
+      
+      recognitionInstance.onend = () => {
+        setIsListening(false);
+      };
+      
+      setRecognition(recognitionInstance);
+      setVoiceSupported(true);
+    }
+    
+    // Check if browser supports Speech Synthesis
+    if (window.speechSynthesis) {
+      setSynthesis(window.speechSynthesis);
+    }
+  }, []);
+  
+  // Voice control functions
+  const startListening = () => {
+    if (!recognition || isListening) return;
+    
+    try {
+      recognition.start();
+      setIsListening(true);
+      setStatus('🎤 Listening...');
+    } catch (err) {
+      console.error('Error starting recognition:', err);
+      setStatus('Could not start voice input');
+      setTimeout(() => setStatus(''), 3000);
+    }
+  };
+  
+  const stopListening = () => {
+    if (recognition && isListening) {
+      recognition.stop();
+      setIsListening(false);
+      setStatus('');
+    }
+  };
+  
+  const speakText = (text) => {
+    if (!synthesis || !voiceEnabled || !text) return;
+    
+    // Cancel any ongoing speech
+    synthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    utterance.onstart = () => {
+      setIsPlaying(true);
+    };
+    
+    utterance.onend = () => {
+      setIsPlaying(false);
+    };
+    
+    utterance.onerror = (event) => {
+      console.error('Speech synthesis error:', event.error);
+      setIsPlaying(false);
+    };
+    
+    synthesis.speak(utterance);
+  };
+  
+  const stopSpeaking = () => {
+    if (synthesis) {
+      synthesis.cancel();
+      setIsPlaying(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedAgent) return;
@@ -380,6 +483,11 @@ export default function ChatPage() {
       
       const agentMessageId = `agent-${timestamp}`;
       setChatLog((prev) => [...prev, { id: agentMessageId, role: 'agent', text: agentResponse }]);
+      
+      // Auto-play agent response if voice is enabled
+      if (voiceEnabled && agentResponse) {
+        speakText(agentResponse);
+      }
       
       // Store message metadata for implicit tracking
       if (activeTestSession && currentVersionId) {
@@ -803,7 +911,7 @@ export default function ChatPage() {
           <div className="stage-input">
             <input
               type="text"
-              placeholder="Type your message…"
+              placeholder={isListening ? "Listening..." : "Type your message…"}
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
               onKeyDown={(event) => {
@@ -812,6 +920,17 @@ export default function ChatPage() {
                 }
               }}
             />
+            {voiceSupported && (
+              <button 
+                className={`btn voice-btn ${isListening ? 'listening' : ''}`}
+                type="button" 
+                onClick={isListening ? stopListening : startListening}
+                disabled={isResponding}
+                title={isListening ? "Stop listening" : "Click to speak"}
+              >
+                {isListening ? '⏹️' : '🎤'}
+              </button>
+            )}
             <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent}>
               {isResponding ? 'Thinking…' : 'Send'}
             </button>
@@ -861,6 +980,39 @@ export default function ChatPage() {
                     : 'None'}
                 </b>
               </div>
+
+              {voiceSupported && (
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                  <p className="rail-label">🎤 Voice Chat</p>
+                  <div className="voice-controls">
+                    <div className="voice-toggle">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={voiceEnabled} 
+                          onChange={(e) => {
+                            setVoiceEnabled(e.target.checked);
+                            if (!e.target.checked) {
+                              stopSpeaking();
+                            }
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span>Auto-play responses</span>
+                      </label>
+                    </div>
+                    {isPlaying && (
+                      <button 
+                        className="btn ghost compact"
+                        onClick={stopSpeaking}
+                        style={{ marginTop: '8px', width: '100%' }}
+                      >
+                        🔇 Stop Speaking
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {activeTestSession && (
                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>

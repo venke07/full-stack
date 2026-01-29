@@ -12,6 +12,7 @@ const templateAgents = [
 ];
 
 const FILTERS = ['All', 'Active', 'Draft', 'Templates'];
+const DEFAULT_COLLECTIONS = ['Personal', 'Work', 'Experiments', 'Archive'];
 const STATUS_LABELS = {
   draft: 'Draft',
   published: 'Active',
@@ -23,8 +24,9 @@ const TOOL_LABELS = {
   deep: 'Deep Research',
 };
 
-const defaultTemplatePayload = (userId, template) => {
-  const defaultModel = modelOptions[0];
+const defaultTemplatePayload = (userId, template, selectedModel = null) => {
+  // Use provided model, or default to GPT-4o mini (index 1) instead of Gemini (index 0)
+  const defaultModel = selectedModel || modelOptions[1] || modelOptions[0];
   const derivedTools = { web: true, rfd: false, deep: false };
   Object.entries(TOOL_LABELS).forEach(([key, label]) => {
     if (template.tags?.some((tag) => tag.toLowerCase().includes(label.toLowerCase()))) {
@@ -96,6 +98,11 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [providerFilter, setProviderFilter] = useState('All Providers');
+  const [collectionFilter, setCollectionFilter] = useState('All Collections');
+  const [collections, setCollections] = useState(DEFAULT_COLLECTIONS);
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
   const [sortMode, setSortMode] = useState('recent');
   const [mutatingId, setMutatingId] = useState(null);
   const [isTemplateAction, setIsTemplateAction] = useState(false);
@@ -117,7 +124,7 @@ export default function HomePage() {
     setIsLoading(true);
     const { data, error } = await supabase
       .from('agent_personas')
-      .select('id, name, status, description, created_at, tools, guardrails, model_label, model_provider, model_id')
+      .select('id, name, status, description, created_at, tools, guardrails, model_label, model_provider, model_id, system_prompt, sliders, model_env_key, collection')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
@@ -153,9 +160,26 @@ export default function HomePage() {
       list = list.filter((agent) => agent.status !== 'published');
     }
 
+    // Enhanced search: name, description, tags, and model
     if (searchTerm.trim()) {
       const query = searchTerm.toLowerCase();
-      list = list.filter((agent) => agent.name?.toLowerCase().includes(query));
+      list = list.filter((agent) => {
+        const nameMatch = agent.name?.toLowerCase().includes(query);
+        const descMatch = agent.description?.toLowerCase().includes(query);
+        const tagsMatch = agent.tags?.some(tag => tag.toLowerCase().includes(query));
+        const modelMatch = agent.model_label?.toLowerCase().includes(query);
+        return nameMatch || descMatch || tagsMatch || modelMatch;
+      });
+    }
+
+    // Filter by provider
+    if (providerFilter !== 'All Providers') {
+      list = list.filter((agent) => agent.model_provider === providerFilter);
+    }
+
+    // Filter by collection (only if collection data is available)
+    if (collectionFilter !== 'All Collections') {
+      list = list.filter((agent) => (agent.collection || null) === collectionFilter);
     }
 
     if (sortMode === 'az') {
@@ -163,7 +187,7 @@ export default function HomePage() {
     }
 
     return list;
-  }, [agents, filter, searchTerm, sortMode]);
+  }, [agents, filter, searchTerm, providerFilter, collectionFilter, sortMode]);
 
   const handleToggleStatus = async (agent) => {
     if (!supabase || !user?.id || filter === 'Templates') {
@@ -208,6 +232,111 @@ export default function HomePage() {
     setMutatingId(null);
   };
 
+  const handleExportAgent = (agent) => {
+    const exportData = {
+      name: agent.name,
+      description: agent.description,
+      system_prompt: agent.system_prompt,
+      model_id: agent.model_id,
+      model_label: agent.model_label,
+      model_provider: agent.model_provider,
+      model_env_key: agent.model_env_key,
+      sliders: agent.sliders,
+      guardrails: agent.guardrails,
+      tools: agent.tools,
+      collection: agent.collection,
+      exported_at: new Date().toISOString(),
+      version: '1.0'
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${agent.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_agent.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showBanner(`Agent "${agent.name}" exported successfully!`, 'success');
+  };
+
+  const handleImportAgent = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const importData = JSON.parse(text);
+
+      // Validate required fields
+      if (!importData.name || !importData.model_id) {
+        showBanner('Invalid agent file: missing required fields', 'error');
+        return;
+      }
+
+      // Create payload for import
+      const payload = {
+        user_id: user.id,
+        name: `${importData.name} (Imported)`,
+        description: importData.description || '',
+        system_prompt: importData.system_prompt || '',
+        model_id: importData.model_id,
+        model_label: importData.model_label || '',
+        model_provider: importData.model_provider || '',
+        model_env_key: importData.model_env_key || '',
+        sliders: importData.sliders || { formality: 50, creativity: 50 },
+        guardrails: importData.guardrails || { factual: true, opinions: true },
+        tools: importData.tools || { web: false, rfd: false, deep: false },
+        collection: importData.collection || null,
+        status: 'draft',
+        created_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase.from('agent_personas').insert([payload]);
+
+      if (error) {
+        showBanner(`Import failed: ${error.message}`, 'error');
+      } else {
+        showBanner(`Agent "${importData.name}" imported successfully!`, 'success');
+        loadAgents();
+      }
+    } catch (err) {
+      showBanner(`Import failed: ${err.message}`, 'error');
+    }
+    event.target.value = '';
+  };
+
+  const handleUpdateCollection = async (agent, newCollection) => {
+    setMutatingId(agent.id);
+    
+    const { error } = await supabase
+      .from('agent_personas')
+      .update({ collection: newCollection })
+      .eq('id', agent.id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      showBanner(`Unable to update collection: ${error.message}`, 'error');
+    } else {
+      loadAgents();
+      showBanner(`Moved to ${newCollection || 'No Collection'}`, 'success');
+    }
+    setMutatingId(null);
+  };
+
+  const handleAddCollection = () => {
+    if (!newCollectionName.trim()) return;
+    if (collections.includes(newCollectionName)) {
+      showBanner('Collection already exists', 'error');
+      return;
+    }
+    setCollections([...collections, newCollectionName]);
+    showBanner(`Collection "${newCollectionName}" created!`, 'success');
+    setNewCollectionName('');
+    setShowCollectionModal(false);
+  };
+
   const handleAddTemplate = async (template) => {
     if (!supabase) {
       showBanner('Supabase is not configured.', 'error');
@@ -242,6 +371,28 @@ export default function HomePage() {
           <Link className="new-agent-btn" to="/builder">
             ➕ New Agent
           </Link>
+          <Link className="btn secondary compact" to="/templates" style={{ textDecoration: 'none' }}>
+            📚 Templates
+          </Link>
+          <Link className="btn secondary compact" to="/testing" style={{ textDecoration: 'none' }}>
+            🧪 Test
+          </Link>
+          <label className="import-agent-btn" title="Import Agent">
+            📥 Import
+            <input 
+              type="file" 
+              accept=".json" 
+              onChange={handleImportAgent} 
+              style={{ display: 'none' }}
+            />
+          </label>
+          <button 
+            className="btn secondary compact"
+            onClick={() => setShowCollectionModal(true)}
+            title="Manage Collections"
+          >
+            📁 Collections
+          </button>
           <div className="search-box">
             <input
               type="text"
@@ -258,6 +409,15 @@ export default function HomePage() {
             type="button"
           >
             🤖💬
+          </button>
+          {/* Fusion Lab Button */}
+          <button 
+            className="fusion-lab-icon-btn"
+            onClick={() => navigate('/fusion-lab')}
+            title="Agent Fusion Lab"
+            type="button"
+          >
+            ⚗️✨
           </button>
           {/* Autonomous Task Button */}
           <button 
@@ -304,12 +464,55 @@ export default function HomePage() {
             </button>
           ))}
         </div>
-        {filter !== 'Templates' && (
-          <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
-            <option value="recent">Recently Added</option>
-            <option value="az">A – Z</option>
-          </select>
-        )}
+        <div className="toolbar-controls">
+          {filter !== 'Templates' && (
+            <>
+              <select 
+                className="collection-filter-select" 
+                value={collectionFilter} 
+                onChange={(event) => setCollectionFilter(event.target.value)}
+              >
+                <option value="All Collections">All Collections</option>
+                {collections.map((col) => (
+                  <option key={col} value={col}>📁 {col}</option>
+                ))}
+              </select>
+              <select 
+                className="provider-filter-select" 
+                value={providerFilter} 
+                onChange={(event) => setProviderFilter(event.target.value)}
+              >
+                <option value="All Providers">All Providers</option>
+                <option value="openai">🟢 OpenAI</option>
+                <option value="google">🔵 Google</option>
+                <option value="groq">🟣 Groq</option>
+                <option value="deepseek">🟠 DeepSeek</option>
+              </select>
+              <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+                <option value="recent">Recently Added</option>
+                <option value="az">A – Z</option>
+              </select>
+            </>
+          )}
+          {filter !== 'Templates' && displayAgents.length > 0 && (
+            <div className="results-count">
+              {displayAgents.length} agent{displayAgents.length !== 1 ? 's' : ''}
+            </div>
+          )}
+          {(searchTerm || providerFilter !== 'All Providers' || collectionFilter !== 'All Collections') && filter !== 'Templates' && (
+            <button 
+              className="clear-filters-btn" 
+              onClick={() => {
+                setSearchTerm('');
+                setProviderFilter('All Providers');
+                setCollectionFilter('All Collections');
+              }}
+              title="Clear search and filters"
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {banner?.text && <div className={`dashboard-status ${banner.type}`}>{banner.text}</div>}
@@ -323,65 +526,203 @@ export default function HomePage() {
           displayAgents.map((agent) => (
             <div
               key={agent.id || agent.name}
-              className={`dashboard-card ${filter === 'Templates' ? 'template-card' : ''}`}
+              className={`dashboard-card-enhanced ${filter === 'Templates' ? 'template-card' : ''}`}
             >
-              <div className="card-header">
-                <span className="card-title">{agent.name}</span>
-                {filter === 'Templates' ? (
-                  <span className="status template-tag">Template</span>
-                ) : (
-                  <span className={`status ${agent.status === 'published' ? 'active' : 'draft'}`}>
-                    {agent.uiStatus}
-                  </span>
+              {/* Card Header with Status Indicator */}
+              <div className="card-header-enhanced">
+                <div className="card-title-row">
+                  <div className="health-indicator-wrapper">
+                    {agent.status === 'published' ? (
+                      <span className="health-indicator green" title="Active">🟢</span>
+                    ) : (
+                      <span className="health-indicator gray" title="Draft">⚪</span>
+                    )}
+                    <span className="card-title-enhanced">{agent.name}</span>
+                  </div>
+                  {filter === 'Templates' ? (
+                    <span className="status-badge template">Template</span>
+                  ) : (
+                    <span className={`status-badge ${agent.status === 'published' ? 'active' : 'draft'}`}>
+                      {agent.uiStatus}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Card Body */}
+              <div className="card-body-enhanced">
+                <p className="card-description">{agent.description || agent.desc || 'No description provided'}</p>
+                
+                {/* Quick Stats */}
+                {!filter.includes('Templates') && (
+                  <div className="quick-stats">
+                    <div className="stat-item">
+                      <span className="stat-icon">🔧</span>
+                      <span className="stat-label">Model:</span>
+                      <span className="stat-value">{agent.model_label || agent.model_id || 'N/A'}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-icon">📅</span>
+                      <span className="stat-label">Updated:</span>
+                      <span className="stat-value">{agent.lastUsed}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tags */}
+                {(agent.tags || []).length > 0 && (
+                  <div className="tags-enhanced">
+                    {(agent.tags || []).slice(0, 3).map((tag) => (
+                      <span key={tag} className="tag-enhanced">
+                        #{tag}
+                      </span>
+                    ))}
+                    {(agent.tags || []).length > 3 && (
+                      <span className="tag-enhanced more">+{(agent.tags || []).length - 3}</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Collection Selector */}
+                {!filter.includes('Templates') && (
+                  <div className="collection-selector">
+                    <label className="collection-label">Collection:</label>
+                    <select 
+                      className="collection-dropdown"
+                      value={agent.collection || ''}
+                      onChange={(e) => handleUpdateCollection(agent, e.target.value || null)}
+                      disabled={mutatingId === agent.id}
+                    >
+                      <option value="">No Collection</option>
+                      {collections.map((col) => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </div>
-              <p>{agent.description || agent.desc}</p>
-              <div className="tags">
-                {(agent.tags || []).map((tag) => (
-                  <span key={tag} className="tag">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-              {filter === 'Templates' ? (
-                <button
-                  type="button"
-                  className="template-add-btn"
-                  disabled={isTemplateAction}
-                  onClick={() => handleAddTemplate(agent)}
-                >
-                  ➕ Use Template
-                </button>
-              ) : (
-                <>
-                  <p className="last-used">Last updated: {agent.lastUsed}</p>
-                  <div className="card-actions">
+
+              {/* Card Actions */}
+              <div className="card-footer-enhanced">
+                {filter === 'Templates' ? (
+                  <button
+                    type="button"
+                    className="btn-primary-enhanced full-width"
+                    disabled={isTemplateAction}
+                    onClick={() => handleAddTemplate(agent)}
+                  >
+                    <span className="btn-icon">➕</span>
+                    Use Template
+                  </button>
+                ) : (
+                  <div className="quick-actions">
                     <button
                       type="button"
-                      className="toggle-btn"
+                      className="action-btn primary"
+                      onClick={() => navigate(`/chat?agentId=${agent.id}`)}
+                      title="Start Chat"
+                    >
+                      <span className="action-icon">💬</span>
+                      Chat
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn secondary"
+                      onClick={() => navigate(`/testing?agentId=${agent.id}`)}
+                      title="Test Agent"
+                    >
+                      <span className="action-icon">🧪</span>
+                      Test
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn secondary"
+                      onClick={() => handleExportAgent(agent)}
+                      title="Export Agent"
+                    >
+                      <span className="action-icon">📤</span>
+                      Export
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn secondary"
+                      onClick={() => navigate('/builder')}
+                      title="Edit Agent"
+                    >
+                      <span className="action-icon">✏️</span>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={`action-btn ${agent.status === 'published' ? 'warning' : 'success'}`}
                       disabled={mutatingId === agent.id}
                       onClick={() => handleToggleStatus(agent)}
+                      title={agent.status === 'published' ? 'Deactivate' : 'Activate'}
                     >
-                      {agent.status === 'published' ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button type="button" className="manage-btn" onClick={() => navigate('/builder')}>
-                      Manage
+                      <span className="action-icon">{agent.status === 'published' ? '⏸️' : '▶️'}</span>
+                      {agent.status === 'published' ? 'Pause' : 'Activate'}
                     </button>
                     <button
                       type="button"
-                      className="delete-btn"
+                      className="action-btn danger"
                       disabled={mutatingId === agent.id}
                       onClick={() => handleDelete(agent)}
+                      title="Delete Agent"
                     >
-                      Delete
+                      <span className="action-icon">🗑️</span>
                     </button>
                   </div>
-                </>
-              )}
+                )}
+              </div>
             </div>
           ))
         )}
       </section>
+
+      {/* Collection Management Modal */}
+      {showCollectionModal && (
+        <div className="modal-overlay" onClick={() => setShowCollectionModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Manage Collections</h2>
+              <button className="modal-close" onClick={() => setShowCollectionModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="collection-list">
+                <h3>Existing Collections</h3>
+                {collections.map((col) => (
+                  <div key={col} className="collection-item">
+                    <span className="collection-icon">📁</span>
+                    <span className="collection-name">{col}</span>
+                    <span className="collection-count">
+                      {agents.filter(a => a.collection === col).length} agents
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="add-collection-form">
+                <h3>Create New Collection</h3>
+                <div className="input-group">
+                  <input
+                    type="text"
+                    placeholder="Collection name..."
+                    value={newCollectionName}
+                    onChange={(e) => setNewCollectionName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddCollection()}
+                  />
+                  <button 
+                    className="btn-primary" 
+                    onClick={handleAddCollection}
+                    disabled={!newCollectionName.trim()}
+                  >
+                    Add Collection
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

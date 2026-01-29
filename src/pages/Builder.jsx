@@ -17,6 +17,139 @@ const sliderDisplayNames = {
   creativity: 'Creativity',
 };
 
+const personalityPresets = [
+  {
+    name: 'Professional',
+    emoji: '🤖',
+    formality: 85,
+    creativity: 25,
+    description: 'Formal, factual, business-focused',
+  },
+  {
+    name: 'Friendly',
+    emoji: '😊',
+    formality: 40,
+    creativity: 60,
+    description: 'Approachable, engaging, conversational',
+  },
+  {
+    name: 'Creative',
+    emoji: '💡',
+    formality: 30,
+    creativity: 85,
+    description: 'Imaginative, innovative, outside-the-box',
+  },
+  {
+    name: 'Balanced',
+    emoji: '⚖️',
+    formality: 50,
+    creativity: 50,
+    description: 'Neutral, versatile, adaptable',
+  },
+];
+
+const systemPromptTemplates = {
+  'customer-support': {
+    name: 'Customer Support',
+    emoji: '🎧',
+    prompt: `You are a professional customer support specialist. Your role is to:
+- Listen carefully to customer concerns with genuine empathy
+- Provide clear, step-by-step solutions
+- Maintain a friendly yet professional tone
+- Ask clarifying questions when needed
+- Offer proactive solutions
+- Always end by asking if there's anything else you can help with
+- Escalate complex issues appropriately
+
+Focus on customer satisfaction and building long-term relationships.`,
+  },
+  'business-analyst': {
+    name: 'Business Analyst',
+    emoji: '📊',
+    prompt: `You are a strategic business analyst specializing in insights and reporting. Your expertise includes:
+- Financial analysis and performance metrics
+- Market research and competitive analysis
+- Data visualization and trend identification
+- Business strategy recommendations
+- Risk assessment and mitigation
+- Executive reporting and presentations
+
+Always support recommendations with data and provide actionable insights.`,
+  },
+  'creative-writer': {
+    name: 'Creative Writer',
+    emoji: '✍️',
+    prompt: `You are a talented creative writer skilled in multiple formats. Your strengths include:
+- Engaging storytelling and narrative structure
+- Content creation (blogs, social media, marketing copy)
+- Adapting tone for different audiences
+- Creative problem-solving through writing
+- SEO optimization
+- Compelling headlines and hooks
+
+Ask about the target audience and goals before creating content.`,
+  },
+  'technical-expert': {
+    name: 'Technical Expert',
+    emoji: '👨‍💻',
+    prompt: `You are a highly skilled technical expert with deep knowledge across multiple domains. You provide:
+- Clear explanations of complex technical concepts
+- Code reviews and best practices
+- Architecture design and optimization
+- Troubleshooting and debugging assistance
+- Best practices and industry standards
+- Performance optimization recommendations
+
+Always explain your reasoning and provide examples when helpful.`,
+  },
+  'research-analyst': {
+    name: 'Research Analyst',
+    emoji: '🔍',
+    prompt: `You are a thorough research analyst specializing in gathering and synthesizing information. Your approach includes:
+- Identifying credible sources and cross-referencing
+- Analyzing trends and patterns in data
+- Distinguishing facts from opinions
+- Presenting findings with proper citations
+- Highlighting limitations and uncertainties
+- Providing actionable insights and recommendations
+
+Structure findings clearly with methodology and conclusions.`,
+  },
+  'educational-tutor': {
+    name: 'Educational Tutor',
+    emoji: '👨‍🏫',
+    prompt: `You are an effective educational tutor who makes learning engaging and accessible. Your teaching style includes:
+- Breaking down complex topics into digestible parts
+- Using relatable examples and analogies
+- Asking questions to check understanding
+- Encouraging critical thinking
+- Adapting explanations to different learning styles
+- Building confidence and motivation
+- Providing constructive feedback
+
+Always be patient, supportive, and enthusiastic about learning.`,
+  },
+};
+
+const sliderEmojis = {
+  formality: {
+    low: '😄',
+    mid: '😐',
+    high: '🎩',
+  },
+  creativity: {
+    low: '🔍',
+    mid: '💭',
+    high: '✨',
+  },
+};
+
+const getSliderEmoji = (type, value) => {
+  if (value < 34) return sliderEmojis[type].low;
+  if (value < 67) return sliderEmojis[type].mid;
+  return sliderEmojis[type].high;
+};
+
 const defaultChat = [
   {
     id: 'seed-agent',
@@ -686,6 +819,37 @@ export default function BuilderPage() {
 
               <div className="spacer" />
               <label htmlFor="agentPrompt">System Prompt</label>
+              
+              {/* System Prompt Templates */}
+              <div style={{ marginBottom: '12px' }}>
+                <select
+                  onChange={(e) => {
+                    if (e.target.value && systemPromptTemplates[e.target.value]) {
+                      updateForm('prompt', systemPromptTemplates[e.target.value].prompt);
+                      e.target.value = '';
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    color: 'inherit',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    marginBottom: '10px',
+                  }}
+                >
+                  <option value="">💡 Choose a template...</option>
+                  {Object.entries(systemPromptTemplates).map(([key, template]) => (
+                    <option key={key} value={key}>
+                      {template.emoji} {template.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <textarea
                 id="agentPrompt"
                 placeholder="Give high-level instructions that shape the agent's behaviour."
@@ -717,9 +881,57 @@ export default function BuilderPage() {
           <section className="card">
             <div className="inner">
               <h3>Personality</h3>
+              
+              {/* Personality Presets */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--muted)', marginBottom: '10px', textTransform: 'uppercase' }}>Quick Presets</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
+                  {personalityPresets.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => {
+                        updateForm('sliders.formality', preset.formality);
+                        updateForm('sliders.creativity', preset.creativity);
+                      }}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        color: 'inherit',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                        e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'rgba(255, 255, 255, 0.03)';
+                        e.target.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                      }}
+                    >
+                      <span style={{ fontSize: '24px' }}>{preset.emoji}</span>
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="divider" style={{ margin: '20px 0' }} />
+
+              {/* Formality Slider with Emoji */}
               <div className="metric">
                 <b>Formality</b>
                 <span className="badge" id="formalityBadge">
+                  <span style={{ marginRight: '8px', fontSize: '16px' }}>{getSliderEmoji('formality', form.sliders.formality)}</span>
                   {sliderBadge('formality')}
                 </span>
               </div>
@@ -732,12 +944,15 @@ export default function BuilderPage() {
                 value={form.sliders.formality}
                 onChange={(e) => updateForm('sliders.formality', Number(e.target.value))}
               />
-              <div className="help">Casual ↔ Professional</div>
+              <div className="help">😄 Casual ↔ 🎩 Professional</div>
 
               <div className="spacer" />
+
+              {/* Creativity Slider with Emoji */}
               <div className="metric">
                 <b>Creativity</b>
                 <span className="badge" id="creativityBadge">
+                  <span style={{ marginRight: '8px', fontSize: '16px' }}>{getSliderEmoji('creativity', form.sliders.creativity)}</span>
                   {sliderBadge('creativity')}
                 </span>
               </div>
@@ -750,7 +965,7 @@ export default function BuilderPage() {
                 value={form.sliders.creativity}
                 onChange={(e) => updateForm('sliders.creativity', Number(e.target.value))}
               />
-              <div className="help">Factual ↔ Imaginative</div>
+              <div className="help">🔍 Factual ↔ ✨ Imaginative</div>
 
               <div className="divider" />
               <h3>Tools</h3>
@@ -970,6 +1185,14 @@ export default function BuilderPage() {
           >
             Save
           </button>
+          {selectedAgentId && (
+            <button
+              className="btn secondary"
+              onClick={() => navigate(`/testing?agentId=${selectedAgentId}`)}
+            >
+              🧪 Test Agent
+            </button>
+          )}
           <button
             className="btn primary"
             id="publish"

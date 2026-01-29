@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
+import { getModelMeta } from '../lib/modelOptions.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -23,7 +24,7 @@ const downloadFile = (url, filename) => {
 export default function MultiAgentChat() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [chatMode, setChatMode] = useState('independent'); // 'independent', 'orchestrated', 'auto'
+  const [chatMode, setChatMode] = useState('independent'); // 'independent', 'orchestrated', 'auto', 'debate'
   const [workflowMode, setWorkflowMode] = useState('sequential'); // 'sequential' or 'parallel'
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [allAgents, setAllAgents] = useState([]);
@@ -33,6 +34,8 @@ export default function MultiAgentChat() {
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [intermediateSteps, setIntermediateSteps] = useState([]);
   const [intentAnalysis, setIntentAnalysis] = useState(null);
+  const [suggestedAgents, setSuggestedAgents] = useState(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Load user's agents from database
   useEffect(() => {
@@ -41,7 +44,7 @@ export default function MultiAgentChat() {
 
       const { data, error } = await supabase
         .from('agent_personas')
-        .select('id, name, description, system_prompt, model_id, status')
+        .select('id, name, description, system_prompt, model_id, model_label, status')
         .eq('user_id', user.id)
         .eq('status', 'published');
 
@@ -67,7 +70,7 @@ export default function MultiAgentChat() {
   };
 
   const handleSendMessage = async () => {
-    if (!input.trim() || selectedAgents.length === 0) return;
+    if (!input.trim() || (selectedAgents.length === 0 && chatMode !== 'auto')) return;
 
     const userMessage = {
       id: makeId(),
@@ -81,10 +84,14 @@ export default function MultiAgentChat() {
     setLoading(true);
     setIntermediateSteps([]);
     setIntentAnalysis(null);
+    setSuggestedAgents(null);
+    setShowSuggestions(false);
 
     try {
-      if (chatMode === 'auto') {
-        await handleAutoChat(input);
+      if (chatMode === 'debate') {
+        await handleDebateMode(input);
+      } else if (chatMode === 'auto') {
+        await handleSmartRoutingChat(input);
       } else if (chatMode === 'orchestrated') {
         await handleOrchestratedChat(input);
       } else {
@@ -102,6 +109,184 @@ export default function MultiAgentChat() {
       }]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Smart Routing - analyze query and suggest best agents
+   */
+  const handleSmartRoutingChat = async (prompt) => {
+    try {
+      const routingResponse = await fetch(`${API_URL}/api/smart-routing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPrompt: prompt,
+          availableAgents: allAgents,
+        }),
+      });
+
+      if (!routingResponse.ok) {
+        throw new Error(`Routing failed: ${routingResponse.status}`);
+      }
+
+      const routing = await routingResponse.json();
+      setSuggestedAgents(routing.topAgents);
+      setShowSuggestions(true);
+
+      setMessages(prev => [...prev, {
+        id: makeId(),
+        sender: 'system',
+        senderName: '🎯 Smart Routing',
+        content: `Analysis: ${routing.analysis}\n\nSelected ${routing.topAgents.length} agents for this task`,
+        timestamp: new Date(),
+        type: 'routing',
+        suggestions: routing.topAgents,
+      }]);
+
+      const suggestedAgentIds = routing.topAgents.map(a => a.agentId);
+      const suggestedAgents = suggestedAgentIds
+        .map(id => allAgents.find(a => a.id === id))
+        .filter(Boolean);
+      
+      const orchestrationResponse = await fetch(`${API_URL}/api/orchestrated-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentIds: suggestedAgentIds,
+          agents: suggestedAgents,
+          userPrompt: prompt,
+          mode: workflowMode,
+        }),
+      });
+
+      if (!orchestrationResponse.ok) {
+        throw new Error(`Orchestration failed: ${orchestrationResponse.status}`);
+      }
+
+      const data = await orchestrationResponse.json();
+
+      if (data.result?.finalResult) {
+        setMessages(prev => [...prev, {
+          id: makeId(),
+          sender: 'system',
+          senderName: '✅ Result',
+          content: data.result.finalResult,
+          timestamp: new Date(),
+          type: 'final',
+          documents: data.documents || [],
+        }]);
+      }
+    } catch (error) {
+      console.error('Smart routing error:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Debate Mode - agents discuss and reach consensus
+   */
+  const handleDebateMode = async (prompt) => {
+    if (selectedAgents.length < 2) {
+      throw new Error('Debate mode requires at least 2 agents');
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/debate-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPrompt: prompt,
+          agentIds: selectedAgents,
+          agents: allAgents.filter(a => selectedAgents.includes(a.id)),
+        }),
+      });
+
+      if (!response.body) {
+        throw new Error('No response stream');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'debate-start') {
+              setMessages(prev => [...prev, {
+                id: makeId(),
+                sender: 'system',
+                senderName: '🎬 Debate Starting',
+                content: `Topic: ${data.data.topic}\n${data.data.agentCount} agents ready to discuss`,
+                timestamp: new Date(),
+                type: 'debate-start',
+              }]);
+            }
+
+            if (data.type === 'agent-position') {
+              setMessages(prev => [...prev, {
+                id: makeId(),
+                sender: data.data.agentId,
+                senderName: `💬 ${data.data.agentName} (Position)`,
+                content: data.data.position,
+                timestamp: new Date(),
+                type: 'debate-position',
+              }]);
+            }
+
+            if (data.type === 'agent-rebuttal') {
+              setMessages(prev => [...prev, {
+                id: makeId(),
+                sender: data.data.agentId,
+                senderName: `🔄 ${data.data.agentName} (Rebuttal)`,
+                content: data.data.rebuttal,
+                timestamp: new Date(),
+                type: 'debate-rebuttal',
+              }]);
+            }
+
+            if (data.type === 'consensus-reached') {
+              const consensusText = `Agreement Points:\n${data.data.consensusPoints.map(p => `• ${p}`).join('\n')}\n\nConclusion:\n${data.data.conclusion}\n\nStrongest Argument: ${data.data.strongestArgument.agent}`;
+              setMessages(prev => [...prev, {
+                id: makeId(),
+                sender: 'system',
+                senderName: '🤝 Consensus',
+                content: consensusText,
+                timestamp: new Date(),
+                type: 'consensus',
+              }]);
+            }
+
+            if (data.type === 'error') {
+              setMessages(prev => [...prev, {
+                id: makeId(),
+                sender: 'system',
+                senderName: '❌ Error',
+                content: data.data.error,
+                timestamp: new Date(),
+                type: 'error',
+              }]);
+            }
+          } catch (parseError) {
+            console.error('Parse error:', parseError);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Debate mode error:', error);
+      throw error;
     }
   };
 
@@ -342,6 +527,7 @@ export default function MultiAgentChat() {
         content: data.result.finalResult || data.result.agentResponses,
         timestamp: new Date(),
         type: 'final',
+        documents: data.documents || [],
       }]);
 
     } catch (error) {
@@ -552,13 +738,20 @@ export default function MultiAgentChat() {
             <button
               className={`mode-btn ${chatMode === 'auto' ? 'active' : ''}`}
               onClick={() => setChatMode('auto')}
-              title="Auto-detect agents & stream results"
+              title="Smart routing & auto-selection"
             >
-              Auto
+              Smart Routing
+            </button>
+            <button
+              className={`mode-btn ${chatMode === 'debate' ? 'active' : ''}`}
+              onClick={() => setChatMode('debate')}
+              title="Agents debate and reach consensus"
+            >
+              Debate
             </button>
           </div>
           
-          {(chatMode === 'orchestrated' || chatMode === 'auto') && (
+          {(chatMode === 'orchestrated' || chatMode === 'auto') && chatMode !== 'debate' && (
             <div className="workflow-toggle">
               <button
                 className={`mode-btn ${workflowMode === 'sequential' ? 'active' : ''}`}
@@ -579,11 +772,13 @@ export default function MultiAgentChat() {
         </div>
       </div>
 
-      <div className="chat-container">
+      <div className={`chat-container chat-mode-${chatMode}`}>
         {/* Agent Selector */}
         {chatMode !== 'auto' && (
           <div className="agent-selector">
-            <div className="selector-header">Select Agents ({selectedAgents.length})</div>
+            <div className="selector-header">
+              {chatMode === 'debate' ? 'Select Agents for Debate' : 'Select Agents'} ({selectedAgents.length})
+            </div>
             <ul className="agent-list-selector">
               {allAgents.map((agent, idx) => (
                 <li key={agent.id} className="agent-option">
@@ -638,6 +833,51 @@ export default function MultiAgentChat() {
                   )}
                   <div className="message">
                     {msg.sender === 'user' ? msg.content : formatMessage(msg.content)}
+                    {msg.documents && msg.documents.length > 0 && (
+                      <div className="document-downloads">
+                        <div style={{ fontSize: '0.85rem', fontWeight: '500', marginTop: '12px', marginBottom: '8px', color: '#666' }}>
+                          📄 Download Report:
+                        </div>
+                        {msg.documents.map((doc, idx) => (
+                          <a
+                            key={idx}
+                            href={doc.downloadUrl}
+                            download={doc.filename}
+                            className="document-download-btn"
+                            title={`Download ${doc.filename}`}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              marginRight: '8px',
+                              marginBottom: '4px',
+                              padding: '8px 16px',
+                              backgroundColor: '#4CAF50',
+                              color: 'white',
+                              borderRadius: '6px',
+                              textDecoration: 'none',
+                              fontSize: '0.9rem',
+                              fontWeight: '500',
+                              transition: 'all 0.2s',
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = '#45a049';
+                              e.target.style.transform = 'translateY(-1px)';
+                              e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = '#4CAF50';
+                              e.target.style.transform = 'translateY(0)';
+                              e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                            }}
+                          >
+                            <span>📥</span>
+                            <span>Consolidated Report.docx</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <span className="message-time">
                     {(msg.timestamp instanceof Date ? msg.timestamp : new Date(msg.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -685,11 +925,32 @@ export default function MultiAgentChat() {
         {/* Info Panel */}
         <div className="comparison-panel">
           <div className="comparison-header">
-            {chatMode === 'orchestrated' ? '🔗 Workflow Info' : '👥 Active Agents'} ({selectedAgents.length})
+            {chatMode === 'orchestrated' ? '🔗 Workflow Info' : chatMode === 'auto' ? '🎯 Suggested Agents' : '👥 Active Agents'} ({chatMode === 'auto' && suggestedAgents ? suggestedAgents.length : selectedAgents.length})
           </div>
-          {selectedAgents.length === 0 ? (
+          {chatMode === 'auto' && suggestedAgents ? (
+            suggestedAgents.map((suggestion, idx) => {
+              const agent = allAgents.find(a => a.id === suggestion.agentId);
+              return (
+                <div key={suggestion.agentId} className="agent-response">
+                  <div className="response-header">
+                    <span className="response-badge" style={{
+                      backgroundColor: ['#6aa8ff', '#7af0d5', '#fbbf24', '#f97316'][idx % 4]
+                    }} />
+                    {agent?.name}
+                  </div>
+                  <div className="response-text">
+                    {agent?.description}
+                  </div>
+                  <div className="response-footer">
+                    <span className="response-metric">Match: {suggestion.relevance}%</span>
+                    <span className="response-metric">{suggestion.reason}</span>
+                  </div>
+                </div>
+              );
+            })
+          ) : selectedAgents.length === 0 ? (
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px' }}>
-              Select agents to get started
+              {chatMode === 'auto' ? 'Send a message to see suggestions' : 'Select agents to get started'}
             </p>
           ) : chatMode === 'orchestrated' && intentAnalysis ? (
             <div className="workflow-info">
@@ -725,7 +986,7 @@ export default function MultiAgentChat() {
                     {agent?.description}
                   </div>
                   <div className="response-footer">
-                    <span className="response-metric">Model: {agent?.model_id || 'gpt-4o-mini'}</span>
+                    <span className="response-metric">Model: {getModelMeta(agent?.model_id).label}</span>
                   </div>
                 </div>
               );

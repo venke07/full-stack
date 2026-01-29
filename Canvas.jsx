@@ -1,48 +1,88 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+const availableTools = [
+  { id: 'web_search', name: 'Web Search', description: 'Search the internet for information', icon: '🔍' },
+  { id: 'calculator', name: 'Calculator', description: 'Perform mathematical calculations', icon: '🔢' },
+  { id: 'weather', name: 'Weather API', description: 'Get current weather information', icon: '🌤️' },
+  { id: 'email', name: 'Send Email', description: 'Send email notifications', icon: '📧' },
+  { id: 'database', name: 'Database Query', description: 'Query database records', icon: '💾' },
+  { id: 'api_call', name: 'HTTP Request', description: 'Make API calls to external services', icon: '🌐' },
+  { id: 'text_transform', name: 'Text Transform', description: 'Format, parse, or transform text', icon: '📝' },
+  { id: 'file_ops', name: 'File Operations', description: 'Read, write, or process files', icon: '📁' },
+];
+
 const paletteBlocks = [
   {
     type: 'trigger',
-    title: 'Form submission',
-    description: 'Start a flow whenever a request form is submitted.',
+    title: 'Webhook Trigger',
+    description: 'Start workflow from external webhook or API call.',
     icon: '⚡',
   },
   {
     type: 'agent',
     title: 'AI Agent',
-    description: 'Chat-enabled tool agent with memory + connectors.',
+    description: 'LLM-powered agent with tool access and reasoning.',
     icon: '🤖',
   },
   {
+    type: 'tool',
+    title: 'Tool Action',
+    description: 'Execute a specific tool or API function.',
+    icon: '🛠️',
+  },
+  {
     type: 'decision',
-    title: 'Decision check',
-    description: 'Branch the path based on a boolean expression.',
+    title: 'Conditional Branch',
+    description: 'Branch workflow based on data or conditions.',
     icon: '🧭',
   },
   {
-    type: 'memory',
-    title: 'Postgres memory',
-    description: 'Store transcripts or hand-offs in a vector store.',
-    icon: '🧠',
+    type: 'loop',
+    title: 'Loop/Iterate',
+    description: 'Repeat actions over a list or collection.',
+    icon: '🔁',
   },
   {
-    type: 'action',
-    title: 'Slack action',
-    description: 'Send invites, update profiles, or notify channels.',
-    icon: '💬',
+    type: 'transform',
+    title: 'Data Transform',
+    description: 'Parse, format, or modify data between steps.',
+    icon: '⚙️',
+  },
+  {
+    type: 'api',
+    title: 'HTTP Request',
+    description: 'Call external APIs with custom parameters.',
+    icon: '🌐',
+  },
+  {
+    type: 'output',
+    title: 'Output/Response',
+    description: 'Return final result or send notification.',
+    icon: '📤',
   },
 ];
 
 const lenses = [
-  { title: 'IT Ops can', body: '⚡ On-board new employees' },
-  { title: 'Sec Ops can', body: '⚡ Enrich incident tickets' },
-  { title: 'Dev Ops can', body: '⚡ Convert natural language into API calls' },
-  { title: 'Sales can', body: '⚡ Generate insights from reviews' },
-  { title: 'You can', body: '▶️ Watch this video to hear our pitch' },
+  { title: 'Build Workflows', body: '⚡ Drag, connect, and execute automated flows' },
+  { title: 'Add Tools', body: '🛠️ Web search, APIs, databases, and more' },
+  { title: 'Configure Agents', body: '🤖 Select models and assign tools to agents' },
+  { title: 'Test & Run', body: '▶️ Execute workflows and see real results' },
+  { title: 'Export & Share', body: '💾 Save workflows as JSON to reuse' },
 ];
 
-const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const makeId = () => `node-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const defaultNodeConfig = {
+  trigger: { webhookUrl: '', method: 'POST' },
+  agent: { model: 'gpt-4o-mini', tools: [], systemPrompt: '' },
+  tool: { toolId: '', parameters: {} },
+  decision: { condition: '', trueNext: null, falseNext: null },
+  loop: { iterateOver: '', maxIterations: 10 },
+  transform: { operation: 'json_parse', inputField: '' },
+  api: { method: 'GET', url: '', headers: {}, body: '' },
+  output: { format: 'json', destination: 'response' },
+};
 
 const defaultPersona = {
   name: 'AI Tools Agent',
@@ -63,60 +103,79 @@ const NODE_HEIGHT = 130;
 
 const starterFlow = [
   {
-    id: makeId(),
+    id: 'node-start-1',
     type: 'trigger',
-    title: 'On "Create User" form submission',
-    description: 'Kick off the workflow when an intake form is completed.',
+    title: 'Webhook Trigger',
+    description: 'Receives incoming requests',
     icon: '⚡',
     badges: ['Trigger'],
     x: 60,
     y: 120,
+    config: { webhookUrl: '/api/workflow/trigger', method: 'POST' },
   },
   {
-    id: makeId(),
+    id: 'node-agent-1',
     type: 'agent',
-    title: 'AI Agent',
-    description: 'Tools Agent orchestrates chat model + memory calls.',
+    title: 'Research Agent',
+    description: 'AI agent with web search capabilities',
     icon: '🤖',
-    badges: ['Chat Model', 'Memory', 'Tools'],
+    badges: ['GPT-4', 'Web Search'],
     x: 360,
     y: 120,
+    config: { 
+      model: 'gpt-4o-mini', 
+      tools: ['web_search'], 
+      systemPrompt: 'You are a research assistant. Search the web and provide accurate information.' 
+    },
   },
   {
-    id: makeId(),
-    type: 'decision',
-    title: 'Is manager?',
-    description: 'Route managers to a private Slack invite.',
-    icon: '🧭',
-    badges: ['Decision'],
+    id: 'node-transform-1',
+    type: 'transform',
+    title: 'Format Output',
+    description: 'Structure the response data',
+    icon: '⚙️',
+    badges: ['Transform'],
     x: 660,
     y: 120,
+    config: { operation: 'json_format', inputField: 'result' },
   },
   {
-    id: makeId(),
-    type: 'action',
-    title: 'Add to channel',
-    description: 'Invite user to onboarding channel.',
-    icon: '💬',
-    badges: ['Slack'],
-    x: 930,
-    y: 60,
-  },
-  {
-    id: makeId(),
-    type: 'action',
-    title: 'Update profile',
-    description: 'Sync org chart metadata + Jira account.',
-    icon: '💬',
-    badges: ['Slack'],
-    x: 930,
-    y: 210,
+    id: 'node-output-1',
+    type: 'output',
+    title: 'Send Response',
+    description: 'Return formatted result',
+    icon: '📤',
+    badges: ['Output'],
+    x: 960,
+    y: 120,
+    config: { format: 'json', destination: 'response' },
   },
 ];
 
 export default function CanvasPage() {
-  const [canvasBlocks, setCanvasBlocks] = useState(starterFlow);
+  const [canvasBlocks, setCanvasBlocks] = useState(() => {
+    try {
+      const saved = localStorage.getItem('canvasBlocks');
+      return saved ? JSON.parse(saved) : starterFlow;
+    } catch (error) {
+      console.error('Failed to load saved canvas', error);
+      return starterFlow;
+    }
+  });
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [connections, setConnections] = useState(() => {
+    try {
+      const saved = localStorage.getItem('canvasConnections');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionResults, setExecutionResults] = useState({});
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectFrom, setConnectFrom] = useState(null);
   const [persona, setPersona] = useState(() => {
     try {
       const stored = localStorage.getItem('canvasPersona');
@@ -135,13 +194,18 @@ export default function CanvasPage() {
     [canvasBlocks, selectedNodeId],
   );
 
-  const connections = useMemo(() => {
-    const lines = [];
-    for (let i = 0; i < canvasBlocks.length - 1; i += 1) {
-      lines.push({ from: canvasBlocks[i], to: canvasBlocks[i + 1] });
+  // Auto-create connections between sequential nodes if no custom connections
+  const displayConnections = useMemo(() => {
+    if (connections.length > 0) return connections;
+    
+    // Auto-connect nodes left to right
+    const sorted = [...canvasBlocks].sort((a, b) => a.x - b.x);
+    const autoConnections = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      autoConnections.push({ from: sorted[i].id, to: sorted[i + 1].id });
     }
-    return lines;
-  }, [canvasBlocks]);
+    return autoConnections;
+  }, [canvasBlocks, connections]);
 
   useEffect(() => {
     try {
@@ -151,12 +215,29 @@ export default function CanvasPage() {
     }
   }, [persona]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('canvasBlocks', JSON.stringify(canvasBlocks));
+    } catch (error) {
+      console.warn('Failed to persist canvas blocks', error);
+    }
+  }, [canvasBlocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('canvasConnections', JSON.stringify(connections));
+    } catch (error) {
+      console.warn('Failed to persist connections', error);
+    }
+  }, [connections]);
+
   const handleDragStart = (event, block) => {
     event.dataTransfer.setData('application/json', JSON.stringify(block));
   };
 
   const handleDrop = (event) => {
     event.preventDefault();
+    setIsDraggingOver(false);
     const payload = event.dataTransfer.getData('application/json');
     if (!payload) return;
     try {
@@ -164,27 +245,32 @@ export default function CanvasPage() {
       const boardRect = boardRef.current?.getBoundingClientRect();
       const x = boardRect ? event.clientX - boardRect.left - NODE_WIDTH / 2 : 0;
       const y = boardRect ? event.clientY - boardRect.top - NODE_HEIGHT / 2 : 0;
-      setCanvasBlocks((prev) => [
-        ...prev,
-        {
-          id: makeId(),
-          ...block,
-          x,
-          y,
-          badges:
-            block.badges ||
-            (block.type === 'agent'
-              ? ['Chat Model', 'Memory', 'Tools']
-              : block.type === 'action'
-                ? ['Action']
-                : block.type === 'decision'
-                  ? ['Decision']
-                  : block.type === 'memory'
-                    ? ['Memory']
-                    : ['Trigger']),
-        },
-      ]);
-      setSelectedNodeId(null);
+      
+      // Snap to grid (optional - 20px grid)
+      const snappedX = Math.round(x / 20) * 20;
+      const snappedY = Math.round(y / 20) * 20;
+      
+      const newBlock = {
+        id: makeId(),
+        ...block,
+        x: snappedX,
+        y: snappedY,
+        config: defaultNodeConfig[block.type] || {},
+        badges:
+          block.badges ||
+          (block.type === 'agent'
+            ? ['AI', 'Tools']
+            : block.type === 'tool'
+              ? ['Action']
+              : block.type === 'decision'
+                ? ['Branch']
+                : block.type === 'loop'
+                  ? ['Iterate']
+                  : [block.type]),
+      };
+      
+      setCanvasBlocks((prev) => [...prev, newBlock]);
+      setSelectedNodeId(newBlock.id);
     } catch (error) {
       console.error('Drag payload parse error', error);
     }
@@ -192,11 +278,27 @@ export default function CanvasPage() {
 
   const handleDragOver = (event) => {
     event.preventDefault();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (event) => {
+    if (event.target === boardRef.current) {
+      setIsDraggingOver(false);
+    }
   };
 
   const handleClear = () => {
-    setCanvasBlocks([]);
-    setSelectedNodeId(null);
+    if (confirm('Are you sure you want to clear the entire canvas?')) {
+      setCanvasBlocks([]);
+      setSelectedNodeId(null);
+    }
+  };
+
+  const handleResetToDefault = () => {
+    if (confirm('Reset to the default starter flow?')) {
+      setCanvasBlocks(starterFlow);
+      setSelectedNodeId(null);
+    }
   };
 
   const handleRemove = (id) => {
@@ -215,6 +317,9 @@ export default function CanvasPage() {
       offsetY: event.clientY - boardRect.top - node.y,
     };
     setSelectedNodeId(node.id);
+    
+    // Add visual feedback
+    document.body.style.cursor = 'grabbing';
   };
 
   useEffect(() => {
@@ -222,15 +327,27 @@ export default function CanvasPage() {
       if (!dragStateRef.current || !boardRef.current) return;
       const boardRect = boardRef.current.getBoundingClientRect();
       const { id, offsetX, offsetY } = dragStateRef.current;
-      const x = event.clientX - boardRect.left - offsetX;
-      const y = event.clientY - boardRect.top - offsetY;
+      let x = event.clientX - boardRect.left - offsetX;
+      let y = event.clientY - boardRect.top - offsetY;
+      
+      // Snap to grid (20px grid)
+      x = Math.round(x / 20) * 20;
+      y = Math.round(y / 20) * 20;
+      
+      // Keep nodes within bounds
+      x = Math.max(0, Math.min(x, boardRect.width - NODE_WIDTH));
+      y = Math.max(0, Math.min(y, boardRect.height - NODE_HEIGHT));
+      
       setCanvasBlocks((prev) =>
         prev.map((block) => (block.id === id ? { ...block, x, y } : block)),
       );
     };
 
     const handlePointerUp = () => {
-      dragStateRef.current = null;
+      if (dragStateRef.current) {
+        dragStateRef.current = null;
+        document.body.style.cursor = '';
+      }
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -240,6 +357,223 @@ export default function CanvasPage() {
       window.removeEventListener('pointerup', handlePointerUp);
     };
   }, []);
+
+  // Connection management
+  const handleStartConnection = (fromNodeId) => {
+    setIsConnecting(true);
+    setConnectFrom(fromNodeId);
+  };
+
+  const handleCompleteConnection = (toNodeId) => {
+    if (isConnecting && connectFrom && connectFrom !== toNodeId) {
+      setConnections((prev) => [...prev, { from: connectFrom, to: toNodeId }]);
+    }
+    setIsConnecting(false);
+    setConnectFrom(null);
+  };
+
+  const handleRemoveConnection = (fromId, toId) => {
+    setConnections((prev) => prev.filter((c) => !(c.from === fromId && c.to === toId)));
+  };
+
+  // Node configuration
+  const updateNodeConfig = (nodeId, configUpdates) => {
+    setCanvasBlocks((prev) =>
+      prev.map((block) =>
+        block.id === nodeId
+          ? { ...block, config: { ...block.config, ...configUpdates } }
+          : block
+      )
+    );
+  };
+
+  const updateNodeTitle = (nodeId, title) => {
+    setCanvasBlocks((prev) =>
+      prev.map((block) =>
+        block.id === nodeId ? { ...block, title } : block
+      )
+    );
+  };
+
+  // Workflow execution
+  const executeWorkflow = async (inputData = {}) => {
+    setIsExecuting(true);
+    setExecutionResults({});
+    
+    try {
+      // Build execution order based on connections
+      const executionOrder = buildExecutionOrder();
+      let context = { input: inputData };
+      
+      for (const nodeId of executionOrder) {
+        const node = canvasBlocks.find((n) => n.id === nodeId);
+        if (!node) continue;
+        
+        setExecutionResults((prev) => ({
+          ...prev,
+          [nodeId]: { status: 'running', output: null },
+        }));
+        
+        try {
+          const result = await executeNode(node, context);
+          context = { ...context, [nodeId]: result };
+          
+          setExecutionResults((prev) => ({
+            ...prev,
+            [nodeId]: { status: 'success', output: result },
+          }));
+          
+          // Small delay for visual feedback
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } catch (error) {
+          setExecutionResults((prev) => ({
+            ...prev,
+            [nodeId]: { status: 'error', output: error.message },
+          }));
+          throw error;
+        }
+      }
+      
+      alert('Workflow executed successfully! Check node results in the panel.');
+    } catch (error) {
+      alert(`Workflow execution failed: ${error.message}`);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const buildExecutionOrder = () => {
+    // Simple topological sort based on connections
+    const order = [];
+    const visited = new Set();
+    const sorted = [...canvasBlocks].sort((a, b) => a.x - b.x);
+    
+    const visit = (nodeId) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+      order.push(nodeId);
+    };
+    
+    // Use connections if available, otherwise left-to-right order
+    if (displayConnections.length > 0) {
+      const triggerNodes = canvasBlocks.filter((n) => n.type === 'trigger');
+      for (const trigger of triggerNodes) {
+        visit(trigger.id);
+        const traverse = (id) => {
+          const outgoing = displayConnections.filter((c) => c.from === id);
+          for (const conn of outgoing) {
+            visit(conn.to);
+            traverse(conn.to);
+          }
+        };
+        traverse(trigger.id);
+      }
+    } else {
+      sorted.forEach((node) => visit(node.id));
+    }
+    
+    return order;
+  };
+
+  const executeNode = async (node, context) => {
+    // Simulate node execution
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    
+    switch (node.type) {
+      case 'trigger':
+        return { triggered: true, data: context.input };
+      
+      case 'agent':
+        return {
+          type: 'agent_response',
+          model: node.config.model || 'gpt-4o-mini',
+          tools: node.config.tools || [],
+          response: `Agent "${node.title}" processed the request using ${node.config.model}`,
+        };
+      
+      case 'tool':
+        return {
+          type: 'tool_result',
+          tool: node.config.toolId,
+          result: `Tool "${node.config.toolId}" executed successfully`,
+        };
+      
+      case 'transform':
+        return {
+          type: 'transformed_data',
+          operation: node.config.operation,
+          data: context,
+        };
+      
+      case 'api':
+        return {
+          type: 'api_response',
+          method: node.config.method,
+          url: node.config.url,
+          response: { status: 200, data: 'API call simulated' },
+        };
+      
+      case 'decision':
+        return {
+          type: 'decision_result',
+          condition: node.config.condition,
+          result: true,
+        };
+      
+      case 'output':
+        return {
+          type: 'final_output',
+          format: node.config.format,
+          data: context,
+        };
+      
+      default:
+        return { processed: true };
+    }
+  };
+
+  // Import/Export
+  const exportWorkflow = () => {
+    const workflow = {
+      version: '1.0',
+      nodes: canvasBlocks,
+      connections: connections.length > 0 ? connections : null,
+      metadata: {
+        name: 'My Workflow',
+        created: new Date().toISOString(),
+      },
+    };
+    
+    const blob = new Blob([JSON.stringify(workflow, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workflow-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importWorkflow = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const workflow = JSON.parse(e.target.result);
+        if (workflow.nodes) {
+          setCanvasBlocks(workflow.nodes);
+          if (workflow.connections) {
+            setConnections(workflow.connections);
+          }
+          alert('Workflow imported successfully!');
+        }
+      } catch (error) {
+        alert('Failed to import workflow: Invalid format');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const updatePersonaField = (field, value) => {
     setPersona((prev) => ({
@@ -310,33 +644,94 @@ export default function CanvasPage() {
         <div className="board-shell">
           <div className="board-toolbar">
             <div>
-              <h3>Cutting Mat</h3>
-              <p className="muted">Free-drop the flow exactly where you want nodes to live.</p>
+              <h3>Workflow Canvas</h3>
+              <p className="muted">Build → Connect → Execute your automated workflow</p>
             </div>
-            <button className="btn secondary" type="button" onClick={handleClear} disabled={!canvasBlocks.length}>
-              Clear canvas
-            </button>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <label className="btn ghost compact" style={{ cursor: 'pointer', margin: 0 }}>
+                📥 Import
+                <input 
+                  type="file" 
+                  accept=".json" 
+                  onChange={importWorkflow}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              <button className="btn ghost compact" type="button" onClick={exportWorkflow} disabled={!canvasBlocks.length}>
+                💾 Export
+              </button>
+              <button 
+                className="btn primary compact" 
+                type="button" 
+                onClick={() => executeWorkflow({ test: 'data' })} 
+                disabled={!canvasBlocks.length || isExecuting}
+              >
+                {isExecuting ? '⏳ Running...' : '▶️ Run Workflow'}
+              </button>
+              <button className="btn secondary compact" type="button" onClick={handleResetToDefault}>
+                Reset
+              </button>
+              <button className="btn secondary compact" type="button" onClick={handleClear} disabled={!canvasBlocks.length}>
+                Clear
+              </button>
+            </div>
           </div>
-          <section className="canvas-board cutting-mat">
-            <div className="board-surface" ref={boardRef} onDrop={handleDrop} onDragOver={handleDragOver}>
+          <section className={`canvas-board cutting-mat ${isDraggingOver ? 'drag-over' : ''}`}>
+            <div className="board-surface" ref={boardRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
               <svg className="connection-layer" width="100%" height="100%">
                 <defs>
-                  <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto" markerUnits="userSpaceOnUse">
-                    <path d="M0,0 L8,4 L0,8 Z" fill="#5af8ff" />
+                  <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                    <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#5af8ff" />
                   </marker>
+                  <filter id="glow">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                    <feMerge>
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
                 </defs>
-                {connections.map(({ from, to }) => (
-                  <line
-                    key={`${from.id}-${to.id}`}
-                    x1={from.x + NODE_WIDTH}
-                    y1={from.y + NODE_HEIGHT / 2}
-                    x2={to.x}
-                    y2={to.y + NODE_HEIGHT / 2}
-                    stroke="#5af8ff"
-                    strokeWidth="2"
-                    markerEnd="url(#arrowhead)"
-                  />
-                ))}
+                {displayConnections.map((conn, idx) => {
+                  const fromNode = canvasBlocks.find((n) => n.id === conn.from);
+                  const toNode = canvasBlocks.find((n) => n.id === conn.to);
+                  if (!fromNode || !toNode) return null;
+                  
+                  const x1 = fromNode.x + NODE_WIDTH;
+                  const y1 = fromNode.y + NODE_HEIGHT / 2;
+                  const x2 = toNode.x;
+                  const y2 = toNode.y + NODE_HEIGHT / 2;
+                  const midX = (x1 + x2) / 2;
+                  
+                  // Create a smooth curve
+                  const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+                  
+                  return (
+                    <g key={`${conn.from}-${conn.to}-${idx}`}>
+                      <path
+                        d={path}
+                        stroke="#5af8ff"
+                        strokeWidth="2"
+                        fill="none"
+                        markerEnd="url(#arrowhead)"
+                        filter="url(#glow)"
+                        opacity="0.7"
+                      />
+                      {connections.length > 0 && (
+                        <circle
+                          cx={midX}
+                          cy={(y1 + y2) / 2}
+                          r="8"
+                          fill="rgba(255, 0, 0, 0.6)"
+                          stroke="#fff"
+                          strokeWidth="2"
+                          cursor="pointer"
+                          onClick={() => handleRemoveConnection(conn.from, conn.to)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      )}
+                    </g>
+                  );
+                })}
               </svg>
               {canvasBlocks.length === 0 && (
                 <div className="empty-state board-empty">
@@ -346,19 +741,67 @@ export default function CanvasPage() {
                   </p>
                 </div>
               )}
-              {canvasBlocks.map((block, index) => (
+              {canvasBlocks.map((block, index) => {
+                const execResult = executionResults[block.id];
+                const statusColor = execResult?.status === 'success' ? '#4CAF50' : 
+                                   execResult?.status === 'running' ? '#FFA726' :
+                                   execResult?.status === 'error' ? '#EF5350' : 'transparent';
+                
+                return (
                 <div
                   key={block.id}
-                  className={`canvas-node floating ${selectedNodeId === block.id ? 'selected' : ''}`}
+                  className={`canvas-node floating ${selectedNodeId === block.id ? 'selected' : ''} ${execResult?.status || ''}`}
                   style={{
                     width: `${NODE_WIDTH}px`,
                     transform: `translate(${block.x}px, ${block.y}px)`,
+                    boxShadow: execResult ? `0 0 20px ${statusColor}` : undefined,
                   }}
                 >
+                  {/* Connection points */}
+                  <button
+                    className="node-connect-point left"
+                    type="button"
+                    title="Incoming connection"
+                    onClick={() => isConnecting && handleCompleteConnection(block.id)}
+                    style={{
+                      position: 'absolute',
+                      left: '-8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: '2px solid #5af8ff',
+                      background: isConnecting && connectFrom !== block.id ? '#5af8ff' : '#0e1524',
+                      cursor: isConnecting ? 'pointer' : 'default',
+                      zIndex: 10,
+                    }}
+                  />
+                  <button
+                    className="node-connect-point right"
+                    type="button"
+                    title="Start connection"
+                    onClick={() => handleStartConnection(block.id)}
+                    style={{
+                      position: 'absolute',
+                      right: '-8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: '2px solid #5af8ff',
+                      background: connectFrom === block.id ? '#5af8ff' : '#0e1524',
+                      cursor: 'pointer',
+                      zIndex: 10,
+                    }}
+                  />
+                  
                   <button
                     className="node-body"
                     type="button"
                     onPointerDown={(event) => handleNodePointerDown(event, block)}
+                    onClick={() => setSelectedNodeId(block.id)}
                   >
                     <div className="node-icon">{block.icon}</div>
                     <div>
@@ -370,6 +813,16 @@ export default function CanvasPage() {
                             {badge}
                           </span>
                         ))}
+                        {execResult && (
+                          <span className="chip" style={{ 
+                            background: statusColor,
+                            color: '#fff',
+                            fontSize: '10px',
+                          }}>
+                            {execResult.status === 'success' ? '✓' : 
+                             execResult.status === 'running' ? '⏳' : '✗'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -380,7 +833,7 @@ export default function CanvasPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              )})
             </div>
           </section>
           <div className="palette-tray">
@@ -414,7 +867,23 @@ export default function CanvasPage() {
           {selectedNode ? (
             <div className="detail-card">
               <div className="node-icon large">{selectedNode.icon}</div>
-              <h4>{selectedNode.title}</h4>
+              <input
+                type="text"
+                value={selectedNode.title}
+                onChange={(e) => updateNodeTitle(selectedNode.id, e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  marginBottom: '8px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '8px',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  color: 'inherit',
+                  textAlign: 'center',
+                }}
+              />
               <p className="muted">{selectedNode.description}</p>
               <div className="badge-row">
                 {selectedNode.badges?.map((badge) => (
@@ -423,6 +892,171 @@ export default function CanvasPage() {
                   </span>
                 ))}
               </div>
+              
+              {/* Configuration based on node type */}
+              <div style={{ marginTop: '20px', textAlign: 'left' }}>
+                <h4 style={{ fontSize: '14px', marginBottom: '12px' }}>Configuration</h4>
+                
+                {selectedNode.type === 'agent' && (
+                  <>
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>Model</label>
+                    <select
+                      value={selectedNode.config?.model || 'gpt-4o-mini'}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { model: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        marginBottom: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'inherit',
+                      }}
+                    >
+                      <option value="gpt-4o-mini">GPT-4o Mini</option>
+                      <option value="gpt-4o">GPT-4o</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="llama-3.3-70b-versatile">Llama 3.3 70B</option>
+                    </select>
+                    
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>Tools</label>
+                    <div style={{ maxHeight: '150px', overflow: 'auto', marginBottom: '12px' }}>
+                      {availableTools.map((tool) => (
+                        <label key={tool.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedNode.config?.tools?.includes(tool.id) || false}
+                            onChange={(e) => {
+                              const tools = selectedNode.config?.tools || [];
+                              const newTools = e.target.checked
+                                ? [...tools, tool.id]
+                                : tools.filter((t) => t !== tool.id);
+                              updateNodeConfig(selectedNode.id, { tools: newTools });
+                            }}
+                          />
+                          <span style={{ fontSize: '12px' }}>{tool.icon} {tool.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>System Prompt</label>
+                    <textarea
+                      value={selectedNode.config?.systemPrompt || ''}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { systemPrompt: e.target.value })}
+                      placeholder="Describe the agent's role and behavior..."
+                      rows={4}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'inherit',
+                        fontSize: '13px',
+                        fontFamily: 'inherit',
+                        resize: 'vertical',
+                      }}
+                    />
+                  </>
+                )}
+                
+                {selectedNode.type === 'tool' && (
+                  <>
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>Select Tool</label>
+                    <select
+                      value={selectedNode.config?.toolId || ''}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { toolId: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        marginBottom: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'inherit',
+                      }}
+                    >
+                      <option value="">Choose a tool...</option>
+                      {availableTools.map((tool) => (
+                        <option key={tool.id} value={tool.id}>{tool.icon} {tool.name}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                
+                {selectedNode.type === 'api' && (
+                  <>
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>Method</label>
+                    <select
+                      value={selectedNode.config?.method || 'GET'}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { method: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        marginBottom: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'inherit',
+                      }}
+                    >
+                      <option value="GET">GET</option>
+                      <option value="POST">POST</option>
+                      <option value="PUT">PUT</option>
+                      <option value="DELETE">DELETE</option>
+                    </select>
+                    
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>URL</label>
+                    <input
+                      type="text"
+                      value={selectedNode.config?.url || ''}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { url: e.target.value })}
+                      placeholder="https://api.example.com/endpoint"
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        marginBottom: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'inherit',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </>
+                )}
+                
+                {selectedNode.type === 'decision' && (
+                  <>
+                    <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>Condition</label>
+                    <input
+                      type="text"
+                      value={selectedNode.config?.condition || ''}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { condition: e.target.value })}
+                      placeholder="e.g., result.status === 'success'"
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        color: 'inherit',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </>
+                )}
+                
+                {executionResults[selectedNode.id] && (
+                  <div style={{ marginTop: '16px', padding: '12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+                    <h4 style={{ fontSize: '13px', marginBottom: '8px' }}>Execution Result</h4>
+                    <pre style={{ fontSize: '11px', overflow: 'auto', maxHeight: '150px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {JSON.stringify(executionResults[selectedNode.id].output, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+              
               <textarea
                 className="detail-notes"
                 placeholder="Add implementation notes..."

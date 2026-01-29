@@ -14,6 +14,7 @@ import conversationMemory from './conversationMemory.js';
 import toolExecutor from './toolExecutor.js';
 import toolRegistry from './toolRegistry.js';
 import historyStore from './historyStore.js';
+import knowledgeRoutes from './routes/knowledgeRoutes.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -259,7 +260,7 @@ app.post('/api/tools/process-response', async (req, res) => {
  * Agents work together in a coordinated workflow to complete complex tasks
  */
 app.post('/api/orchestrated-chat', async (req, res) => {
-  const { agentIds, userPrompt, mode = 'sequential', autoMode = false } = req.body || {};
+  const { agentIds, agents = [], userPrompt, mode = 'sequential', autoMode = false } = req.body || {};
 
   if (!autoMode && (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0)) {
     return res.status(400).json({ error: 'agentIds array is required (unless autoMode is true)' });
@@ -291,7 +292,7 @@ You have access to tools to help complete tasks:
 - generateReport: Create formatted reports
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'gpt-4o-mini',
+            modelId: 'llama-3.3-70b-versatile',
             capabilities: ['data_research', 'analysis'],
             outputFormat: 'text',
           },
@@ -307,7 +308,7 @@ You have access to tools:
 - readFile: Reference existing documents
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'gpt-4o-mini',
+            modelId: 'llama-3.3-70b-versatile',
             capabilities: ['planning', 'analysis'],
             outputFormat: 'text',
           },
@@ -329,7 +330,7 @@ Rules:
 - Separate paragraphs with blank lines
 - Keep content professional and organized
 - Use writeFile to save your work`,
-            modelId: 'gpt-4o-mini',
+            modelId: 'llama-3.3-70b-versatile',
             capabilities: ['document_generation', 'creative_writing'],
             outputFormat: 'document',
           },
@@ -346,7 +347,7 @@ You have access to tools:
 - listFiles: See available data files
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'gpt-4o-mini',
+            modelId: 'llama-3.3-70b-versatile',
             capabilities: ['data_processing', 'analysis'],
             outputFormat: 'json',
           },
@@ -362,7 +363,7 @@ You have access to tools:
 - readFile: Reference existing code
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'gpt-4o-mini',
+            modelId: 'llama-3.3-70b-versatile',
             capabilities: ['code_generation'],
             outputFormat: 'code',
           },
@@ -379,7 +380,7 @@ You have access to tools:
 - generateReport: Create quality assessments
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'gpt-4o-mini',
+            modelId: 'llama-3.3-70b-versatile',
             capabilities: ['quality_assurance', 'analysis'],
             outputFormat: 'text',
           },
@@ -402,15 +403,26 @@ Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
     // Register agents if not already registered
     for (const agentId of selectedAgentIds) {
       if (!agentManager.getAgent(agentId)) {
-        const registeredAgent = agentRegistry.getAgent(agentId);
-        if (registeredAgent) {
-          agentManager.registerAgent(agentId, registeredAgent);
-        } else {
+        // Try to get agent from provided agents array first
+        const providedAgent = agents.find(a => a.id === agentId);
+        if (providedAgent) {
           agentManager.registerAgent(agentId, {
-            name: agentId,
-            modelId: 'gpt-4o-mini',
+            name: providedAgent.name,
+            modelId: providedAgent.model_id || 'llama-3.3-70b-versatile',
             role: 'specialist',
+            systemPrompt: providedAgent.system_prompt || '',
           });
+        } else {
+          const registeredAgent = agentRegistry.getAgent(agentId);
+          if (registeredAgent) {
+            agentManager.registerAgent(agentId, registeredAgent);
+          } else {
+            agentManager.registerAgent(agentId, {
+              name: agentId,
+              modelId: 'llama-3.3-70b-versatile',
+              role: 'specialist',
+            });
+          }
         }
       }
     }
@@ -461,6 +473,34 @@ Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
       );
     }
 
+    // Generate a single consolidated document from all agent outputs
+    const generatedDocuments = [];
+    if (result.agentOutputs && Object.keys(result.agentOutputs).length > 0) {
+      try {
+        // Combine all agent outputs into one document
+        let consolidatedContent = '';
+        for (const [agentName, output] of Object.entries(result.agentOutputs)) {
+          consolidatedContent += `\n\n=== ${agentName} ===\n\n${output}`;
+        }
+        
+        const docFilename = `${workflowId}-consolidated-report.docx`;
+        const docResult = await outputGenerators.generateDocument(
+          consolidatedContent.trim(), 
+          'document', 
+          docFilename
+        );
+        
+        generatedDocuments.push({
+          agent: 'All Agents',
+          filename: docResult.filename,
+          type: 'docx',
+          downloadUrl: `/api/orchestrated-output/${docResult.filename}`,
+        });
+      } catch (err) {
+        console.warn(`Failed to generate consolidated document:`, err.message);
+      }
+    }
+
     res.json({
       success: true,
       intentAnalysis,
@@ -470,6 +510,7 @@ Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
         autoMode,
       },
       result,
+      documents: generatedDocuments,
     });
   } catch (error) {
     console.error('[ORCHESTRATION_ERROR]', error);
@@ -477,6 +518,22 @@ Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
       success: false,
       error: error.message || 'Orchestration failed',
     });
+  }
+});
+
+/**
+ * Download orchestrated chat output document
+ */
+app.get('/api/orchestrated-output/:filename', (req, res) => {
+  try {
+    const file = outputGenerators.getFile(req.params.filename);
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    res.download(file.filepath, file.filename);
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: 'Download failed' });
   }
 });
 
@@ -968,6 +1025,314 @@ app.get('/api/prompt-versions/:versionId/suggestions', async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+
+/**
+ * Smart Agent Routing
+ * Analyzes user query and ranks agents by relevance
+ */
+app.post('/api/smart-routing', async (req, res) => {
+  const { userPrompt, availableAgents = [] } = req.body || {};
+
+  if (!userPrompt || !Array.isArray(availableAgents)) {
+    return res.status(400).json({ error: 'userPrompt and availableAgents array are required' });
+  }
+
+  try {
+    const analysisPrompt = `You are an AI that intelligently routes queries to specialized agents.
+
+Available agents:
+${availableAgents.map((a, i) => `${i + 1}. ${a.name}: ${a.description}`).join('\n')}
+
+User query: "${userPrompt}"
+
+Analyze this query and rank the agents by relevance (1 = most relevant).
+For each relevant agent, provide:
+- agentId: the exact ID from the list
+- relevance: 0-100% match score
+- reason: brief explanation why this agent is good for this task
+
+Return ONLY valid JSON with this format:
+{
+  "analysis": "Brief description of what the user is asking",
+  "topAgents": [
+    { "agentId": "id1", "relevance": 95, "reason": "explanation" },
+    { "agentId": "id2", "relevance": 80, "reason": "explanation" }
+  ]
+}`;
+
+    // Use Groq for routing analysis (fast and free) to avoid OpenAI quota issues
+    const routingModelId = 'llama-3.3-70b-versatile';
+    const routingConfig = MODEL_HANDLERS[routingModelId];
+    if (!routingConfig) {
+      throw new Error(`Unknown model: ${routingModelId}`);
+    }
+    const routingApiKey = process.env[routingConfig.envKey];
+    if (!routingApiKey) {
+      throw new Error(`Missing API key for ${routingModelId}`);
+    }
+
+    const response = await routingConfig.handler({
+      modelId: routingModelId,
+      apiKey: routingApiKey,
+      temperature: 0.3,
+      messages: [{ role: 'user', content: analysisPrompt }],
+      baseUrl: routingConfig.baseUrl,
+    });
+
+    let parsedResult;
+    try {
+      // Extract JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      parsedResult = JSON.parse(jsonMatch ? jsonMatch[0] : response);
+    } catch (e) {
+      parsedResult = {
+        analysis: response,
+        topAgents: availableAgents.slice(0, 3).map((a, idx) => ({
+          agentId: a.id,
+          relevance: 100 - idx * 10,
+          reason: 'General purpose agent',
+        })),
+      };
+    }
+
+    res.json({
+      success: true,
+      ...parsedResult,
+    });
+  } catch (error) {
+    console.error('[SMART_ROUTING_ERROR]', error);
+    res.status(500).json({ error: error.message || 'Smart routing failed' });
+  }
+});
+
+/**
+ * Debate Mode Orchestration
+ * Agents discuss a topic, present arguments, and reach consensus
+ */
+app.post('/api/debate-mode', async (req, res) => {
+  const { userPrompt, agentIds = [], agents = [] } = req.body || {};
+
+  if (!userPrompt || agentIds.length < 2) {
+    return res.status(400).json({ error: 'userPrompt and at least 2 agentIds are required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const sendEvent = (type, data) => {
+    res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  };
+
+  try {
+    // Step 1: Send analysis
+    sendEvent('debate-start', {
+      topic: userPrompt,
+      agentCount: agentIds.length,
+    });
+
+    // Store agent positions
+    const agentPositions = {};
+    const agentResponses = {};
+
+    // Step 2: Get initial positions from each agent
+    for (let i = 0; i < agentIds.length; i++) {
+      const agentId = agentIds[i];
+      const agent = agents.find(a => a.id === agentId);
+      
+      if (!agent) continue;
+
+      const positionPrompt = `${agent.system_prompt || `You are ${agent.name}.`}
+
+The topic for discussion is: "${userPrompt}"
+
+Please provide your initial position/argument on this topic. Be clear, concise, and compelling. Your response should be 2-3 paragraphs.`;
+
+      try {
+        const modelId = agent.model_id || 'gpt-4o-mini';
+        const modelConfig = MODEL_HANDLERS[modelId];
+        if (!modelConfig) {
+          throw new Error(`Unknown model: ${modelId}`);
+        }
+        const apiKey = process.env[modelConfig.envKey];
+        if (!apiKey) {
+          throw new Error(`Missing API key for ${modelId}`);
+        }
+
+        const response = await modelConfig.handler({
+          modelId,
+          apiKey,
+          temperature: 0.7,
+          messages: [{ role: 'user', content: positionPrompt }],
+          baseUrl: modelConfig.baseUrl,
+        });
+
+        agentResponses[agentId] = response;
+        agentPositions[agentId] = 'initial';
+
+        sendEvent('agent-position', {
+          agentId,
+          agentName: agent.name,
+          position: response,
+          stance: 'initial',
+          step: i + 1,
+          totalAgents: agentIds.length,
+        });
+      } catch (error) {
+        sendEvent('agent-error', {
+          agentId,
+          agentName: agent.name || 'Unknown Agent',
+          error: error.message,
+        });
+      }
+    }
+
+    // Step 3: Get rebuttals
+    for (let i = 0; i < agentIds.length; i++) {
+      const agentId = agentIds[i];
+      const agent = agents.find(a => a.id === agentId);
+      
+      if (!agent) continue;
+
+      // Build rebuttal context from other agents' positions
+      const otherPositions = agentIds
+        .filter(id => id !== agentId)
+        .map(id => {
+          const otherAgent = agents.find(a => a.id === id);
+          return `**${otherAgent?.name || 'Agent'}:** ${agentResponses[id] || 'No response'}`;
+        })
+        .join('\n\n');
+
+      const rebuttalPrompt = `${agent.system_prompt || `You are ${agent.name}.`}
+
+The topic for discussion is: "${userPrompt}"
+
+Your initial position was:
+${agentResponses[agentId] || 'No initial response'}
+
+Other agents have presented these views:
+${otherPositions}
+
+Now, please provide a rebuttal to at least one other agent's position. Do you agree with parts of their argument? Disagree? What additional points can you make? Keep it to 2-3 paragraphs.`;
+
+      try {
+        const modelId = agent.model_id || 'gpt-4o-mini';
+        const modelConfig = MODEL_HANDLERS[modelId];
+        if (!modelConfig) {
+          throw new Error(`Unknown model: ${modelId}`);
+        }
+        const apiKey = process.env[modelConfig.envKey];
+        if (!apiKey) {
+          throw new Error(`Missing API key for ${modelId}`);
+        }
+
+        const rebuttal = await modelConfig.handler({
+          modelId,
+          apiKey,
+          temperature: 0.7,
+          messages: [{ role: 'user', content: rebuttalPrompt }],
+          baseUrl: modelConfig.baseUrl,
+        });
+
+        agentResponses[`${agentId}-rebuttal`] = rebuttal;
+
+        sendEvent('agent-rebuttal', {
+          agentId,
+          agentName: agent.name,
+          rebuttal,
+          step: agentIds.length + i + 1,
+          totalSteps: agentIds.length * 2,
+        });
+      } catch (error) {
+        sendEvent('agent-error', {
+          agentId,
+          agentName: agent.name || 'Unknown Agent',
+          error: error.message,
+        });
+      }
+    }
+
+    // Step 4: Consensus analysis
+    const consensusPrompt = `You are a neutral mediator analyzing a discussion on: "${userPrompt}"
+
+Here are the positions presented:
+${agentIds
+  .map(id => {
+    const agent = agents.find(a => a.id === id);
+    return `**${agent?.name || 'Agent'}:**
+Initial: ${agentResponses[id] || 'No response'}
+Rebuttal: ${agentResponses[`${id}-rebuttal`] || 'No rebuttal'}`;
+  })
+  .join('\n\n')}
+
+Analyze this discussion and provide:
+1. Areas of agreement between agents (consensus points)
+2. Remaining disagreements
+3. A balanced conclusion or recommendation
+4. Which agent made the strongest argument (and why)
+
+Format your response as JSON:
+{
+  "consensusPoints": ["point1", "point2"],
+  "disagreements": ["disagree1"],
+  "conclusion": "balanced summary",
+  "strongestArgument": { "agent": "agent name", "reason": "why" }
+}`;
+
+    // Use Groq for consensus (fast and free) to avoid OpenAI quota issues
+    const consensusModelId = 'llama-3.3-70b-versatile';
+    const consensusConfig = MODEL_HANDLERS[consensusModelId];
+    if (!consensusConfig) {
+      throw new Error(`Unknown model: ${consensusModelId}`);
+    }
+    const consensusApiKey = process.env[consensusConfig.envKey];
+    if (!consensusApiKey) {
+      throw new Error(`Missing API key for ${consensusModelId}`);
+    }
+
+    const consensusResult = await consensusConfig.handler({
+      modelId: consensusModelId,
+      apiKey: consensusApiKey,
+      temperature: 0.5,
+      messages: [{ role: 'user', content: consensusPrompt }],
+      baseUrl: consensusConfig.baseUrl,
+    });
+
+    let consensus;
+    try {
+      const jsonMatch = consensusResult.match(/\{[\s\S]*\}/);
+      consensus = JSON.parse(jsonMatch ? jsonMatch[0] : consensusResult);
+    } catch (e) {
+      consensus = {
+        consensusPoints: ['Discussion completed'],
+        disagreements: [],
+        conclusion: consensusResult,
+        strongestArgument: { agent: 'Multiple perspectives', reason: 'All agents contributed valuable insights' },
+      };
+    }
+
+    sendEvent('consensus-reached', {
+      ...consensus,
+      agentsInvolved: agentIds.length,
+    });
+
+    sendEvent('debate-complete', {
+      success: true,
+      totalAgents: agentIds.length,
+      consensus,
+    });
+
+    res.end();
+  } catch (error) {
+    console.error('[DEBATE_MODE_ERROR]', error);
+    sendEvent('error', { error: error.message });
+    res.end();
+  }
+});
+
+// Register knowledge base routes
+app.use('/api/knowledge', knowledgeRoutes);
 
 app.listen(PORT, () => {
   console.log(`Agent Builder API running on http://localhost:${PORT}`);
