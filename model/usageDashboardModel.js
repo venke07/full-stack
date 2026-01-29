@@ -1,16 +1,127 @@
+// model/usageDashboardModel.js
 const { createClient } = require("@supabase/supabase-js");
-const { Models } = require("openai/resources.js");
-const { generateUsageLabel } = require("../services/geminiSummaryService.js");
+
+const {
+  generateUsageLabel,
+  summarizeConversation,
+  generateIntentBreakdown,
+} = require("../services/geminiSummaryService.js");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-async function getAllAgentData() {
+
+function normalizeChatHistory(chat_history) {
+  const arr = Array.isArray(chat_history) ? chat_history : [];
+
+  return arr
+    .map((m) => {
+      const roleRaw = (m.role || "").toLowerCase();
+      const text = (m.content ?? m.text ?? "").toString().trim();
+      if (!text) return null;
+
+      const role =
+        roleRaw === "assistant" || roleRaw === "agent" ? "assistant" : "user";
+
+      return { role, content: text };
+    })
+    .filter(Boolean);
+}
+
+// keep cost down: only send the most recent N user+agent messages
+function takeRecentMessages(msgs, max = 30) {
+  if (!Array.isArray(msgs)) return [];
+  return msgs.slice(-max);
+}
+
+function extractExamplePrompts(chat_history, limit = 2) {
+  let arr = chat_history;
+
+  if (!arr) return [];
+  if (typeof arr === "string") {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+
+  const prompts = arr
+    .filter((m) => m && m.role === "user" && typeof m.text === "string")
+    .map((m) => m.text.trim())
+    .filter(Boolean);
+
+  return prompts.slice(-limit);
+}
+
+function countUserMessages(chat_history) {
+  let arr = chat_history;
+
+  if (!arr) return 0;
+  if (typeof arr === "string") {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      return 0;
+    }
+  }
+  if (!Array.isArray(arr)) return 0;
+
+  return arr.filter(
+    (m) =>
+      m &&
+      m.role === "user" &&
+      typeof m.text === "string" &&
+      m.text.trim().length > 0
+  ).length;
+}
+
+function computeUsageStatus({ usageLabel, totalUserMessages }) {
+  if (!usageLabel || usageLabel.trim() === "" || usageLabel === "Unclear usage") {
+    return { status: "Underutilized", color: "yellow", reason: "Not enough signal" };
+  }
+  if (totalUserMessages < 3) {
+    return { status: "Underutilized", color: "yellow", reason: "Low usage volume" };
+  }
+  return { status: "Healthy", color: "green", reason: "Clear purpose, consistent usage" };
+}
+
+function computeAlignment({ description, usageLabel }) {
+  const d = (description || "").toLowerCase();
+  const u = (usageLabel || "").toLowerCase();
+
+  if (!d || !u) return { alignment: "Unknown", score: 0 };
+
+  const dWords = new Set(d.split(/\W+/).filter((w) => w.length >= 4));
+  const uWords = new Set(u.split(/\W+/).filter((w) => w.length >= 4));
+
+  let overlap = 0;
+  for (const w of uWords) if (dWords.has(w)) overlap++;
+
+  const score = Math.min(
+    100,
+    Math.round((overlap / Math.max(1, uWords.size)) * 100)
+  );
+
+  let alignment = "Low";
+  if (score >= 60) alignment = "High";
+  else if (score >= 30) alignment = "Medium";
+
+  return { alignment, score };
+}
+
+async function getAllAgentData(userId) {
+  if (!userId) throw new Error("userId is required");
+
   const { data, error } = await supabase
     .from("agent_personas")
-    .select("id, name, description, status, model_label, unsummarized_user_count, chat_history, last_used, usage_label")
+    .select(
+      "*"
+    )
+    .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -19,8 +130,8 @@ async function getAllAgentData() {
 
   return rows.map((a) => {
     const totalUserMessages = countUserMessages(a.chat_history);
-
     const examplePrompts = extractExamplePrompts(a.chat_history, 2);
+
     const { alignment, score } = computeAlignment({
       description: a.description,
       usageLabel: a.usage_label,
@@ -49,58 +160,44 @@ async function getAllAgentData() {
   });
 }
 
+async function getAgentPersonaById(agentId, userId) {
+  if (!userId) throw new Error("userId is required");
 
-function normalizeChatHistory(chat_history) {
-  const arr = Array.isArray(chat_history) ? chat_history : [];
-
-  return arr
-    .map((m) => {
-      const roleRaw = (m.role || "").toLowerCase();
-      const text = (m.content ?? m.text ?? "").toString().trim();
-      if (!text) return null;
-
-      const role =
-        roleRaw === "assistant" || roleRaw === "agent" ? "assistant" : "user";
-
-      return { role, content: text };
-    })
-    .filter(Boolean);
-}
-
-// keep cost down: only send the most recent N user+agent messages
-function takeRecentMessages(msgs, max = 30) {
-  if (!Array.isArray(msgs)) return [];
-  return msgs.slice(-max);
-}
-
-async function getAgentPersonaById(agentId) {
   const { data, error } = await supabase
     .from("agent_personas")
-    .select("id, name, description, chat_history, usage_label, usage_label_updated_at")
+    .select("*")
     .eq("id", agentId)
+    .eq("user_id", userId)
     .single();
 
-  if (error) throw error;
+  if (error) throw error; 
   return data;
 }
 
-// optional: cache label in DB
-async function updateAgentUsageLabel(agentId, usageLabel) {
+async function updateAgentUsageLabel(agentId, userId, usageLabel) {
+  if (!userId) throw new Error("userId is required");
+
+  await getAgentPersonaById(agentId, userId);
+
   const { error } = await supabase
     .from("agent_personas")
     .update({
       usage_label: usageLabel,
       usage_label_updated_at: new Date().toISOString(),
     })
-    .eq("id", agentId);
+    .eq("id", agentId)
+    .eq("user_id", userId);
 
   if (error) throw error;
 }
 
-async function computeUsageLabelsForAllAgents({ force = false } = {}) {
+async function computeUsageLabelsForAllAgents(userId, { force = false } = {}) {
+  if (!userId) throw new Error("userId is required");
+
   const { data, error } = await supabase
     .from("agent_personas")
-    .select("id, name, description, chat_history, usage_label")
+    .select("id, user_id, name, description, chat_history, usage_label")
+    .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -127,7 +224,7 @@ async function computeUsageLabelsForAllAgents({ force = false } = {}) {
       });
     }
 
-    await updateAgentUsageLabel(a.id, usageLabel);
+    await updateAgentUsageLabel(a.id, userId, usageLabel);
 
     results.push({ id: a.id, usageLabel, cached: false });
   }
@@ -139,74 +236,103 @@ async function computeUsageLabelsForAllAgents({ force = false } = {}) {
   };
 }
 
-function extractExamplePrompts(chat_history, limit = 2) {
-  let arr = chat_history;
+async function updateUsageAnalytics(personaId, {
+  usage_label,
+  conversation_summary,
+  usage_insights,
+  unsummarized_user_count,
+  last_used,
+}) {
+  const payload = {};
 
-  if (!arr) return [];
-  if (typeof arr === "string") {
-    try { arr = JSON.parse(arr); } catch { return []; }
-  }
-  if (!Array.isArray(arr)) return [];
+  if (usage_label !== undefined) payload.usage_label = usage_label;
+  if (conversation_summary !== undefined) payload.conversation_summary = conversation_summary;
+  if (usage_insights !== undefined) payload.usage_insights = usage_insights;
+  if (unsummarized_user_count !== undefined) payload.unsummarized_user_count = unsummarized_user_count;
+  if (last_used !== undefined) payload.last_used = last_used;
 
-  // take last user prompts (non-empty)
-  const prompts = arr
-    .filter(m => m && m.role === "user" && typeof m.text === "string")
-    .map(m => m.text.trim())
-    .filter(Boolean);
+  const { error } = await supabase
+    .from("agent_personas")
+    .update(payload)
+    .eq("id", personaId);
 
-  return prompts.slice(-limit);
+  if (error) throw error;
 }
 
-function computeUsageStatus({ usageLabel, totalUserMessages }) {
-  if (!usageLabel || usageLabel.trim() === "" || usageLabel === "Unclear usage") {
-    return { status: "Underutilized", color: "yellow", reason: "Not enough signal" };
-  }
-  if (totalUserMessages < 3) {
-    return { status: "Underutilized", color: "yellow", reason: "Low usage volume" };
-  }
-  return { status: "Healthy", color: "green", reason: "Clear purpose, consistent usage" };
+async function getAgentNotesById(personaId, userId) {
+  const { data, error } = await supabase
+    .from("agent_personas")
+    .select("agent_notes")
+    .eq("id", personaId)
+    .eq("user_id", userId)
+    .single();
+  if (error) throw error;
+  return data?.agent_notes || "";
 }
 
-function computeAlignment({ description, usageLabel }) {
-  const d = (description || "").toLowerCase();
-  const u = (usageLabel || "").toLowerCase();
-
-  if (!d || !u) return { alignment: "Unknown", score: 0 };
-
-  const dWords = new Set(d.split(/\W+/).filter(w => w.length >= 4));
-  const uWords = new Set(u.split(/\W+/).filter(w => w.length >= 4));
-
-  let overlap = 0;
-  for (const w of uWords) if (dWords.has(w)) overlap++;
-
-  const score = Math.min(100, Math.round((overlap / Math.max(1, uWords.size)) * 100));
-
-  let alignment = "Low";
-  if (score >= 60) alignment = "High";
-  else if (score >= 30) alignment = "Medium";
-
-  return { alignment, score };
+async function updateAgentNotesById(personaId, userId, agentNotes) {
+  const { error } = await supabase
+    .from("agent_personas")
+    .update({ agent_notes: agentNotes })
+    .eq("id", personaId)
+    .eq("user_id", userId);
+  if (error) throw error;
 }
 
-function countUserMessages(chat_history) {
-  let arr = chat_history;
+function toDate(x) {
+  const d = x ? new Date(x) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+}
 
-  if (!arr) return 0;
-  if (typeof arr === "string") {
-    try { arr = JSON.parse(arr); } catch { return 0; }
+async function computeAndSaveAnalyticsIfNeeded(agentId, userId) {
+  const agent = await getAgentPersonaById(agentId, userId);
+
+  const lastUsed = toDate(agent.last_used);
+  const lastAnalytics = toDate(agent.usage_label_updated_at);
+
+  const needsCompute =
+    !agent.intent_breakdown ||
+    !lastAnalytics ||
+    (lastUsed && lastAnalytics && lastUsed > lastAnalytics);
+
+  if (!needsCompute) {
+    return { skipped: true, reason: "Analytics already up to date" };
   }
-  if (!Array.isArray(arr)) return 0;
 
-  return arr.filter(
-    (m) => m && m.role === "user" && typeof m.text === "string" && m.text.trim().length > 0
-  ).length;
+  const normalized = normalizeChatHistory(agent.chat_history);
+  const recent = takeRecentMessages(normalized, 30);
+
+  if (recent.length < 4) {
+    return { skipped: true, reason: "Not enough chat content" };
+  }
+
+  const [usageLabel, intents] = await Promise.all([
+    generateUsageLabel({ geminiMessages: recent, agentDescription: agent.description }),
+    generateIntentBreakdown({ geminiMessages: recent, agentDescription: agent.description }),
+  ]);
+
+  const { error } = await supabase
+    .from("agent_personas")
+    .update({
+      usage_label: usageLabel,
+      usage_label_updated_at: new Date().toISOString(),
+      intent_breakdown: intents,
+    })
+    .eq("id", agentId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  return { skipped: false, usageLabel, intents };
 }
-
 
 module.exports = {
-    getAllAgentData,
-    computeUsageLabelsForAllAgents,
-    getAgentPersonaById,
-    updateAgentUsageLabel
+  getAllAgentData,
+  computeUsageLabelsForAllAgents,
+  getAgentPersonaById,
+  updateAgentUsageLabel,
+  updateUsageAnalytics,
+  getAgentNotesById, 
+  updateAgentNotesById,
+  computeAndSaveAnalyticsIfNeeded
 };
-

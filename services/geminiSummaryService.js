@@ -48,4 +48,42 @@ async function generateUsageLabel({ geminiMessages, agentDescription }) {
   return (resp.text || "").trim();
 }
 
-module.exports = { summarizeConversation, generateUsageLabel };
+async function generateIntentBreakdown({ geminiMessages, agentDescription }) {
+  const transcript = geminiMessages
+    .map((m) => `${m.role === "assistant" ? "Agent" : "User"}: ${m.content}`)
+    .join("\n");
+
+  const prompt =
+    "(IMPORTANT) Categorize what the user is asking about into 3 to 6 intent categories. " +
+    "Return ONLY valid JSON array, no markdown, no extra text. " +
+    'Format: [{"label":"Business Analysis","percent":65}, ...]. ' +
+    "Percent must sum to 100. Use short labels (2-3 words). " +
+    "If unclear, return: " +
+    '[{"label":"Unclear","percent":100}].\n\n' +
+    `Agent description: ${agentDescription || "N/A"}\n\n` +
+    "Conversation:\n" +
+    transcript;
+
+  const resp = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+  });
+
+  const text = (resp.text || "").trim();
+
+  // Safe parse
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) throw new Error("Not array");
+    return parsed;
+  } catch (e) {
+    // fallback if Gemini returns something weird
+    return [{ label: "Unclear", percent: 100 }];
+  }
+}
+
+module.exports = {
+   summarizeConversation,
+   generateUsageLabel, 
+   generateIntentBreakdown
+};

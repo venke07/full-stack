@@ -1711,6 +1711,7 @@
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -3101,6 +3102,7 @@ textarea {
   background: rgba(255, 255, 255, 0.1);
   outline: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 .persona-sliders input[type="range"]::-webkit-slider-thumb {
@@ -4152,6 +4154,7 @@ select {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   max-width: 100%;
 }
@@ -4922,6 +4925,300 @@ select {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+
+/* ===== CUSTOM SCROLLBAR STYLING ===== */
+
+/* General scrollbar styling for all elements */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.4);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.7);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(106, 168, 255, 0.9);
+  background-clip: content-box;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(106, 168, 255, 0.4) transparent;
+}
+
+*:hover {
+  scrollbar-color: rgba(106, 168, 255, 0.7) transparent;
+}
+
+/* Custom scrollbar for specific containers */
+.agent-selector::-webkit-scrollbar {
+  width: 8px;
+}
+
+.agent-selector::-webkit-scrollbar-thumb {
+  background: rgba(122, 240, 213, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.agent-selector::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 240, 213, 0.8);
+  background-clip: content-box;
+}
+
+.messages-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.8);
+  background-clip: content-box;
+}
+
+.comparison-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.comparison-panel::-webkit-scrollbar-thumb {
+  background: rgba(122, 240, 213, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.comparison-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 240, 213, 0.8);
+  background-clip: content-box;
+}
+
+.chat-rail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-rail::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.4);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-rail::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.8);
+  background-clip: content-box;
+}
+
+/* Chat Page Scrollbars */
+.stage-window::-webkit-scrollbar {
+  width: 8px;
+}
+
+.stage-window::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.stage-window::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.8);
+  background-clip: content-box;
+}
+
+.stage-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-page::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-page::-webkit-scrollbar-thumb {
+  background: rgba(122, 240, 213, 0.4);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-page::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 240, 213, 0.8);
+  background-clip: content-box;
+}
+
+.chat-page::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+
+/* ===== CUSTOM SCROLLBAR STYLING ===== */
+
+/* General scrollbar styling for all elements */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.4);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.7);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(106, 168, 255, 0.9);
+  background-clip: content-box;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(106, 168, 255, 0.4) transparent;
+}
+
+*:hover {
+  scrollbar-color: rgba(106, 168, 255, 0.7) transparent;
+}
+
+/* Custom scrollbar for specific containers */
+.agent-selector::-webkit-scrollbar {
+  width: 8px;
+}
+
+.agent-selector::-webkit-scrollbar-thumb {
+  background: rgba(122, 240, 213, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.agent-selector::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 240, 213, 0.8);
+  background-clip: content-box;
+}
+
+.messages-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.8);
+  background-clip: content-box;
+}
+
+.comparison-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.comparison-panel::-webkit-scrollbar-thumb {
+  background: rgba(122, 240, 213, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.comparison-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 240, 213, 0.8);
+  background-clip: content-box;
+}
+
+.chat-rail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-rail::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.4);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-rail::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.8);
+  background-clip: content-box;
+}
+
+/* Chat Page Scrollbars */
+.stage-window::-webkit-scrollbar {
+  width: 8px;
+}
+
+.stage-window::-webkit-scrollbar-thumb {
+  background: rgba(106, 168, 255, 0.5);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.stage-window::-webkit-scrollbar-thumb:hover {
+  background: rgba(106, 168, 255, 0.8);
+  background-clip: content-box;
+}
+
+.stage-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-page::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-page::-webkit-scrollbar-thumb {
+  background: rgba(122, 240, 213, 0.4);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-page::-webkit-scrollbar-thumb:hover {
+  background: rgba(122, 240, 213, 0.8);
+  background-clip: content-box;
+}
+
+.chat-page::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 
 /* ===== CUSTOM SCROLLBAR STYLING ===== */
 

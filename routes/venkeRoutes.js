@@ -10,6 +10,9 @@ const {
 } = require("../controller/venkeController.js");
     
 const router = express.Router();
+const requireAuth = require("../middleware/requireAuth");
+
+router.use(requireAuth);
 
 router.get("/venke-data", getAgentDataController);
 router.get("/venke-descriptions", getAgentsGroupedController);

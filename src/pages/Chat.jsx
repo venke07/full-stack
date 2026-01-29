@@ -485,11 +485,6 @@ export default function ChatPage() {
       const agentMessageId = `agent-${timestamp}`;
       setChatLog((prev) => [...prev, { id: agentMessageId, role: 'agent', text: agentResponse }]);
       
-      // Auto-play agent response if voice is enabled
-      if (voiceEnabled && agentResponse) {
-        speakText(agentResponse);
-      }
-      
       // Store message metadata for implicit tracking
       if (activeTestSession && currentVersionId) {
         setMessageMetadata((prev) => ({

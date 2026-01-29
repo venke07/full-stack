@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import './history.css';
 
+
 export default function HistoryPage() {
 
   const navigate = useNavigate();
@@ -12,15 +13,11 @@ export default function HistoryPage() {
   const [activeAgent, setActiveAgent] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
   
-  const [loading, setLoading] = useState(true); // for agents
   const [agents, setAgents] = useState([]);
 
   const [venkeLoading, setVenkeLoading] = useState(true);
   const [venkeData, setVenkeData] = useState([]);
   
-  const [convLoading, setConvLoading] = useState(false); // for conversations
-  const [conversations, setConversations] = useState([]);
-  const [activeConversation, setActiveConversation] = useState(null);
 
   const [activeDescriptionId, setActiveDescriptionId] = useState(null);
 
@@ -38,6 +35,26 @@ export default function HistoryPage() {
   const [personaSearchResults, setPersonaSearchResults] = useState([]);
   const [personaSearchLoading, setPersonaSearchLoading] = useState(false);
 
+  const API_BASE = "http://localhost:3000";
+
+  async function apiFetch(path, options = {}) {
+    const token = localStorage.getItem("access_token");
+
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    // Optional: if token missing/expired
+    if (res.status === 401) {
+      throw new Error("401 Unauthorized - missing/invalid token");
+    }
+
+    return res;
+  }
 
   const deleteDialogRef = React.useRef();
   
@@ -62,10 +79,8 @@ export default function HistoryPage() {
   setPersonaSearchLoading(true);
 
   try {
-    const res = await fetch(
-      `http://localhost:3000/api/venke/search-chat?name=${encodeURIComponent(
-        selectedVenkeAgent.name
-      )}&query=${encodeURIComponent(value)}`
+    const res = await apiFetch(
+      `/api/venke/search-chat?name=${encodeURIComponent(selectedVenkeAgent.name)}&query=${encodeURIComponent(value)}`
     );
 
     const json = await res.json();
@@ -127,10 +142,10 @@ const handleDeleteDescription = async (agentId) => {
   if (!confirmed) return;
 
   try {
-    const res = await fetch(`http://localhost:3000/api/venke/${agentId}`, {
+    const res = await apiFetch(`/api/venke/${agentId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description: "" }) // clear description
+      body: JSON.stringify({ description: "" }),
     });
 
     const data = await res.json();
@@ -177,9 +192,7 @@ const handleDeleteAllConversations = async () => {
   if (!confirmed) return;
 
   try {
-    const res = await fetch("http://localhost:3000/api/conversations", {
-      method: "DELETE",
-    });
+    const res = await apiFetch("/api/conversations", { method: "DELETE" });
 
     const data = await res.json();
 
@@ -188,9 +201,7 @@ const handleDeleteAllConversations = async () => {
       return;
     }
 
-    setConversations([]);
     setMessages([]);
-    setActiveConversation(null);
 
   } catch (err) {
     console.error(err);
@@ -215,7 +226,7 @@ const fetchChatHistoryById = async (id) => {
     setChatPreviewMessages([]);
 
     try {
-      const res = await fetch(`http://localhost:3000/api/venke/chat-history/${id}`);
+      const res = await apiFetch(`/api/venke/chat-history/${id}`);
       const json = await res.json();
 
       if (!json.success) return;
@@ -229,21 +240,6 @@ const fetchChatHistoryById = async (id) => {
     }
   };
 
- // Fetch normal agents
-  useEffect(() => {
-    async function getAgents() {
-      try {
-        const response = await fetch('http://localhost:3000/api/agents');
-        const data = await response.json();
-        setAgents(data.agents || []);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching agents:', error);
-        setLoading(false);
-      }
-    }
-    getAgents();
-  }, []);
 
 
  // Fetch Venke agents
@@ -251,15 +247,19 @@ const fetchChatHistoryById = async (id) => {
     async function getVenkeAgentsData() {
       setVenkeLoading(true);
       try {
-        const response = await fetch('http://localhost:3000/api/venke/venke-descriptions');
+        const response = await apiFetch("/api/venke/venke-descriptions");
         const data = await response.json();
         setVenkeData(data.data || []);
-        setVenkeLoading(false);
       } catch (error) {
-        console.error('Error fetching venke agents:', error);
+        console.error("Error fetching venke agents:", error);
+
+        // Optional: if token missing, send user back to login page
+        // navigate("/login");
+      } finally {
         setVenkeLoading(false);
       }
     }
+
     getVenkeAgentsData();
   }, []);
 
@@ -273,7 +273,6 @@ const fetchChatHistoryById = async (id) => {
     setPersonaSearchResults([]);
 
     setActiveAgent(null);          // deselect agent
-    setConversations([]);          // clear conversations
     setMessages([]);      
     
     setSearchQuery("");
@@ -287,39 +286,21 @@ const fetchChatHistoryById = async (id) => {
   }
 
   setActiveAgent(agentId);
-  setShowSearch(false);            // hide search panel when switching agents
-  setConvLoading(true);            // start loading conversations
+  setShowSearch(false);          
 
-  setMessages([]);                 // clear messages when switching agents
+  setMessages([]);                
 
-  // ✅ clear old preview when switching agents
   setActiveDescriptionId(null);
   setChatPreviewMessages([]);
 
   try {
-    const response = await fetch(`http://localhost:3000/api/conversations/agent/${agentId}`);
+    const response = await apiFetch(`/api/conversations/agent/${agentId}`);
     const data = await response.json();
-    setConversations(data.conversations || []);
   } catch (error) {
     console.error("Error fetching conversations:", error);
-  } finally {
-    setConvLoading(false);
-  }
+  } 
 };
 
-  const handleConversationClicked = async (conversationId) => {
-    setActiveConversation(conversationId);
-    setMsgLoading(true); // start loading messages
-    try {
-      const response = await fetch(`http://localhost:3000/api/message/${conversationId}/messages`);
-      const data = await response.json();
-      setMessages(data.messages || []);
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-    } finally {
-      setMsgLoading(false);
-    } 
-  }
 
   const selectedVenkeAgent = venkeData.find(a => a.id === activeAgent);
 
@@ -408,13 +389,15 @@ const fetchChatHistoryById = async (id) => {
                   key={item.id}
                    className={`conversation-item ${activeDescriptionId === item.id ? 'active' : ''}`}
                     onClick={() => {
-
                       if (activeDescriptionId === item.id) {
-                        setActiveDescriptionId(item.id);
-                        fetchChatHistoryById(item.id);
+                        setActiveDescriptionId(null);
+                        setChatPreviewMessages([]);
+                        setIsSearching(false);
+                        setPersonaSearchResults([]);
                         return;
                       }
 
+                      // Otherwise open it normally
                       setActiveDescriptionId(item.id);
                       fetchChatHistoryById(item.id);
                     }}
@@ -530,7 +513,7 @@ const fetchChatHistoryById = async (id) => {
                 <div>No messages found for this conversation.</div>
               ) : (
                 chatPreviewMessages.map((m, idx) => {
-                  const isAI = m.role === "agent";
+                  const isAI = m.role === "agent" || m.role === "assistant";
                   const avatar = isAI ? aiAvatar : userAvatar;
 
                   return (

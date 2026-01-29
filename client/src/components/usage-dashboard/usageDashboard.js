@@ -3,6 +3,27 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import "./usageDashboard.css";
 
+const API_BASE = "http://localhost:3000";
+
+
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem("access_token");
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (res.status === 401) {
+    console.error("401 Unauthorized. Token missing/expired.");
+  }
+
+  return res;
+}
+
 
 export default function UsageDashboard() {
   const navigate = useNavigate();
@@ -12,25 +33,100 @@ export default function UsageDashboard() {
   const [activeAgentId, setActiveAgentId] = React.useState(null);
   const [expandedAgentId, setExpandedAgentId] = React.useState(null);   
 
-  const groupedAgents = React.useMemo(() => {
-  const raw = Array.isArray(agentData) ? agentData : [];
+  const [notes, setNotes] = React.useState("");
+  const [isEditingNotes, setIsEditingNotes] = React.useState(false);
+  const [notesDraft, setNotesDraft] = React.useState("");
+  const [searchQuery, setSearchQuery] = React.useState("");
+  
+ const [isComputing, setIsComputing] = React.useState(false);
 
-  const map = new Map();
-  for (const a of raw) {
-    const key = a.name.toLowerCase();
+  function parseIntentBreakdown(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
 
-    if (!map.has(key)) {
-      map.set(key, {
-        nameKey: key,
-        displayName: a.name,
-        items: [],
-      });
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
     }
-    map.get(key).items.push(a);
+    return [];
   }
 
-  return Array.from(map.values());
-}, [agentData]);
+  async function computeAnalyticsForActiveAgent() {
+    if (!activeAgentId) return;
+
+    try {
+      setIsComputing(true);
+
+      const res = await apiFetch(
+        `/api/usage-dashboard/agents/${activeAgentId}/analytics/compute`,
+        { method: "POST" }
+      );
+
+      const json = await res.json();
+      if (!res.ok) {
+        console.error("Compute analytics failed:", res.status, json);
+        return;
+      }
+
+      const { usageLabel, intents } = json?.result || {};
+
+      setAgentData((prev) =>
+        (Array.isArray(prev) ? prev : []).map((a) =>
+          a.id === activeAgentId
+            ? {
+                ...a,
+                usage_label: usageLabel ?? a.usage_label,
+                intent_breakdown: intents ?? a.intent_breakdown,
+              }
+            : a
+        )
+      );
+    } catch (err) {
+      console.error("computeAnalyticsForActiveAgent error:", err);
+    } finally {
+      setIsComputing(false);
+    }
+  }
+
+    const groupedAgents = React.useMemo(() => {
+    const raw = Array.isArray(agentData) ? agentData : [];
+
+    const map = new Map();
+    for (const a of raw) {
+      const key = (a.name || "").toLowerCase();
+
+      if (!map.has(key)) {
+        map.set(key, {
+          nameKey: key,
+          displayName: a.name,
+          items: [],
+        });
+      }
+      map.get(key).items.push(a);
+    }
+
+    return Array.from(map.values());
+  }, [agentData]);
+    
+  const filteredGroups = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return groupedAgents;
+
+    return groupedAgents
+      .map((g) => {
+        const matchedItems = g.items.filter((a) => {
+          const hay = `${a.name || ""} ${a.description || ""} ${a.usage_label || ""}`.toLowerCase();
+          return hay.includes(q);
+        });
+
+        return matchedItems.length ? { ...g, items: matchedItems } : null;
+      })
+      .filter(Boolean);
+  }, [groupedAgents, searchQuery]);
 
 function countUserMessages(chat_history) {
   if (!chat_history) return 0;
@@ -99,7 +195,8 @@ function timeAgo(isoString) {
 React.useEffect(() => {
   const fetchData = async () => {
     try {
-      const response = await fetch("http://localhost:3000/api/usage-dashboard/agent-data");
+
+      const response = await apiFetch("/api/usage-dashboard/agent-data");
       const json = await response.json();
 
       const agents = cleanedAgents(json.data); // keep ALL rows
@@ -117,6 +214,48 @@ React.useEffect(() => {
 
   fetchData();
 }, []);
+
+// Load Notes
+React.useEffect(() => {
+  if (!activeAgentId) return;
+
+  (async () => {
+    const res = await apiFetch(`/api/usage-dashboard/agents/${activeAgentId}/notes`);
+    const json = await res.json();
+    const n = json?.data?.agent_notes || "";
+    setNotes(n);
+    setNotesDraft(n);
+    setIsEditingNotes(false);
+  })();
+}, [activeAgentId]);
+
+
+// Save notes
+async function saveNotes() {
+  try {
+    console.log("Saving notes for:", activeAgentId, notesDraft);
+
+    const res = await apiFetch(`/api/usage-dashboard/agents/${activeAgentId}/notes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_notes: notesDraft }),
+    });
+
+    const text = await res.text(); // read response even if error
+    console.log("Save response:", res.status, text);
+
+    if (!res.ok) {
+      console.error("Failed to save notes:", res.status, text);
+      return;
+    }
+
+    setNotes(notesDraft);
+    setIsEditingNotes(false);
+  } catch (err) {
+    console.error("Save notes error:", err);
+  }
+}
+
 
 const totalConversations = React.useMemo(() => {
   if (!activeAgentId || !agentData) return 0;
@@ -141,9 +280,9 @@ const totalConversations = React.useMemo(() => {
             <input
               className="ud-searchInput"
               placeholder="Search agents..."
-              onChange={() => {}}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <span className="ud-searchIcon">🔍</span>
           </div>
 
           {/* Load agent list */}
@@ -152,68 +291,68 @@ const totalConversations = React.useMemo(() => {
                 <div className="ud-agentLoading">Loading agents...</div>
             )}
             
-            {!loadingAgentData && groupedAgents.length === 0 && (
-                <div className="ud-agentEmpty">No agents found.</div>
+            {!loadingAgentData && filteredGroups.length === 0 && (
+              <div className="ud-agentEmpty">No agents found.</div>
             )}
 
-           {!loadingAgentData &&
-    groupedAgents.map((group) => {
+         {!loadingAgentData &&
+            filteredGroups.map((group) => {
 
-    const isExpanded = expandedAgentId === group.nameKey;
-    console.log("ITS A GROUP member: " + JSON.stringify(group));
+        const isExpanded = expandedAgentId === group.nameKey;
+        console.log("ITS A GROUP member: " + JSON.stringify(group));
 
-    return (
-      <div key={group.nameKey} className="ud-agentBlock">
-        <button
-          type="button"
-          className="ud-agentItem"
-          onClick={() => {
-            // optional: pick first row under this group as active
-            if (group.items.length > 0) setActiveAgentId(group.items[0].id);
-          }}
-        >
-          <span
-            className="ud-agentChevron"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpandedAgentId(isExpanded ? null : group.nameKey);
-            }}
-          >
-            {isExpanded ? "▼" : "▶"}
-          </span>
+        return (
+          <div key={group.nameKey} className="ud-agentBlock">
+            <button
+              type="button"
+              className="ud-agentItem"
+              onClick={() => {
+                // optional: pick first row under this group as active
+                if (group.items.length > 0) setActiveAgentId(group.items[0].id);
+              }}
+            >
+              <span
+                className="ud-agentChevron"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedAgentId(isExpanded ? null : group.nameKey);
+                }}
+              >
+                {isExpanded ? "▼" : "▶"}
+              </span>
 
-          <span className="ud-agentName">
-            {group.displayName || "(Untitled Agent)"}
-          </span>
-        </button>
+              <span className="ud-agentName">
+                {group.displayName || "(Untitled Agent)"}
+              </span>
+            </button>
 
-        {/* Expanded content = list of rows (each row has its own description & data) */}
-        {isExpanded && (
-            <div className="ud-agentExpand">
-                {group.items.map((row, idx) => (
-                <React.Fragment key={row.id}>
-                    <button
-                    type="button"
-                    className={
-                        "ud-agentDescBtn" +
-                        (row.id === activeAgentId ? " ud-agentDescBtn--active" : "")
-                    }
-                    onClick={() => setActiveAgentId(row.id)}
-                    >
-                    {row.description && row.description.trim()
-                        ? row.description
-                        : "No purpose / description provided."}
-                    </button>
+            {/* Expanded content = list of rows (each row has its own description & data) */}
+            {isExpanded && (
+                <div className="ud-agentExpand">
+                    {group.items.map((row, idx) => (
+                    <React.Fragment key={row.id}>
+                        <button
+                        type="button"
+                        className={
+                            "ud-agentDescBtn" +
+                            (row.id === activeAgentId ? " ud-agentDescBtn--active" : "")
+                        }
+                        onClick={() => setActiveAgentId(row.id)}
+                        >
+                        {row.description && row.description.trim()
+                            ? row.description
+                            : "No purpose / description provided."}
+                        </button>
 
-                    {/* horizontal line between descriptions (not after last) */}
-                    {idx !== group.items.length - 1 && <div className="ud-agentDescDivider" />}
-                </React.Fragment>
-                ))}
-            </div>
-        )}
-            </div>
-            );
-        })}
+                        {/* horizontal line between descriptions (not after last) */}
+                        {idx !== group.items.length - 1 && <div className="ud-agentDescDivider" />}
+                    </React.Fragment>
+                    ))}
+                </div>
+            )}
+                </div>
+                );
+            })}
 
             </div>
         </aside>
@@ -232,16 +371,16 @@ const totalConversations = React.useMemo(() => {
                     return <div>No agent selected.</div>;
                 }
 
+                const intents = parseIntentBreakdown(agent.intent_breakdown);
+
                 return (
                 <>
-                {/* Header */}
                 <div className="ud-topHeader">
                     <div className="ud-topHeaderTitle">
-                      {agent.name} | {agent.description}
+                      {agent.name} | {agent.description} | Dashboard
                     </div>
                 </div>
                 
-                {/* Agent title + meta (backend will inject text) */}
                 <div className="ud-section">
                     <div className="ud-metaRow">
                     <span className="ud-metaLabel">Status: </span>
@@ -259,7 +398,6 @@ const totalConversations = React.useMemo(() => {
                     </div>
                 </div>
 
-                {/* KPI row (backend will inject numbers) */}
                 <div className="ud-kpiRow">
                     <div className="ud-kpiCard">
                     <div className="ud-kpiLabel">Total Conversations</div>
@@ -281,19 +419,114 @@ const totalConversations = React.useMemo(() => {
 
                 <div className="ud-divider" />
 
-                {/* Key usage patterns (backend will inject list items) */}
                 <div className="ud-section">
                   <div className="ud-h2">Key Usage Patterns</div>
-                  <div className="ud-subtitle">What Users Ask This Agent</div>
+                    <div className="ud-bigPanel">
+                      {/* LEFT side */}
+                      <div className="ud-bigLeft">
+                        {/* header row */}
+                        <div className="ud-panelTitleRow">
+                          <div className="ud-panelTitle">Intent Breakdown</div>
 
-                  {/* Primary usage label */}
-                  <div className="ud-patternBox">
-                    <ul className="ud-bullets">
-                      <li>{agent.usage_label || "Unclear usage"}</li>
-                    </ul>
-                  </div>
+                          <button
+                            type="button"
+                            className="ud-notesBtn"
+                            onClick={computeAnalyticsForActiveAgent}
+                            disabled={isComputing}
+                            style={{ marginLeft: "auto" }}
+                          >
+                            {isComputing ? "Computing..." : "Refresh"}
+                          </button>
+                        </div>
 
-                  
+                        {intents.length === 0 ? (
+                          <div className="ud-notesBox" style={{ marginTop: 10 }}>
+                            No intent breakdown yet. Click Refresh to generate.
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: 12 }}>
+                            {intents.map((it, idx) => {
+                              const label = it?.label ?? "Unknown";
+                              const percent = Number(it?.percent ?? 0);
+
+                              return (
+                                <div key={`${label}-${idx}`} style={{ marginBottom: 12 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                                    <span style={{ fontWeight: 700 }}>{label}</span>
+                                    <span>{percent}%</span>
+                                  </div>
+
+                                  <div
+                                    style={{
+                                      height: 10,
+                                      borderRadius: 999,
+                                      background: "rgba(255,255,255,0.12)",
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: `${Math.max(0, Math.min(100, percent))}%`,
+                                        height: "100%",
+                                        background: "rgba(134, 221, 250, 0.9)",
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                     
+                      </div>
+
+                      {/* RIGHT side */}
+                      <div className="ud-bigRight">
+                        <div className="ud-miniCard">
+                          <div className="ud-miniTitle">Agent Notes</div>
+
+                          {!isEditingNotes ? (
+                            <>
+                              <div className="ud-notesBox">
+                                {notes?.trim() ? notes : "No notes yet. Click Edit to add a purpose / usage note."}
+                              </div>
+
+                              <button type="button" className="ud-notesBtn" onClick={() => setIsEditingNotes(true)}>
+                                ✏️ Edit
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <textarea
+                                className="ud-notesTextarea"
+                                value={notesDraft}
+                                onChange={(e) => setNotesDraft(e.target.value)}
+                                placeholder="Write what this agent is meant to do..."
+                              />
+
+                              <div className="ud-notesActions">
+                                <button type="button" className="ud-notesBtn" onClick={saveNotes}>Save</button>
+                                <button
+                                  type="button"
+                                  className="ud-notesBtn ud-notesBtnSecondary"
+                                  onClick={() => {
+                                    setNotesDraft(notes);
+                                    setIsEditingNotes(false);
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="ud-miniCard">
+                            <div className="ud-miniCard-title">What users ask this agent</div>
+                            <div className="ud-miniCard-usagelabel"> {agent.usage_label || "Unclear usage"}</div>
+                        </div>
+                      </div>
+                    </div>
                 </div>
             </>
                 ); })()}

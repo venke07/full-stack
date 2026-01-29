@@ -3,6 +3,12 @@ import { useNavigate } from "react-router-dom";
 
 import "./chat-summary.css";
 
+// USER AUTHENTICATION
+// localStorage.setItem("access_token", "PASTE_YOUR_TOKEN_HERE");
+
+const API_BASE = "http://localhost:3000";
+
+
 function BotAvatar() {
   return (
     <div className="avatar" aria-hidden="true">
@@ -24,7 +30,7 @@ export default function ChatSummaryPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   
-  const API_URL = "http://localhost:3000/api/summary/list";
+  const API_URL = `${API_BASE}/api/summary/list`;
 
 
   useEffect(() => {
@@ -33,14 +39,22 @@ export default function ChatSummaryPage() {
         setLoading(true);
         setErrorMsg("");
 
-        const res = await fetch(API_URL);
+        const token = localStorage.getItem("access_token");
+
+        const res = await fetch(API_URL, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
         if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error("Unauthorized (401). Please login again.");
+          }
           throw new Error(`Request failed: ${res.status}`);
         }
 
         const data = await res.json();
-
-        // { id, name, summary, highlights, tags, summary_time }
         setAgents(Array.isArray(data) ? data : []);
       } catch (err) {
         setErrorMsg(err.message || "Failed to load summaries.");
@@ -52,6 +66,7 @@ export default function ChatSummaryPage() {
 
     loadAgents();
   }, []);
+
 
   // Frontend filter (on fetched data)
   const filteredAgents = useMemo(() => {

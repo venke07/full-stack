@@ -15,6 +15,10 @@ import toolExecutor from './toolExecutor.js';
 import toolRegistry from './toolRegistry.js';
 import historyStore from './historyStore.js';
 import knowledgeRoutes from './routes/knowledgeRoutes.js';
+import conversationMemory from './conversationMemory.js';
+import toolExecutor from './toolExecutor.js';
+import toolRegistry from './toolRegistry.js';
+import historyStore from './historyStore.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -292,7 +296,7 @@ You have access to tools to help complete tasks:
 - generateReport: Create formatted reports
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'llama-3.3-70b-versatile',
+            modelId: 'gpt-4o-mini',
             capabilities: ['data_research', 'analysis'],
             outputFormat: 'text',
           },
@@ -308,7 +312,7 @@ You have access to tools:
 - readFile: Reference existing documents
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'llama-3.3-70b-versatile',
+            modelId: 'gpt-4o-mini',
             capabilities: ['planning', 'analysis'],
             outputFormat: 'text',
           },
@@ -330,7 +334,7 @@ Rules:
 - Separate paragraphs with blank lines
 - Keep content professional and organized
 - Use writeFile to save your work`,
-            modelId: 'llama-3.3-70b-versatile',
+            modelId: 'gpt-4o-mini',
             capabilities: ['document_generation', 'creative_writing'],
             outputFormat: 'document',
           },
@@ -347,7 +351,7 @@ You have access to tools:
 - listFiles: See available data files
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'llama-3.3-70b-versatile',
+            modelId: 'gpt-4o-mini',
             capabilities: ['data_processing', 'analysis'],
             outputFormat: 'json',
           },
@@ -363,7 +367,7 @@ You have access to tools:
 - readFile: Reference existing code
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'llama-3.3-70b-versatile',
+            modelId: 'gpt-4o-mini',
             capabilities: ['code_generation'],
             outputFormat: 'code',
           },
@@ -380,7 +384,7 @@ You have access to tools:
 - generateReport: Create quality assessments
 
 Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
-            modelId: 'llama-3.3-70b-versatile',
+            modelId: 'gpt-4o-mini',
             capabilities: ['quality_assurance', 'analysis'],
             outputFormat: 'text',
           },
