@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
+import { buildUsageEvent, logUsageEvent } from '../lib/analytics.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -21,19 +22,38 @@ export default function MultiAgentChat() {
     const loadAgents = async () => {
       if (!supabase || !user?.id) return;
 
-      const { data, error } = await supabase
+      const ownedResponse = await supabase
         .from('agent_personas')
         .select('id, name, description, system_prompt, model_id, status')
         .eq('user_id', user.id)
         .eq('status', 'published');
 
-      if (error) {
-        console.error('Error loading agents:', error);
+      const accessResponse = await supabase
+        .from('agent_access')
+        .select('agent_id, role')
+        .eq('user_id', user.id);
+
+      let sharedAgents = [];
+      if (!accessResponse.error && accessResponse.data?.length) {
+        const sharedIds = accessResponse.data.map((row) => row.agent_id);
+        const { data: sharedData, error: sharedError } = await supabase
+          .from('agent_personas')
+          .select('id, name, description, system_prompt, model_id, status')
+          .in('id', sharedIds)
+          .eq('status', 'published');
+        if (!sharedError) {
+          sharedAgents = sharedData ?? [];
+        }
+      }
+
+      if (ownedResponse.error) {
+        console.error('Error loading agents:', ownedResponse.error);
       } else {
-        setAllAgents(data || []);
+        const combined = [...(ownedResponse.data || []), ...sharedAgents];
+        setAllAgents(combined);
         // Auto-select first 2 agents
-        if (data && data.length > 0) {
-          setSelectedAgents([data[0].id, data[1]?.id].filter(Boolean));
+        if (combined.length > 0) {
+          setSelectedAgents([combined[0].id, combined[1]?.id].filter(Boolean));
         }
       }
       setAgentsLoading(false);
@@ -105,6 +125,16 @@ export default function MultiAgentChat() {
             content: data.reply || 'Unable to get response',
             timestamp: new Date(),
           }]);
+          const usagePayload = buildUsageEvent({
+            userId: user?.id,
+            agentId,
+            modelId: agent.model_id || 'gemini-2.5-flash',
+            promptMessages: messageArray,
+            responseText: data.reply || '',
+            source: mode === 'multi' ? 'multi-chat' : 'multi-chat-single',
+            messageCount: 2,
+          });
+          void logUsageEvent({ supabaseClient: supabase, payload: usagePayload });
         } catch (error) {
           console.error(`Error getting response from ${agent.name}:`, error);
           setMessages(prev => [...prev, {

@@ -437,44 +437,67 @@ body {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
   color: var(--text);
   gap: 20px;
   padding: 0 40px;
+  justify-content: start;
 }
 
 .dashboard-card {
-  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)), var(--card);
-  border: 1px solid rgba(255,255,255,.08);
+  position: relative;
+  background:
+    radial-gradient(140% 120% at 0% 0%, rgba(106, 168, 255, 0.12), rgba(21, 26, 44, 0) 45%),
+    linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0)),
+    var(--card);
+  border: 1px solid rgba(255,255,255,.12);
   border-radius: 18px;
   padding: 20px;
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
+  max-width: 320px;
 }
 
 .dashboard-card:hover {
-  border-color: rgba(106, 168, 255, 0.3);
-  transform: translateY(-4px);
-  box-shadow: 0 15px 40px rgba(0,0,0,.4);
+  border-color: rgba(106, 168, 255, 0.45);
+  transform: translateY(-6px);
+  box-shadow: 0 20px 50px rgba(0,0,0,.45);
+}
+
+.dashboard-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(122, 240, 213, 0.1), transparent 45%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.dashboard-card:hover::before {
+  opacity: 1;
 }
 
 .dashboard-card .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 .dashboard-card .card-title {
   font-weight: 600;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   color: var(--text);
 }
 
 .dashboard-card p {
   margin: 0;
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .dashboard-card .tags {
@@ -484,12 +507,12 @@ body {
 }
 
 .dashboard-card .tag {
-  background: rgba(255,255,255,.06);
+  background: rgba(255,255,255,.08);
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 0.78rem;
-  color: var(--muted);
-  border: 1px solid rgba(255,255,255,.08);
+  color: #d6dfff;
+  border: 1px solid rgba(255,255,255,.12);
 }
 
 .dashboard-card .status {
@@ -507,6 +530,11 @@ body {
 .dashboard-card .status.draft {
   background: rgba(255,255,255,.04);
   color: var(--muted);
+}
+
+.dashboard-card .status.shared {
+  background: rgba(106, 168, 255, 0.2);
+  color: var(--accent);
 }
 
 .dashboard-card .status.template-tag {
@@ -531,9 +559,10 @@ body {
   flex: 1;
   border: none;
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 0.85rem;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .dashboard-card .toggle-btn {
@@ -552,6 +581,123 @@ body {
   background: rgba(255, 107, 107, 0.15);
   color: #ff9999;
   border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.dashboard-card .toggle-btn:hover,
+.dashboard-card .manage-btn:hover,
+.dashboard-card .delete-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(0,0,0,.25);
+}
+
+.share-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 8, 22, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.share-modal-card {
+  width: min(560px, 100%);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0)), var(--card);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.share-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.share-options {
+  display: grid;
+  gap: 10px;
+}
+
+.share-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.share-option.active {
+  border-color: rgba(106, 168, 255, 0.6);
+  background: rgba(106, 168, 255, 0.12);
+}
+
+.share-option span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.share-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.share-link input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.04);
+  padding: 10px 12px;
+  color: var(--text);
+}
+
+.share-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.share-card {
+  width: min(600px, 100%);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0)), var(--card);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.share-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .dashboard-card .template-add-btn {
@@ -586,6 +732,187 @@ body {
   border: 1px solid rgba(255,255,255,.08);
 }
 
+.analytics-btn {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 10px 16px;
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.analytics-btn:hover {
+  background: rgba(106, 168, 255, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(106, 168, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.analytics-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  padding-bottom: 48px;
+}
+
+.analytics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 32px 40px 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)), var(--surface);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.analytics-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  padding: 24px 40px;
+}
+
+.summary-card {
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)), var(--card);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-card h3 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.summary-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.summary-foot {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  padding: 0 40px 40px;
+}
+
+.analytics-card {
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)), var(--card);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.analytics-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.activity-chart {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: end;
+  gap: 10px;
+  height: 160px;
+}
+
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.bar-fill {
+  width: 100%;
+  min-height: 6px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  transition: height 0.3s ease;
+}
+
+.activity-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.usage-table {
+  display: grid;
+  gap: 8px;
+}
+
+.usage-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  font-size: 0.85rem;
+}
+
+.usage-row:last-child {
+  border-bottom: none;
+}
+
+.usage-row.usage-head {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 0.7rem;
+}
+
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activity-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.04);
+}
+
+.activity-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 @media (max-width: 640px) {
   .dashboard-header,
   .dashboard-toolbar {
@@ -603,6 +930,25 @@ body {
 
   .search-box input {
     width: 100%;
+  }
+
+  .analytics-header,
+  .analytics-summary,
+  .analytics-grid {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .activity-chart {
+    height: 140px;
+  }
+
+  .usage-row {
+    grid-template-columns: 1fr;
+  }
+
+  .usage-row span:last-child {
+    text-align: left;
   }
 }
 

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
+import { buildShareUrl, generateShareToken } from '../lib/sharing.js';
 
 const templateAgents = [
   { name: 'Marketing Advisor', desc: 'Provides marketing strategy advice', tags: ['Web Search', 'Research'], status: 'Template' },
@@ -99,6 +100,10 @@ export default function HomePage() {
   const [sortMode, setSortMode] = useState('recent');
   const [mutatingId, setMutatingId] = useState(null);
   const [isTemplateAction, setIsTemplateAction] = useState(false);
+  const [shareTarget, setShareTarget] = useState(null);
+  const [sharePermission, setSharePermission] = useState('view');
+  const [shareLink, setShareLink] = useState('');
+  const [shareStatus, setShareStatus] = useState('');
 
   const showBanner = useCallback((text, type = 'info') => {
     if (!text) {
@@ -115,19 +120,51 @@ export default function HomePage() {
       return;
     }
     setIsLoading(true);
-    const { data, error } = await supabase
+
+    const ownedResponse = await supabase
       .from('agent_personas')
-      .select('id, name, status, description, created_at, tools, guardrails, model_label, model_provider, model_id')
+      .select('id, name, status, description, created_at, tools, guardrails, model_label, model_provider, model_id, user_id')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      showBanner(`Unable to load agents: ${error.message}`, 'error');
+    const accessResponse = await supabase
+      .from('agent_access')
+      .select('agent_id, role')
+      .eq('user_id', user.id);
+
+    if (ownedResponse.error) {
+      showBanner(`Unable to load agents: ${ownedResponse.error.message}`, 'error');
       setAgents([]);
-    } else {
-      showBanner(null);
-      setAgents(data ?? []);
+      setIsLoading(false);
+      return;
     }
+
+    const ownedAgents = (ownedResponse.data ?? []).map((agent) => ({
+      ...agent,
+      isShared: false,
+      accessRole: 'owner',
+    }));
+
+    let sharedAgents = [];
+    if (!accessResponse.error && accessResponse.data?.length) {
+      const sharedIds = accessResponse.data.map((row) => row.agent_id);
+      const { data: sharedData, error: sharedError } = await supabase
+        .from('agent_personas')
+        .select('id, name, status, description, created_at, tools, guardrails, model_label, model_provider, model_id, user_id')
+        .in('id', sharedIds);
+
+      if (!sharedError) {
+        const roleMap = new Map(accessResponse.data.map((row) => [row.agent_id, row.role]));
+        sharedAgents = (sharedData ?? []).map((agent) => ({
+          ...agent,
+          isShared: true,
+          accessRole: roleMap.get(agent.id) || 'viewer',
+        }));
+      }
+    }
+
+    showBanner(null);
+    setAgents([...ownedAgents, ...sharedAgents]);
     setIsLoading(false);
   }, [showBanner, user?.id]);
 
@@ -142,7 +179,7 @@ export default function HomePage() {
 
     let list = agents.map((agent) => ({
       ...agent,
-      uiStatus: STATUS_LABELS[agent.status] || 'Draft',
+      uiStatus: agent.isShared ? `Shared · ${agent.accessRole}` : (STATUS_LABELS[agent.status] || 'Draft'),
       tags: deriveTagsFromAgent(agent),
       lastUsed: formatRelative(agent.created_at),
     }));
@@ -230,6 +267,110 @@ export default function HomePage() {
     setIsTemplateAction(false);
   };
 
+  const openSharePanel = (agent) => {
+    if (!agent || agent.isShared) {
+      return;
+    }
+    setShareTarget(agent);
+    setSharePermission('view');
+    setShareLink('');
+    setShareStatus('');
+  };
+
+  const closeSharePanel = () => {
+    setShareTarget(null);
+    setShareLink('');
+    setShareStatus('');
+  };
+
+  const handleCreateShare = async () => {
+    if (!supabase || !user?.id || !shareTarget) {
+      setShareStatus('Sign in to create share links.');
+      return;
+    }
+    setShareStatus('Generating link…');
+    const token = generateShareToken();
+    const { error } = await supabase
+      .from('agent_share_links')
+      .insert([
+        {
+          agent_id: shareTarget.id,
+          permission: sharePermission,
+          token,
+          created_by: user.id,
+          active: true,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (error) {
+      setShareStatus(`Share failed: ${error.message}`);
+      return;
+    }
+
+    const url = buildShareUrl(token);
+    setShareLink(url);
+    setShareStatus('Share link created.');
+  };
+
+  const handleCopyShare = async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setShareStatus('Link copied to clipboard.');
+    } catch (error) {
+      setShareStatus('Copy failed. You can manually copy the link.');
+    }
+  };
+
+  const handleCloneAgent = async (agent) => {
+    if (!supabase || !user?.id || !agent?.id) {
+      showBanner('Sign in to clone agents.', 'error');
+      return;
+    }
+    setMutatingId(agent.id);
+    const { data, error } = await supabase
+      .from('agent_personas')
+      .select(
+        'name, description, system_prompt, guardrails, sliders, tools, files, model_id, model_label, model_provider, model_env_key',
+      )
+      .eq('id', agent.id)
+      .single();
+
+    if (error) {
+      showBanner(`Clone failed: ${error.message}`, 'error');
+      setMutatingId(null);
+      return;
+    }
+
+    const payload = {
+      user_id: user.id,
+      name: `${data.name || 'Shared agent'} (Clone)`,
+      description: data.description,
+      system_prompt: data.system_prompt,
+      guardrails: data.guardrails,
+      sliders: data.sliders,
+      tools: data.tools,
+      files: data.files,
+      model_id: data.model_id,
+      model_label: data.model_label,
+      model_provider: data.model_provider,
+      model_env_key: data.model_env_key,
+      status: 'draft',
+      created_at: new Date().toISOString(),
+      shared_source_id: agent.id,
+    };
+
+    const { error: insertError } = await supabase.from('agent_personas').insert([payload]);
+    if (insertError) {
+      showBanner(`Clone failed: ${insertError.message}`, 'error');
+    } else {
+      showBanner('Agent cloned to your drafts.', 'success');
+      loadAgents();
+    }
+    setMutatingId(null);
+  };
+
   return (
     <div className="agent-dashboard">
       <div className="dashboard-header">
@@ -241,6 +382,9 @@ export default function HomePage() {
         <div className="dashboard-header-actions">
           <Link className="new-agent-btn" to="/builder">
             ➕ New Agent
+          </Link>
+          <Link className="analytics-btn" to="/analytics">
+            Analytics
           </Link>
           <div className="search-box">
             <input
@@ -321,7 +465,11 @@ export default function HomePage() {
                 {filter === 'Templates' ? (
                   <span className="status template-tag">Template</span>
                 ) : (
-                  <span className={`status ${agent.status === 'published' ? 'active' : 'draft'}`}>
+                  <span
+                    className={`status ${
+                      agent.isShared ? 'shared' : agent.status === 'published' ? 'active' : 'draft'
+                    }`}
+                  >
                     {agent.uiStatus}
                   </span>
                 )}
@@ -347,25 +495,65 @@ export default function HomePage() {
                 <>
                   <p className="last-used">Last updated: {agent.lastUsed}</p>
                   <div className="card-actions">
-                    <button
-                      type="button"
-                      className="toggle-btn"
-                      disabled={mutatingId === agent.id}
-                      onClick={() => handleToggleStatus(agent)}
-                    >
-                      {agent.status === 'published' ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button type="button" className="manage-btn" onClick={() => navigate('/builder')}>
-                      Manage
-                    </button>
-                    <button
-                      type="button"
-                      className="delete-btn"
-                      disabled={mutatingId === agent.id}
-                      onClick={() => handleDelete(agent)}
-                    >
-                      Delete
-                    </button>
+                    {agent.isShared ? (
+                      <>
+                        <button
+                          type="button"
+                          className="manage-btn"
+                          onClick={() => navigate(`/chat?agent=${agent.id}`)}
+                        >
+                          Open
+                        </button>
+                        {agent.accessRole === 'editor' && (
+                          <button
+                            type="button"
+                            className="toggle-btn"
+                            onClick={() => navigate(`/builder?agent=${agent.id}`)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {agent.accessRole === 'cloner' && (
+                          <button
+                            type="button"
+                            className="toggle-btn"
+                            disabled={mutatingId === agent.id}
+                            onClick={() => handleCloneAgent(agent)}
+                          >
+                            Clone
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="toggle-btn"
+                          disabled={mutatingId === agent.id}
+                          onClick={() => handleToggleStatus(agent)}
+                        >
+                          {agent.status === 'published' ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button type="button" className="manage-btn" onClick={() => navigate('/builder')}>
+                          Manage
+                        </button>
+                        <button
+                          type="button"
+                          className="manage-btn"
+                          onClick={() => openSharePanel(agent)}
+                        >
+                          Share
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-btn"
+                          disabled={mutatingId === agent.id}
+                          onClick={() => handleDelete(agent)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
                   </div>
                 </>
               )}
@@ -373,6 +561,54 @@ export default function HomePage() {
           ))
         )}
       </section>
+      {shareTarget && (
+        <div className="share-modal">
+          <div className="share-modal-card">
+            <div className="share-modal-header">
+              <h3>Share {shareTarget.name || 'agent'}</h3>
+              <button type="button" className="icon-btn" onClick={closeSharePanel}>
+                ×
+              </button>
+            </div>
+            <p className="muted">Choose the access level for this agent.</p>
+            <div className="share-options">
+              {['view', 'clone', 'edit'].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`share-option ${sharePermission === option ? 'active' : ''}`}
+                  onClick={() => setSharePermission(option)}
+                >
+                  <b>{option === 'view' ? 'View only' : option === 'clone' ? 'Clone only' : 'Editor'}</b>
+                  <span>
+                    {option === 'view'
+                      ? 'Allow others to view and chat.'
+                      : option === 'clone'
+                        ? 'Allow cloning into their workspace.'
+                        : 'Allow editing and publishing changes.'}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="share-actions">
+              <button className="btn primary" type="button" onClick={handleCreateShare}>
+                Generate link
+              </button>
+              {shareLink && (
+                <button className="btn secondary" type="button" onClick={handleCopyShare}>
+                  Copy link
+                </button>
+              )}
+            </div>
+            {shareLink && (
+              <div className="share-link">
+                <input type="text" readOnly value={shareLink} />
+              </div>
+            )}
+            {shareStatus && <div className="status-bar">{shareStatus}</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
@@ -87,6 +87,7 @@ function Switch({ active, onToggle, label }) {
 export default function BuilderPage() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [form, setForm] = useState(initialForm);
   const [chatInput, setChatInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
@@ -99,6 +100,7 @@ export default function BuilderPage() {
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [agentAccessMap, setAgentAccessMap] = useState(new Map());
 
   const descCount = form.description.length;
 
@@ -341,24 +343,73 @@ export default function BuilderPage() {
     }
 
     setIsFetchingAgents(true);
-    const { data, error } = await supabase
+    const ownedResponse = await supabase
       .from('agent_personas')
-      .select('id, name, status, created_at, description')
+      .select('id, name, status, created_at, description, user_id')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      setStatus(`Load agents failed: ${error.message}`);
+    const accessResponse = await supabase
+      .from('agent_access')
+      .select('agent_id, role')
+      .eq('user_id', user.id);
+
+    if (ownedResponse.error) {
+      setStatus(`Load agents failed: ${ownedResponse.error.message}`);
       setMyAgents([]);
-    } else {
-      setMyAgents(data ?? []);
+      setIsFetchingAgents(false);
+      return;
     }
+
+    const ownedAgents = (ownedResponse.data ?? []).map((agent) => ({
+      ...agent,
+      isShared: false,
+      accessRole: 'owner',
+    }));
+
+    let sharedAgents = [];
+    const accessMap = new Map();
+    if (!accessResponse.error && accessResponse.data?.length) {
+      accessResponse.data.forEach((row) => accessMap.set(row.agent_id, row.role));
+      const sharedIds = accessResponse.data.map((row) => row.agent_id);
+      const { data: sharedData, error: sharedError } = await supabase
+        .from('agent_personas')
+        .select('id, name, status, created_at, description, user_id')
+        .in('id', sharedIds);
+
+      if (!sharedError) {
+        sharedAgents = (sharedData ?? [])
+          .map((agent) => ({
+            ...agent,
+            isShared: true,
+            accessRole: accessMap.get(agent.id) || 'viewer',
+          }))
+          .filter((agent) => agent.accessRole === 'editor');
+      }
+    }
+
+    setAgentAccessMap(accessMap);
+    setMyAgents([...ownedAgents, ...sharedAgents]);
     setIsFetchingAgents(false);
   }, [user?.id]);
 
   useEffect(() => {
     loadAgentsForUser();
   }, [loadAgentsForUser]);
+
+  useEffect(() => {
+    const preselectId = searchParams.get('agent');
+    if (!preselectId || !myAgents.length) {
+      return;
+    }
+    if (selectedAgentId === preselectId) {
+      return;
+    }
+    const exists = myAgents.some((agent) => agent.id === preselectId);
+    if (exists) {
+      handleSelectAgent(preselectId);
+    }
+  }, [myAgents, searchParams, selectedAgentId]);
 
   useEffect(() => {
     try {
@@ -395,25 +446,30 @@ export default function BuilderPage() {
     }
     setIsLoadingAgent(true);
     setStatus('Loading agent…');
+    const isSharedAgent = agentAccessMap.has(agentId);
     try {
       const selectFields = supportsChatHistory ? `${agentSelectBase}, chat_history` : agentSelectBase;
-      const { data, error } = await supabase
+      let query = supabase
         .from('agent_personas')
         .select(selectFields)
-        .eq('id', agentId)
-        .eq('user_id', user.id)
-        .single();
+        .eq('id', agentId);
+      if (!isSharedAgent) {
+        query = query.eq('user_id', user.id);
+      }
+      const { data, error } = await query.single();
 
       if (error) {
         if (supportsChatHistory && error.message?.toLowerCase().includes('chat_history')) {
           setSupportsChatHistory(false);
           setStatus('Chat history column missing. Loading without transcript…');
-          const retry = await supabase
+          let retryQuery = supabase
             .from('agent_personas')
             .select(agentSelectBase)
-            .eq('id', agentId)
-            .eq('user_id', user.id)
-            .single();
+            .eq('id', agentId);
+          if (!isSharedAgent) {
+            retryQuery = retryQuery.eq('user_id', user.id);
+          }
+          const retry = await retryQuery.single();
 
           if (retry.error) {
             setStatus(`Load failed: ${retry.error.message}`);
@@ -485,7 +541,10 @@ export default function BuilderPage() {
     }
   };
 
-  const payloadFromForm = (statusValue, { includeChatHistory = supportsChatHistory } = {}) => {
+  const payloadFromForm = (
+    statusValue,
+    { includeChatHistory = supportsChatHistory, includeOwnership = true } = {},
+  ) => {
     const payload = {
       status: statusValue,
       name: form.name,
@@ -501,9 +560,12 @@ export default function BuilderPage() {
       model_provider: selectedModel.provider,
       model_env_key: selectedModel.envKey,
       chat_summary: chatSummary,
-      user_id: user?.id ?? null,
-      created_at: new Date().toISOString(),
     };
+
+    if (includeOwnership) {
+      payload.user_id = user?.id ?? null;
+      payload.created_at = new Date().toISOString();
+    }
 
     if (includeChatHistory) {
       payload.chat_history = chatLog;
@@ -524,26 +586,48 @@ export default function BuilderPage() {
     setIsSaving(true);
     setStatus('Saving…');
     try {
-      const insertWithConfig = (includeChatHistory) =>
-        supabase
+      const accessRole = selectedAgentId ? agentAccessMap.get(selectedAgentId) : null;
+      const shouldUpdate = !!selectedAgentId && (!accessRole || accessRole === 'editor');
+
+      const upsertWithConfig = (includeChatHistory) => {
+        const payload = payloadFromForm(statusValue, {
+          includeChatHistory,
+          includeOwnership: !shouldUpdate,
+        });
+
+        if (shouldUpdate) {
+          return supabase
+            .from('agent_personas')
+            .update(payload)
+            .eq('id', selectedAgentId)
+            .select()
+            .single();
+        }
+
+        return supabase
           .from('agent_personas')
-          .insert([payloadFromForm(statusValue, { includeChatHistory })])
+          .insert([payload])
           .select()
           .single();
+      };
 
       let includeHistory = supportsChatHistory;
-      let { data, error } = await insertWithConfig(includeHistory);
+      let { data, error } = await upsertWithConfig(includeHistory);
 
       if (error && includeHistory && error.message?.toLowerCase().includes('chat_history')) {
         setSupportsChatHistory(false);
         setStatus('Chat history column missing. Saved without transcript.');
-        ({ data, error } = await insertWithConfig(false));
+        ({ data, error } = await upsertWithConfig(false));
       }
 
       if (error) {
         setStatus(`Supabase error: ${error.message}`);
       } else {
-        setStatus(`${statusValue === 'published' ? 'Published' : 'Draft saved'} successfully.`);
+        setStatus(
+          shouldUpdate
+            ? 'Agent updated successfully.'
+            : `${statusValue === 'published' ? 'Published' : 'Draft saved'} successfully.`,
+        );
         loadAgentsForUser();
         if (data?.id) {
           setSelectedAgentId(data.id);
@@ -826,7 +910,9 @@ export default function BuilderPage() {
                           <b>{agent.name || 'Untitled agent'}</b>
                           <div className="help">{agent.description || 'No description provided.'}</div>
                         </div>
-                        <span className="chip ghost">{agent.status}</span>
+                        <span className="chip ghost">
+                          {agent.isShared ? `Shared · ${agent.accessRole}` : agent.status}
+                        </span>
                       </button>
                     </li>
                   ))}

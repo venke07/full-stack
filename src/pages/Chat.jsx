@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
+import { buildUsageEvent, logUsageEvent } from '../lib/analytics.js';
 
 const fallbackChat = [
   {
@@ -41,6 +42,7 @@ const normalizeHistory = (agent) => {
 
 export default function ChatPage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [chatLog, setChatLog] = useState(fallbackChat);
@@ -61,7 +63,7 @@ export default function ChatPage() {
         return;
       }
       setIsLoadingAgents(true);
-      const { data, error } = await supabase
+      const ownedResponse = await supabase
         .from('agent_personas')
         .select(
           'id, name, description, system_prompt, guardrails, sliders, tools, model_id, chat_history, status, created_at',
@@ -69,20 +71,42 @@ export default function ChatPage() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        setStatus(`Failed to load agents: ${error.message}`);
+      const accessResponse = await supabase
+        .from('agent_access')
+        .select('agent_id, role')
+        .eq('user_id', user.id);
+
+      let sharedAgents = [];
+      if (!accessResponse.error && accessResponse.data?.length) {
+        const sharedIds = accessResponse.data.map((row) => row.agent_id);
+        const { data: sharedData, error: sharedError } = await supabase
+          .from('agent_personas')
+          .select(
+            'id, name, description, system_prompt, guardrails, sliders, tools, model_id, chat_history, status, created_at',
+          )
+          .in('id', sharedIds);
+        if (!sharedError) {
+          sharedAgents = sharedData ?? [];
+        }
+      }
+
+      if (ownedResponse.error) {
+        setStatus(`Failed to load agents: ${ownedResponse.error.message}`);
         setAgents([]);
       } else {
-        setAgents(data ?? []);
-        if (!selectedAgentId && data?.length) {
-          setSelectedAgentId(data[0].id);
+        const combined = [...(ownedResponse.data ?? []), ...sharedAgents];
+        setAgents(combined);
+        const requestedId = searchParams.get('agent');
+        const preferred = combined.find((agent) => agent.id === requestedId) || combined[0];
+        if (!selectedAgentId && preferred) {
+          setSelectedAgentId(preferred.id);
         }
       }
       setIsLoadingAgents(false);
     };
 
     fetchAgents();
-  }, [user?.id]);
+  }, [user?.id, searchParams, selectedAgentId]);
 
   useEffect(() => {
     if (!selectedAgent) return;
@@ -155,12 +179,13 @@ export default function ChatPage() {
 
     try {
       const modelMeta = getModelMeta(selectedAgent.model_id);
+      const promptMessages = buildMessages(trimmed);
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           modelId: modelMeta.id,
-          messages: buildMessages(trimmed),
+          messages: promptMessages,
           temperature: 0.35,
         }),
       });
@@ -172,6 +197,16 @@ export default function ChatPage() {
 
       const data = await response.json();
       setChatLog((prev) => [...prev, { id: `agent-${timestamp}`, role: 'agent', text: data.reply }]);
+      const usagePayload = buildUsageEvent({
+        userId: user?.id,
+        agentId: selectedAgent.id,
+        modelId: modelMeta.id,
+        promptMessages,
+        responseText: data.reply,
+        source: 'single-chat',
+        messageCount: 2,
+      });
+      void logUsageEvent({ supabaseClient: supabase, payload: usagePayload });
     } catch (error) {
       setChatLog((prev) => [
         ...prev,

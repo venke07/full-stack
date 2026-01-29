@@ -10,6 +10,8 @@ import LoginPage from './pages/Login.jsx';
 import SignupPage from './pages/Signup.jsx';
 import ProfilePage from './pages/Profile.jsx';
 import ChangePasswordPage from './pages/ChangePassword.jsx';
+import AnalyticsPage from './pages/Analytics.jsx';
+import SharedAgentPage from './pages/SharedAgent.jsx';
 
 function LandingRedirect() {
   const { user, loading } = useAuth();
@@ -83,6 +85,14 @@ export default function App() {
             )}
           />
           <Route
+            path="/analytics"
+            element={(
+              <RequireAuth>
+                <AnalyticsPage />
+              </RequireAuth>
+            )}
+          />
+          <Route
             path="/change-password"
             element={(
               <RequireAuth>
@@ -90,6 +100,7 @@ export default function App() {
               </RequireAuth>
             )}
           />
+          <Route path="/share/:token" element={<SharedAgentPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
