@@ -15,10 +15,6 @@ import toolExecutor from './toolExecutor.js';
 import toolRegistry from './toolRegistry.js';
 import historyStore from './historyStore.js';
 import knowledgeRoutes from './routes/knowledgeRoutes.js';
-import conversationMemory from './conversationMemory.js';
-import toolExecutor from './toolExecutor.js';
-import toolRegistry from './toolRegistry.js';
-import historyStore from './historyStore.js';
 
 const PORT = process.env.PORT || 4000;
 
