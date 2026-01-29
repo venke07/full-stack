@@ -1,805 +1,666 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient.js';
-import { useAuth } from '../context/AuthContext.jsx';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout.jsx';
-import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
 
-const DATA_TRANSFER_TYPE = 'application/canvas-node';
-const AGENT_ACCENTS = ['#5da9ff', '#3dd6c5', '#ff9b6a', '#b58dff', '#ffd166', '#f472b6'];
+const NODE_TYPES = {
+  persona: { label: 'Persona', accent: '#6aa8ff', description: 'Voice, tone, and framing blocks.' },
+  gate: { label: 'Gate', accent: '#ff7b7b', description: 'Safety, routing, or decision checks.' },
+  tool: { label: 'Tool', accent: '#f5a524', description: 'APIs, connectors, or scripted steps.' },
+  summary: { label: 'Summary', accent: '#c084fc', description: 'Synthesis, scoring, or coaching output.' },
+  action: { label: 'Action', accent: '#7af0d5', description: 'Generic processing or fallback stage.' },
+};
 
-const paletteBlocks = [
-  {
-    type: 'trigger',
-    title: 'Salesforce Trigger',
-    description: 'When a new lead updates their status.',
-    accent: 'var(--accent)',
-    modelId: null,
-  },
-  {
-    type: 'action',
-    title: 'Slack Notify',
-    description: 'Send approvals or alerts into any channel.',
-    accent: '#5da9ff',
-    modelId: null,
-  },
-  {
-    type: 'data',
-    title: 'Vector Search',
-    description: 'Query embeddings or turn docs into context.',
-    accent: '#ff9b6a',
-    modelId: null,
-  },
-  {
-    type: 'logic',
-    title: 'Branching Rule',
-    description: 'Split traffic with filters or guardrails.',
-    accent: '#b58dff',
-    modelId: null,
-  },
-  {
-    type: 'llm',
-    title: 'LLM Agent',
-    description: 'Let the agent call tools with guardrails.',
-    accent: '#3dd6c5',
-    modelId: modelOptions[0].id,
-  },
+const NODE_LIBRARY = [
+  { type: 'persona', icon: '🧬', title: 'Persona block', copy: 'Inject tone, empathy, or task framing.' },
+  { type: 'gate', icon: '🛡️', title: 'Safety gate', copy: 'Filter risky content and branch requests.' },
+  { type: 'tool', icon: '🛠️', title: 'Tool call', copy: 'Represent a service, connector, or workflow.' },
+  { type: 'summary', icon: '📝', title: 'Synthesis block', copy: 'Summaries, scoring, or QA nodes.' },
+  { type: 'action', icon: '⚙️', title: 'Action step', copy: 'Generic processing, notes, or fallbacks.' },
 ];
 
-const NODE_DIMENSIONS = { width: 240, height: 140 };
+const TAG_LIBRARY = ['safety', 'persona', 'data', 'handoff', 'tooling'];
 
-const starterNodes = [
-  {
-    id: 'node-1',
-    type: 'trigger',
-    title: 'CRM Trigger',
-    description: 'Lead status becomes Qualified',
-    accent: 'var(--accent)',
-    x: 80,
-    y: 80,
-    modelId: null,
-  },
-  {
-    id: 'node-2',
-    type: 'llm',
-    title: 'Reason over notes',
-    description: 'Summarize discovery call highlights',
-    accent: '#3dd6c5',
-    x: 380,
-    y: 180,
-    modelId: modelOptions[0].id,
-  },
-  {
-    id: 'node-3',
-    type: 'action',
-    title: 'Post to Slack',
-    description: 'Notify account team for follow-up',
-    accent: '#5da9ff',
-    x: 700,
-    y: 120,
-    modelId: null,
-  },
+const HERO_CARDS = [
+  { title: 'Spatial thinking', body: 'Drop blocks on a map so intent, tools, and safety live side by side.' },
+  { title: 'Drag interactions', body: 'Reorder, duplicate, and branch nodes just by pulling them into place.' },
+  { title: 'Trace ready', body: 'Connect the dots visually before shipping the agent playbook.' },
 ];
 
-const starterConnections = [
-  { id: 'conn-1', fromId: 'node-1', toId: 'node-2' },
-  { id: 'conn-2', fromId: 'node-2', toId: 'node-3' },
-];
+const STORAGE_KEYS = {
+  nodes: 'flowCanvas.nodes',
+  activity: 'flowCanvas.activity',
+};
 
-const agentAccent = (seed = '') => {
-  if (!seed) {
-    return AGENT_ACCENTS[0];
+const NODE_SIZE = { width: 240, height: 150 };
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const snapValue = (value, step = 20) => Math.round(value / step) * step;
+
+const generateId = () =>
+  (typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `node-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+const normalizeNode = (node = {}) => ({
+  id: node.id ?? generateId(),
+  title: node.title?.trim() || 'Untitled block',
+  detail: node.detail ?? 'Describe what happens inside this block.',
+  type: NODE_TYPES[node.type] ? node.type : 'action',
+  status: node.status === 'draft' ? 'draft' : 'live',
+  tags: Array.isArray(node.tags) ? node.tags : [],
+  owner: node.owner ?? 'Playbook team',
+  position: {
+    x: Number.isFinite(node.position?.x) ? node.position.x : 60,
+    y: Number.isFinite(node.position?.y) ? node.position.y : 60,
+  },
+  updatedAt: node.updatedAt ?? new Date().toISOString(),
+});
+
+const normalizeActivity = (entry = {}) => ({
+  id: entry.id ?? generateId(),
+  text: entry.text ?? 'Canvas updated',
+  timestamp: entry.timestamp ?? new Date().toISOString(),
+});
+
+const normalizeCollection = (value, normalizer, fallback) => {
+  if (!Array.isArray(value) || !value.length) {
+    return fallback;
   }
-  const hash = seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return AGENT_ACCENTS[hash % AGENT_ACCENTS.length];
+  return value.map((item) => normalizer(item));
+};
+
+const loadStored = (key, fallback, normalizer) => {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    return normalizer ? normalizer(parsed) : parsed;
+  } catch {
+    return fallback;
+  }
+};
+
+const DEFAULT_NODES = [
+  normalizeNode({
+    title: 'Listen for intent',
+    detail: 'Capture the utterance, detect the job-to-be-done, and hydrate context slots.',
+    type: 'persona',
+    tags: ['persona'],
+    position: { x: 70, y: 80 },
+  }),
+  normalizeNode({
+    title: 'Safety sweep',
+    detail: 'Block self-harm, hate, or policy violations. Log rationale for escalations.',
+    type: 'gate',
+    tags: ['safety'],
+    position: { x: 360, y: 60 },
+  }),
+  normalizeNode({
+    title: 'Tool selector',
+    detail: 'Choose search, memory, or code execution depending on the detected intent.',
+    type: 'tool',
+    tags: ['tooling', 'data'],
+    position: { x: 660, y: 110 },
+  }),
+  normalizeNode({
+    title: 'Compose reply',
+    detail: 'Synthesize findings, cite sources, and propose next actions or handoff.',
+    type: 'summary',
+    tags: ['handoff'],
+    position: { x: 360, y: 320 },
+  }),
+];
+
+const formatRelativeTime = (isoString) => {
+  if (!isoString) {
+    return 'just now';
+  }
+  const delta = Date.now() - new Date(isoString).getTime();
+  if (!Number.isFinite(delta) || delta < 0) {
+    return 'just now';
+  }
+  const minutes = Math.floor(delta / 60000);
+  if (minutes < 1) {
+    return 'just now';
+  }
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+const computeDropPoint = (count, boardElement) => {
+  const column = count % 3;
+  const row = Math.floor(count / 3);
+  const fallbackWidth = boardElement?.clientWidth ?? 960;
+  const fallbackHeight = boardElement?.clientHeight ?? 640;
+  const baseX = 60 + column * (NODE_SIZE.width + 80);
+  const baseY = 60 + row * (NODE_SIZE.height + 60);
+  const maxX = Math.max(20, fallbackWidth - NODE_SIZE.width - 20);
+  const maxY = Math.max(20, fallbackHeight - NODE_SIZE.height - 20);
+  return {
+    x: clamp(baseX, 20, maxX),
+    y: clamp(baseY, 20, maxY),
+  };
 };
 
 export default function CanvasPage() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const [nodes, setNodes] = useState(starterNodes);
-  const [connections, setConnections] = useState(starterConnections);
-  const [selectedNodeId, setSelectedNodeId] = useState(starterNodes[0].id);
-  const [linkSourceId, setLinkSourceId] = useState(null);
-  const [agents, setAgents] = useState([]);
-  const [agentStatus, setAgentStatus] = useState('');
-  const [isLoadingAgents, setIsLoadingAgents] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [agentName, setAgentName] = useState('');
-  const [agentDescription, setAgentDescription] = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-
   const boardRef = useRef(null);
-  const dragStateRef = useRef(null);
-  const boardMetricsRef = useRef({ width: 0, height: 0 });
-  const cascadeOffsetRef = useRef(0);
+  const dragRef = useRef({ id: null, offsetX: 0, offsetY: 0 });
+  const nodesRef = useRef(DEFAULT_NODES);
 
-  const nodeLookup = useMemo(() => Object.fromEntries(nodes.map((node) => [node.id, node])), [nodes]);
-  const selectedNode = selectedNodeId ? nodeLookup[selectedNodeId] : null;
-  const selectedAgent = useMemo(() => {
-    if (!selectedNode?.agentId) {
-      return null;
+  const [nodes, setNodes] = useState(() =>
+    loadStored(
+      STORAGE_KEYS.nodes,
+      DEFAULT_NODES,
+      (value) => normalizeCollection(value, normalizeNode, DEFAULT_NODES),
+    ),
+  );
+  const [activity, setActivity] = useState(() =>
+    loadStored(STORAGE_KEYS.activity, [], (value) => normalizeCollection(value, normalizeActivity, [])),
+  );
+  const [selectedId, setSelectedId] = useState(null);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    if (nodes.length && !selectedId) {
+      setSelectedId(nodes[0].id);
+      return;
     }
-    return agents.find((agent) => agent.id === selectedNode.agentId) ?? null;
-  }, [agents, selectedNode?.agentId]);
+    if (!nodes.length) {
+      setSelectedId(null);
+    }
+  }, [nodes, selectedId]);
 
-  const clampPosition = (x, y) => {
-    const { width, height } = boardMetricsRef.current;
-    if (!width || !height) {
-      return {
-        x: Math.max(x, 0),
-        y: Math.max(y, 0),
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEYS.nodes, JSON.stringify(nodes));
+  }, [nodes]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEYS.activity, JSON.stringify(activity));
+  }, [activity]);
+
+  const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedId) ?? null, [nodes, selectedId]);
+  const liveCount = useMemo(() => nodes.filter((node) => node.status === 'live').length, [nodes]);
+
+  const recordActivity = useCallback((text) => {
+    setActivity((prev) => [normalizeActivity({ text }), ...prev].slice(0, 12));
+  }, []);
+
+  const handlePointerMove = useCallback((event) => {
+    const { id, offsetX, offsetY } = dragRef.current;
+    if (!id) {
+      return;
+    }
+    const board = boardRef.current;
+    if (!board) {
+      return;
+    }
+    const rect = board.getBoundingClientRect();
+    const maxX = Math.max(0, rect.width - NODE_SIZE.width);
+    const maxY = Math.max(0, rect.height - NODE_SIZE.height);
+    const nextX = clamp(event.clientX - rect.left - offsetX, 0, maxX);
+    const nextY = clamp(event.clientY - rect.top - offsetY, 0, maxY);
+    setNodes((prev) =>
+      prev.map((node) =>
+        node.id === id ? { ...node, position: { x: nextX, y: nextY }, updatedAt: new Date().toISOString() } : node,
+      ),
+    );
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    if (!dragRef.current.id) {
+      return;
+    }
+    dragRef.current = { id: null, offsetX: 0, offsetY: 0 };
+    document.removeEventListener('mousemove', handlePointerMove);
+    document.removeEventListener('mouseup', handlePointerUp);
+  }, [handlePointerMove]);
+
+  const beginDrag = useCallback(
+    (event, nodeId) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const board = boardRef.current;
+      if (!board) {
+        return;
+      }
+      const node = nodesRef.current.find((item) => item.id === nodeId);
+      if (!node) {
+        return;
+      }
+      const rect = board.getBoundingClientRect();
+      dragRef.current = {
+        id: nodeId,
+        offsetX: event.clientX - (rect.left + node.position.x),
+        offsetY: event.clientY - (rect.top + node.position.y),
       };
-    }
-    const maxX = Math.max(width - NODE_DIMENSIONS.width, 0);
-    const maxY = Math.max(height - NODE_DIMENSIONS.height, 0);
-    return {
-      x: Math.min(Math.max(x, 0), maxX),
-      y: Math.min(Math.max(y, 0), maxY),
-    };
-  };
+      document.addEventListener('mousemove', handlePointerMove);
+      document.addEventListener('mouseup', handlePointerUp);
+    },
+    [handlePointerMove, handlePointerUp],
+  );
 
-  const nextCascadePosition = () => {
-    const offset = cascadeOffsetRef.current;
-    cascadeOffsetRef.current = (offset + 36) % 180;
-    return { x: 48 + offset, y: 48 + offset * 0.5 };
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (event) => {
-      if (!dragStateRef.current || !boardRef.current) {
-        return;
-      }
-      event.preventDefault();
-      const boardRect = boardRef.current.getBoundingClientRect();
-      const { nodeId, offsetX, offsetY } = dragStateRef.current;
-      const x = event.clientX - boardRect.left - offsetX;
-      const y = event.clientY - boardRect.top - offsetY;
-      const clamped = clampPosition(x, y);
-      setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, x: clamped.x, y: clamped.y } : node)));
-    };
-
-    const handleMouseUp = () => {
-      dragStateRef.current = null;
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    const element = boardRef.current;
-    if (!element) {
-      return () => {};
-    }
-    const updateMetrics = () => {
-      const rect = element.getBoundingClientRect();
-      boardMetricsRef.current = { width: rect.width, height: rect.height };
-    };
-    updateMetrics();
-    let resizeObserver;
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(updateMetrics);
-      resizeObserver.observe(element);
-    }
-    window.addEventListener('resize', updateMetrics);
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener('resize', updateMetrics);
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchAgents = async () => {
-      if (!supabase || !user?.id) {
-        setAgents([]);
-        setAgentStatus('Sign in to sync your AI models.');
-        return;
-      }
-      setIsLoadingAgents(true);
-      const { data, error } = await supabase
-        .from('agent_personas')
-        .select('id, name, description, model_id, guardrails, sliders')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (error) {
-        setAgentStatus(`Failed to load agents: ${error.message}`);
-        setAgents([]);
-      } else {
-        setAgentStatus(data?.length ? '' : 'No agents yet. Create one in Builder.');
-        setAgents(data ?? []);
-      }
-      setIsLoadingAgents(false);
-    };
-
-    fetchAgents();
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.id]);
-
-  const spawnNodeFromBlock = (block, position) => {
-    const id = `node-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const fallbackPosition = position ?? nextCascadePosition();
-    const clamped = clampPosition(fallbackPosition.x, fallbackPosition.y);
-    const newNode = {
-      id,
-      type: block.type,
-      title: block.title,
-      description: block.description,
-      accent: block.accent,
-      x: clamped.x,
-      y: clamped.y,
-      modelId: block.modelId ?? null,
-    };
-    setNodes((prev) => [...prev, newNode]);
-    setSelectedNodeId(id);
-    return newNode;
-  };
-
-  const spawnAgentNode = (agent, position) => {
-    if (!agent) {
-      return null;
-    }
-    const label = agent.name || 'Untitled agent';
-    const fallbackPosition = position ?? nextCascadePosition();
-    const clamped = clampPosition(fallbackPosition.x, fallbackPosition.y);
-    const id = `agent-node-${agent.id}-${Date.now()}`;
-    const newNode = {
-      id,
-      type: 'agent',
-      title: label,
-      description: agent.description || 'Open Builder to add more context.',
-      accent: agentAccent(agent.id || label),
-      x: clamped.x,
-      y: clamped.y,
-      modelId: agent.model_id || modelOptions[0].id,
-      agentId: agent.id,
-    };
-    setNodes((prev) => [...prev, newNode]);
-    setSelectedNodeId(id);
-    return newNode;
-  };
-
-  const handlePaletteDragStart = (event, payload) => {
-    event.dataTransfer.setData(DATA_TRANSFER_TYPE, JSON.stringify(payload));
-    event.dataTransfer.effectAllowed = 'copy';
-  };
-
-  const handleBoardDrop = (event) => {
-    event.preventDefault();
-    if (!boardRef.current) {
-      return;
-    }
-    const payloadRaw = event.dataTransfer.getData(DATA_TRANSFER_TYPE);
-    if (!payloadRaw) {
-      return;
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(payloadRaw);
-    } catch (error) {
-      return;
-    }
-    const boardRect = boardRef.current.getBoundingClientRect();
-    const tentativeX = event.clientX - boardRect.left - NODE_DIMENSIONS.width / 2;
-    const tentativeY = event.clientY - boardRect.top - NODE_DIMENSIONS.height / 2;
-    if (parsed.variant === 'agent') {
-      spawnAgentNode(parsed.agent, { x: tentativeX, y: tentativeY });
-    } else {
-      spawnNodeFromBlock(parsed.block, { x: tentativeX, y: tentativeY });
-    }
-  };
+  useEffect(() => () => handlePointerUp(), [handlePointerUp]);
 
   const handleNodePointerDown = (event, nodeId) => {
-    if (event.button !== 0) {
+    setSelectedId(nodeId);
+    const target = event.target;
+    if (target instanceof Element && target.closest('button')) {
       return;
     }
-    if (event.target.closest?.('button')) {
-      return;
-    }
-    event.stopPropagation();
-    setSelectedNodeId(nodeId);
-    if (!boardRef.current) {
-      return;
-    }
-    const boardRect = boardRef.current.getBoundingClientRect();
-    const node = nodeLookup[nodeId];
-    dragStateRef.current = {
-      nodeId,
-      offsetX: event.clientX - boardRect.left - node.x,
-      offsetY: event.clientY - boardRect.top - node.y,
-    };
+    beginDrag(event, nodeId);
   };
 
-  const handleBoardClick = () => {
-    setSelectedNodeId(null);
-    setLinkSourceId(null);
-  };
-
-  const handleConnectionClick = (nodeId) => {
-    if (!linkSourceId) {
-      setLinkSourceId(nodeId);
+  const handleBoardMouseDown = (event) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest('.blueprint-node')) {
       return;
     }
-    if (linkSourceId === nodeId) {
-      setLinkSourceId(null);
-      return;
-    }
-    const exists = connections.some((connection) => connection.fromId === linkSourceId && connection.toId === nodeId);
-    if (!exists) {
-      setConnections((prev) => [
-        ...prev,
-        {
-          id: `conn-${linkSourceId}-${nodeId}-${Date.now()}`,
-          fromId: linkSourceId,
-          toId: nodeId,
-        },
-      ]);
-    }
-    setLinkSourceId(null);
+    setSelectedId(null);
   };
 
-  const handleRemoveNode = (event, nodeId) => {
-    event.stopPropagation();
-    setNodes((prev) => prev.filter((node) => node.id !== nodeId));
-    setConnections((prev) => prev.filter((connection) => connection.fromId !== nodeId && connection.toId !== nodeId));
-    if (selectedNodeId === nodeId) {
-      setSelectedNodeId(null);
+  const handleUpdateNode = (nodeId, patch, activityLabel) => {
+    setNodes((prev) =>
+      prev.map((node) => (node.id === nodeId ? { ...node, ...patch, updatedAt: new Date().toISOString() } : node)),
+    );
+    if (activityLabel) {
+      recordActivity(activityLabel);
     }
   };
 
-  const handleNodeModelChange = (nodeId, modelId) => {
-    setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, modelId: modelId || null } : node)));
+  const handleToggleTag = (nodeId, tag) => {
+    setNodes((prev) =>
+      prev.map((node) => {
+        if (node.id !== nodeId) {
+          return node;
+        }
+        const hasTag = node.tags.includes(tag);
+        return {
+          ...node,
+          tags: hasTag ? node.tags.filter((item) => item !== tag) : [...node.tags, tag],
+          updatedAt: new Date().toISOString(),
+        };
+      }),
+    );
   };
 
-  const generateSystemPromptFromWorkflow = () => {
-    // Build a system prompt from the workflow nodes
-    const llmNodes = nodes.filter((n) => n.type === 'llm' || n.type === 'agent');
-    const triggerNodes = nodes.filter((n) => n.type === 'trigger');
-    const actionNodes = nodes.filter((n) => n.type === 'action');
-
-    let prompt = `You are an AI agent designed to process workflows.\n\n`;
-
-    if (triggerNodes.length > 0) {
-      prompt += `TRIGGERS:\n`;
-      triggerNodes.forEach((n) => {
-        prompt += `- ${n.title}: ${n.description}\n`;
-      });
-      prompt += '\n';
-    }
-
-    if (llmNodes.length > 0) {
-      prompt += `PRIMARY TASKS:\n`;
-      llmNodes.forEach((n) => {
-        prompt += `- ${n.title}: ${n.description}\n`;
-      });
-      prompt += '\n';
-    }
-
-    if (actionNodes.length > 0) {
-      prompt += `ACTIONS:\n`;
-      actionNodes.forEach((n) => {
-        prompt += `- ${n.title}: ${n.description}\n`;
-      });
-      prompt += '\n';
-    }
-
-    prompt += `Process the workflow steps in sequence and provide clear outputs.`;
-    return prompt;
-  };
-
-  const handleCreateAgentFromWorkflow = async () => {
-    if (!agentName.trim()) {
-      alert('Agent name is required');
-      return;
-    }
-
-    if (nodes.length === 0) {
-      alert('Add at least one node to your workflow');
-      return;
-    }
-
-    setIsSaving(true);
-
-    try {
-      const systemPrompt = generateSystemPromptFromWorkflow();
-      const workflowData = {
-        nodes,
-        connections,
-      };
-
-      // Determine primary model from LLM nodes
-      const llmNode = nodes.find((n) => n.type === 'llm' || n.type === 'agent');
-      const modelId = llmNode?.modelId || modelOptions[0].id;
-
-      const { data, error } = await supabase
-        .from('agent_personas')
-        .insert([
-          {
-            user_id: user.id,
-            name: agentName.trim(),
-            description: agentDescription.trim() || `Agent created from workflow with ${nodes.length} nodes`,
-            system_prompt: systemPrompt,
-            model_id: modelId,
-            status: 'draft',
-            workflow_data: workflowData,
-            guardrails: [],
-            sliders: {},
-          },
-        ])
-        .select();
-
-      if (error) {
-        alert(`Failed to create agent: ${error.message}`);
-        setIsSaving(false);
-        return;
-      }
-
-      const newAgent = data[0];
-      alert(`Agent "${newAgent.name}" created successfully.`);
-
-      // Pass workflow data to Builder via state
-      navigate(`/builder?agentId=${newAgent.id}`, {
-        state: {
-          fromWorkflow: true,
-          workflowData: workflowData,
-          systemPrompt: systemPrompt,
-        },
-      });
-    } catch (error) {
-      console.error('Error creating agent:', error);
-      alert('Failed to create agent from workflow');
-      setIsSaving(false);
-    }
-  };
-
-  const renderConnections = () => {
-    if (!boardRef.current) {
-      return null;
-    }
-    return connections.map((connection) => {
-      const fromNode = nodeLookup[connection.fromId];
-      const toNode = nodeLookup[connection.toId];
-      if (!fromNode || !toNode) {
-        return null;
-      }
-      const startX = fromNode.x + NODE_DIMENSIONS.width / 2;
-      const startY = fromNode.y + NODE_DIMENSIONS.height / 2;
-      const endX = toNode.x + NODE_DIMENSIONS.width / 2;
-      const endY = toNode.y + NODE_DIMENSIONS.height / 2;
-      return (
-        <g key={connection.id} className="canvas-connection">
-          <path
-            stroke={fromNode.accent}
-            d={`M ${startX} ${startY} C ${(startX + endX) / 2} ${startY}, ${(startX + endX) / 2} ${endY}, ${endX} ${endY}`}
-          />
-        </g>
-      );
+  const handleAddNode = (type) => {
+    const template = NODE_TYPES[type] ?? NODE_TYPES.action;
+    const position = computeDropPoint(nodes.length, boardRef.current);
+    const newNode = normalizeNode({
+      title: `${template.label} ${nodes.length + 1}`,
+      detail: template.description,
+      type,
+      status: 'draft',
+      position,
     });
+    setNodes((prev) => [...prev, newNode]);
+    setSelectedId(newNode.id);
+    recordActivity(`Added ${template.label}`);
   };
+
+  const handleDuplicateNode = (nodeId) => {
+    const source = nodes.find((node) => node.id === nodeId);
+    if (!source) {
+      return;
+    }
+    const board = boardRef.current;
+    const maxX = Math.max(20, (board?.clientWidth ?? 960) - NODE_SIZE.width - 20);
+    const maxY = Math.max(20, (board?.clientHeight ?? 640) - NODE_SIZE.height - 20);
+    const duplicate = normalizeNode({
+      ...source,
+      id: undefined,
+      title: `${source.title} copy`,
+      position: {
+        x: clamp(source.position.x + 40, 20, maxX),
+        y: clamp(source.position.y + 40, 20, maxY),
+      },
+    });
+    setNodes((prev) => {
+      const idx = prev.findIndex((node) => node.id === nodeId);
+      const next = [...prev];
+      next.splice(idx + 1, 0, duplicate);
+      return next;
+    });
+    setSelectedId(duplicate.id);
+    recordActivity(`Duplicated ${source.title}`);
+  };
+
+  const handleDeleteNode = (nodeId) => {
+    const removed = nodes.find((node) => node.id === nodeId);
+    setNodes((prev) => prev.filter((node) => node.id !== nodeId));
+    if (removed) {
+      recordActivity(`Removed ${removed.title}`);
+    }
+    if (selectedId === nodeId) {
+      setSelectedId(null);
+    }
+  };
+
+  const handleClearBoard = () => {
+    if (!nodes.length) {
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.confirm('Clear every block from this canvas?')) {
+      return;
+    }
+    setNodes([]);
+    setSelectedId(null);
+    recordActivity('Cleared blueprint');
+  };
+
+  const handleAutoLayout = () => {
+    if (!nodes.length) {
+      return;
+    }
+    setNodes((prev) =>
+      prev.map((node, index) => ({
+        ...node,
+        position: computeDropPoint(index, boardRef.current),
+        updatedAt: new Date().toISOString(),
+      })),
+    );
+    recordActivity('Auto-arranged canvas');
+  };
+
+  const handleSnapToGrid = () => {
+    if (!nodes.length) {
+      return;
+    }
+    setNodes((prev) =>
+      prev.map((node) => ({
+        ...node,
+        position: {
+          x: snapValue(node.position.x),
+          y: snapValue(node.position.y),
+        },
+        updatedAt: new Date().toISOString(),
+      })),
+    );
+    recordActivity('Snapped nodes to grid');
+  };
+
+  const handleSimulateFlow = () => {
+    if (!nodes.length) {
+      recordActivity('Simulation skipped — add nodes first');
+      return;
+    }
+    const liveNodes = nodes.filter((node) => node.status === 'live');
+    const summary = liveNodes.length
+      ? `Simulation: ${liveNodes.length} live node${liveNodes.length === 1 ? '' : 's'} fired`
+      : 'Simulation: draft-only path (no live nodes)';
+    recordActivity(summary);
+  };
+
+  const connections = useMemo(() => {
+    if (nodes.length < 2) {
+      return [];
+    }
+    return nodes.slice(1).map((node, index) => {
+      const from = nodes[index];
+      return {
+        id: `${from.id}-${node.id}`,
+        start: {
+          x: from.position.x + NODE_SIZE.width / 2,
+          y: from.position.y + NODE_SIZE.height / 2,
+        },
+        end: {
+          x: node.position.x + NODE_SIZE.width / 2,
+          y: node.position.y + NODE_SIZE.height / 2,
+        },
+        status: node.status,
+      };
+    });
+  }, [nodes]);
 
   const headerContent = (
     <div className="page-heading">
-      <p className="eyebrow">Workflow Studio</p>
-      <h1>Flow Canvas</h1>
-      <p className="dashboard-sub">Orchestrate triggers, reasoning blocks, and actions before creating an agent.</p>
+      <p className="eyebrow">Spatial builder</p>
+      <h1>Agent Flow Canvas</h1>
+      <p className="dashboard-sub">
+        Drop numbered blocks on a map, drag paths into place, and narrate how the agent behaves.
+      </p>
     </div>
   );
 
   const headerActions = (
     <div className="page-actions compact">
-      <button
-        type="button"
-        className="btn primary"
-        onClick={() => setShowCreateModal(true)}
-        disabled={nodes.length === 0}
-      >
-        Save as agent
+      <button className="btn secondary" type="button" onClick={handleSimulateFlow} disabled={!nodes.length}>
+        Simulate path
       </button>
-      <Link className="btn secondary" to="/builder">
+      <button className="btn ghost" type="button" onClick={handleAutoLayout} disabled={!nodes.length}>
+        Auto layout
+      </button>
+      <Link className="btn ghost" to="/builder">
         Builder
-      </Link>
-      <Link className="btn secondary" to="/home">
-        Overview
       </Link>
     </div>
   );
 
   return (
     <DashboardLayout headerContent={headerContent} actions={headerActions}>
-
-      {/* Create Agent Modal */}
-      {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Create Agent from Workflow</h2>
-            <p className="muted small">Convert your workflow into a reusable AI agent</p>
-
-            <div className="form-group">
-              <label htmlFor="agent-name">Agent Name *</label>
-              <input
-                id="agent-name"
-                type="text"
-                placeholder="e.g., Lead Qualification Agent"
-                value={agentName}
-                onChange={(e) => setAgentName(e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="agent-desc">Description</label>
-              <textarea
-                id="agent-desc"
-                placeholder="What does this agent do?"
-                value={agentDescription}
-                onChange={(e) => setAgentDescription(e.target.value)}
-                disabled={isSaving}
-                rows="3"
-              />
-            </div>
-
-            <div className="modal-info">
-              <p className="muted small">
-                <strong>Workflow Summary:</strong>
-                <br />
-                {nodes.length} node{nodes.length !== 1 ? 's' : ''} • {connections.length} connection{connections.length !== 1 ? 's' : ''}
-              </p>
-              <p className="muted small">
-                <strong>Primary Model:</strong>
-                <br />
-                {getModelMeta((nodes.find((n) => n.type === 'llm' || n.type === 'agent')?.modelId) || modelOptions[0].id).label}
-              </p>
-            </div>
-
-            <div className="modal-actions">
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={() => setShowCreateModal(false)}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                type="button"
-                onClick={handleCreateAgentFromWorkflow}
-                disabled={isSaving || !agentName.trim()}
-              >
-                {isSaving ? 'Creating…' : 'Create agent'}
-              </button>
-            </div>
+      <div className="canvas-lenses">
+        {HERO_CARDS.map((lens) => (
+          <div key={lens.title} className="lens-card">
+            <p className="eyebrow">{lens.title}</p>
+            <p className="muted">{lens.body}</p>
           </div>
-        </div>
-      )}
-
-      <div className="canvas-toolbar">
-        <div>
-          <p className="summary">
-            {nodes.length}
-            {' '}
-            node{nodes.length === 1 ? '' : 's'} •
-            {' '}
-            {connections.length}
-            {' '}
-            connection{connections.length === 1 ? '' : 's'}
-          </p>
-          <p>Drag blocks from the palette or drop saved agents to expand your flow.</p>
-        </div>
+        ))}
       </div>
 
-      <section className="canvas-shell">
-        <aside className="canvas-sidebar palette">
-          <p className="eyebrow">Palette</p>
-          <p className="muted small">Drag any block onto the board to expand your workflow.</p>
+      <section className="blueprint-shell">
+        <aside className="node-palette">
+          <div className="palette-head">
+            <p className="eyebrow">Block library</p>
+            <p className="muted">Drag-to-place or tap to spawn</p>
+          </div>
           <div className="palette-list">
-            {paletteBlocks.map((block) => (
-              <button
-                key={block.type}
-                className="palette-chip"
-                type="button"
-                draggable
-                onDragStart={(event) => handlePaletteDragStart(event, { variant: 'block', block })}
-                onClick={() => spawnNodeFromBlock(block)}
-              >
-                <span className="chip" style={{ background: block.accent }} />
+            {NODE_LIBRARY.map((item) => (
+              <button key={item.type} type="button" className="palette-item" onClick={() => handleAddNode(item.type)}>
+                <span className="palette-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
                 <div>
-                  <strong>{block.title}</strong>
-                  <p>{block.description}</p>
+                  <strong>{item.title}</strong>
+                  <p className="muted">{item.copy}</p>
                 </div>
               </button>
             ))}
           </div>
-
-          <div className="palette-section">
-            <div className="palette-section-head">
-              <p className="eyebrow">My AI models</p>
-              {isLoadingAgents && <span className="muted small">Loading…</span>}
-            </div>
-            {agentStatus && <p className="muted small">{agentStatus}</p>}
-            {!isLoadingAgents && agents.length === 0 ? (
-              <div className="palette-empty">
-                <p>No canvas-ready agents yet.</p>
-                <Link className="btn ghost mini" to="/builder">
-                  Create in Builder
-                </Link>
-              </div>
-            ) : (
-              <div className="agent-palette">
-                {agents.map((agent) => {
-                  const meta = getModelMeta(agent.model_id);
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      className="palette-chip agent-chip"
-                      draggable
-                      onDragStart={(event) =>
-                        handlePaletteDragStart(event, {
-                          variant: 'agent',
-                          agent: {
-                            id: agent.id,
-                            name: agent.name,
-                            description: agent.description,
-                            model_id: agent.model_id,
-                          },
-                        })
-                      }
-                      onClick={() => spawnAgentNode(agent)}
-                    >
-                      <span className="agent-pill">{agent.name?.slice(0, 2)?.toUpperCase() || 'AI'}</span>
-                      <div>
-                        <strong>{agent.name || 'Untitled agent'}</strong>
-                        <p>
-                          {meta.label} • {agent.description || 'No description yet.'}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+          <div className="palette-footer">
+            <button className="btn ghost mini" type="button" onClick={handleClearBoard} disabled={!nodes.length}>
+              Clear canvas
+            </button>
+            <button className="btn ghost mini" type="button" onClick={handleSnapToGrid} disabled={!nodes.length}>
+              Snap to grid
+            </button>
           </div>
         </aside>
 
-        <section className="canvas-stage">
-          <div
-            className="canvas-board"
-            ref={boardRef}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={handleBoardDrop}
-            onClick={handleBoardClick}
-          >
-            <svg className="canvas-lines">{renderConnections()}</svg>
-            {nodes.length === 0 && <div className="board-empty">Drag a block or agent to get started</div>}
+        <div className="blueprint-board-wrapper">
+          <div className="blueprint-toolbar">
+            <div>
+              <p className="eyebrow">Canvas overview</p>
+              <p className="muted">
+                {nodes.length} block{nodes.length === 1 ? '' : 's'} · Live {liveCount} · Draft {nodes.length - liveCount}
+              </p>
+            </div>
+            <div className="toolbar-metrics">
+              <span>Persona {nodes.filter((node) => node.type === 'persona').length}</span>
+              <span>Gates {nodes.filter((node) => node.type === 'gate').length}</span>
+              <span>Tools {nodes.filter((node) => node.type === 'tool').length}</span>
+            </div>
+            <div className="toolbar-actions">
+              <button className="btn ghost mini" type="button" onClick={handleSimulateFlow} disabled={!nodes.length}>
+                Simulate
+              </button>
+              <button className="btn ghost mini" type="button" onClick={handleAutoLayout} disabled={!nodes.length}>
+                Layout
+              </button>
+            </div>
+          </div>
+
+          <div className="blueprint-board" ref={boardRef} onMouseDown={handleBoardMouseDown}>
+            <div className="board-grid" aria-hidden="true" />
+            <svg className="connection-layer" width="100%" height="100%">
+              {connections.map((connection) => {
+                const { start, end, id, status } = connection;
+                const deltaX = (end.x - start.x) * 0.5;
+                const deltaY = (end.y - start.y) * 0.5;
+                const path = `M ${start.x} ${start.y} C ${start.x + deltaX} ${start.y}, ${end.x - deltaX} ${end.y}, ${end.x} ${end.y}`;
+                return <path key={id} d={path} className={`connection-line ${status}`} />;
+              })}
+            </svg>
+            {nodes.length === 0 && (
+              <div className="board-empty">
+                <p>No blocks yet</p>
+                <p className="muted">Use the library to spawn nodes, then drag them into place.</p>
+              </div>
+            )}
             {nodes.map((node) => {
-              const modelMeta = node.modelId ? getModelMeta(node.modelId) : null;
-              const isSelected = selectedNodeId === node.id;
-              const isLinkSource = linkSourceId === node.id;
+              const accent = NODE_TYPES[node.type]?.accent ?? NODE_TYPES.action.accent;
               return (
-                <div
+                <article
                   key={node.id}
-                  className={`canvas-node ${isSelected ? 'is-selected' : ''} ${isLinkSource ? 'is-link-source' : ''}`}
-                  style={{
-                    left: node.x,
-                    top: node.y,
-                    borderColor: isSelected || isLinkSource ? node.accent : 'rgba(255, 255, 255, 0.08)',
-                  }}
+                  className={`blueprint-node ${node.type} ${selectedId === node.id ? 'selected' : ''}`}
+                  style={{ transform: `translate(${node.position.x}px, ${node.position.y}px)`, '--node-accent': accent }}
                   onMouseDown={(event) => handleNodePointerDown(event, node.id)}
+                  onDoubleClick={() => handleDuplicateNode(node.id)}
                 >
-                  <div className="node-head" style={{ color: node.accent }}>
-                    <span className="node-handle" />
-                    <span className="node-type">{node.type}</span>
-                    {node.agentId && <span className="node-agent-pill">Linked agent</span>}
-                  </div>
-                  <h4>{node.title}</h4>
-                  <p>{node.description}</p>
-                  {modelMeta && (
-                    <div className="node-foot">
-                      <span className="node-model-chip">{modelMeta.label}</span>
-                      <span className="node-provider">{modelMeta.provider}</span>
+                  <header className="node-handle">
+                    <span>{NODE_TYPES[node.type]?.label}</span>
+                    <div className="node-drag-handle" />
+                  </header>
+                  <h3 className="node-title" title={node.title}>
+                    {node.title}
+                  </h3>
+                  <p className="node-body">{node.detail}</p>
+                  <footer className="node-actions">
+                    <span className={`node-status ${node.status}`}>{node.status}</span>
+                    <div className="node-action-buttons">
+                      <button
+                        type="button"
+                        className="pill soft"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDuplicateNode(node.id);
+                        }}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="pill alert"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteNode(node.id);
+                        }}
+                      >
+                        Remove
+                      </button>
                     </div>
-                  )}
-                  <div className="node-actions">
-                    <button
-                      type="button"
-                      className={`chip ghost mini ${linkSourceId === node.id ? 'active' : ''}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleConnectionClick(node.id);
-                      }}
-                    >
-                      {linkSourceId === node.id ? 'Select target' : 'Connect'}
-                    </button>
-                    <button type="button" className="chip ghost mini" onClick={(event) => handleRemoveNode(event, node.id)}>
-                      Remove
-                    </button>
-                  </div>
-                </div>
+                  </footer>
+                </article>
               );
             })}
           </div>
-        </section>
+        </div>
 
-        <aside className="canvas-sidebar inspector">
-          <p className="eyebrow">Inspector</p>
-          {selectedNode ? (
-            <>
-              <div className="inspector-card">
-                <p className="muted small">{selectedNode.type.toUpperCase()}</p>
-                <h3>{selectedNode.title}</h3>
-                <p>{selectedNode.description}</p>
-                <div className="inspector-meta">
-                  <span>Position</span>
-                  <strong>
-                    {Math.round(selectedNode.x)}px × {Math.round(selectedNode.y)}px
-                  </strong>
+        <aside className="node-inspector">
+          <div className="inspector-section">
+            <p className="eyebrow">Selected node</p>
+            {selectedNode ? (
+              <>
+                <span className="meta-label">Block title</span>
+                <input value={selectedNode.title} onChange={(event) => handleUpdateNode(selectedNode.id, { title: event.target.value })} />
+                <span className="meta-label">Description</span>
+                <textarea
+                  rows={4}
+                  value={selectedNode.detail}
+                  onChange={(event) => handleUpdateNode(selectedNode.id, { detail: event.target.value })}
+                  placeholder="Describe what the agent must do here."
+                />
+                <span className="meta-label">Owner</span>
+                <input value={selectedNode.owner} onChange={(event) => handleUpdateNode(selectedNode.id, { owner: event.target.value })} />
+                <div className="inspector-row">
+                  <button
+                    type="button"
+                    className={`status-pill ${selectedNode.status}`}
+                    onClick={() =>
+                      handleUpdateNode(
+                        selectedNode.id,
+                        { status: selectedNode.status === 'live' ? 'draft' : 'live' },
+                        'Toggled node status',
+                      )
+                    }
+                  >
+                    {selectedNode.status === 'live' ? 'Mark draft' : 'Mark live'}
+                  </button>
+                  <button type="button" className="pill" onClick={handleSnapToGrid} disabled={!nodes.length}>
+                    Snap grid
+                  </button>
                 </div>
-                <div className="inspector-meta">
-                  <span>Connections</span>
-                  <strong>
-                    {connections.filter((connection) => connection.fromId === selectedNode.id).length} out /
-                    {' '}
-                    {connections.filter((connection) => connection.toId === selectedNode.id).length} in
-                  </strong>
-                </div>
-                {selectedNode.modelId && (
-                  <div className="inspector-meta">
-                    <span>Model</span>
-                    <strong>{getModelMeta(selectedNode.modelId).label}</strong>
-                  </div>
-                )}
-              </div>
-
-              <div className="inspector-control">
-                <label htmlFor="model-select">Model binding</label>
-                <select
-                  id="model-select"
-                  value={selectedNode.modelId ?? ''}
-                  onChange={(event) => handleNodeModelChange(selectedNode.id, event.target.value)}
-                >
-                  <option value="">Unassigned</option>
-                  {modelOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label} — {option.provider}
-                    </option>
+                <span className="meta-label">Tags</span>
+                <div className="tag-row">
+                  {TAG_LIBRARY.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className={`tag-chip ${selectedNode.tags.includes(tag) ? 'active' : ''}`}
+                      onClick={() => handleToggleTag(selectedNode.id, tag)}
+                    >
+                      {tag}
+                    </button>
                   ))}
-                </select>
-                {selectedNode.modelId && <p className="muted small">{getModelMeta(selectedNode.modelId).helper}</p>}
-              </div>
-
-              {selectedAgent && (
-                <div className="inspector-card">
-                  <p className="muted small">Linked agent</p>
-                  <h4>{selectedAgent.name || 'Untitled agent'}</h4>
-                  <p>{selectedAgent.description || 'Open Builder to add more context.'}</p>
-                  <div className="inspector-meta">
-                    <span>Model</span>
-                    <strong>{getModelMeta(selectedAgent.model_id).label}</strong>
-                  </div>
-                  <Link className="btn ghost mini" to="/builder">
-                    Edit in Builder
-                  </Link>
                 </div>
-              )}
-            </>
-          ) : (
-            <p className="muted small">Tap any node to see its details.</p>
-          )}
+                <p className="timestamp">Updated {formatRelativeTime(selectedNode.updatedAt)}</p>
+              </>
+            ) : (
+              <p className="muted">Tap a block to edit its metadata.</p>
+            )}
+          </div>
+
+          <div className="inspector-section">
+            <div className="inspector-head">
+              <div>
+                <p className="eyebrow">Activity</p>
+                <h3>Canvas log</h3>
+              </div>
+            </div>
+            <ul className="activity-log">
+              {activity.length === 0 && <li className="muted">Interactions will show up here.</li>}
+              {activity.map((entry) => (
+                <li key={entry.id}>
+                  <strong>{entry.text}</strong>
+                  <span className="timestamp">{formatRelativeTime(entry.timestamp)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </aside>
       </section>
     </DashboardLayout>
   );
 }
+
