@@ -1,27 +1,25 @@
 import React, { useState } from 'react';
 import './ModelComparison.css';
-import { getModelMeta } from '../lib/modelOptions.js';
+import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-const AVAILABLE_MODELS = [
-  'gpt-4o-mini',
-  'gemini-2.5-flash',
-  'deepseek-chat',
-];
+const AVAILABLE_MODELS = modelOptions.map(m => m.id);
 
 const MODEL_COSTS = {
   'gpt-4o-mini': { input: 0.00015, output: 0.0006 }, // per 1K tokens
   'gemini-2.5-flash': { input: 0.000075, output: 0.0003 },
   'deepseek-chat': { input: 0.00014, output: 0.00028 },
+  'llama-3.3-70b-versatile': { input: 0.00007, output: 0.0003 }, // Groq pricing
 };
 
-const ModelComparison = ({ agentId, systemPrompt }) => {
+const ModelComparison = ({ agentId, systemPrompt, onSelectModel }) => {
   const [selectedModels, setSelectedModels] = useState({});
   const [testPrompt, setTestPrompt] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState([]);
   const [modelRatings, setModelRatings] = useState({});
+  const [actionMessage, setActionMessage] = useState('');
 
   const handleModelToggle = (modelId) => {
     setSelectedModels((prev) => ({
@@ -48,7 +46,7 @@ const ModelComparison = ({ agentId, systemPrompt }) => {
     for (const modelId of chosen) {
       try {
         const startTime = Date.now();
-        const response = await fetch('/api/chat', {
+        const response = await fetch(`${API_URL}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -132,6 +130,43 @@ const ModelComparison = ({ agentId, systemPrompt }) => {
 
   const winner = getWinner();
 
+  const handleUseWinnerModel = () => {
+    if (winner && onSelectModel) {
+      onSelectModel(winner.modelId);
+      setActionMessage(`✅ Switched to ${winner.modelName}!`);
+      setTimeout(() => setActionMessage(''), 3000);
+    }
+  };
+
+  const handleCopyResponse = (response) => {
+    navigator.clipboard.writeText(response);
+    setActionMessage('📋 Copied to clipboard!');
+    setTimeout(() => setActionMessage(''), 2000);
+  };
+
+  const handleExportResults = () => {
+    const csvContent = [
+      ['Model', 'Response Time (ms)', 'Cost ($)', 'Quality Rating'].join(','),
+      ...results.map((r) =>
+        [
+          r.modelName,
+          r.responseTimeMs,
+          r.cost,
+          modelRatings[r.modelId] || 'Not rated',
+        ].join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `model-comparison-${Date.now()}.csv`;
+    a.click();
+    setActionMessage('📊 Results exported!');
+    setTimeout(() => setActionMessage(''), 2000);
+  };
+
   return (
     <div className="model-comparison">
       <div className="comparison-header">
@@ -184,6 +219,39 @@ const ModelComparison = ({ agentId, systemPrompt }) => {
               🎉 Best performing: <b>{winner.modelName}</b>
             </div>
           )}
+
+          {actionMessage && <div className="action-message">{actionMessage}</div>}
+
+          <div className="follow-through-actions">
+            <h4>📌 Next Steps</h4>
+            <div className="action-buttons">
+              {winner && (
+                <>
+                  <button
+                    className="btn-action btn-use-winner"
+                    onClick={handleUseWinnerModel}
+                    title="Use this model for future requests"
+                  >
+                    🎯 Use {winner.modelName}
+                  </button>
+                  <button
+                    className="btn-action btn-copy"
+                    onClick={() => handleCopyResponse(winner.response)}
+                    title="Copy the best response"
+                  >
+                    📋 Copy Best Response
+                  </button>
+                </>
+              )}
+              <button
+                className="btn-action btn-export"
+                onClick={handleExportResults}
+                title="Download comparison results as CSV"
+              >
+                📊 Export Results
+              </button>
+            </div>
+          </div>
 
           <div className="results-container">
             {results.map((result) => (

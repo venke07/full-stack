@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
+import ConversationHistory from '../components/ConversationHistory.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -59,7 +60,12 @@ export default function ChatPage() {
   const [isLoadingAgents, setIsLoadingAgents] = useState(false);
   const [activeTestSession, setActiveTestSession] = useState(null);
   const [testedVersionId, setTestedVersionId] = useState(null);
+  const [testedVersionData, setTestedVersionData] = useState(null);
   const [ratedMessages, setRatedMessages] = useState({});
+  const [resultIdsByMessage, setResultIdsByMessage] = useState({});
+  const [messageMetadata, setMessageMetadata] = useState({}); // Track version, timestamp per message
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState(null);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -98,10 +104,39 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!selectedAgent) return;
-    setChatLog(normalizeHistory(selectedAgent));
+    
+    // Try to load the most recent conversation from database first
+    loadMostRecentConversation(selectedAgent.id);
     setStatus('');
     loadActiveABTest(selectedAgent.id);
   }, [selectedAgent]);
+
+  /**
+   * Load the most recent saved conversation for this agent from database
+   */
+  const loadMostRecentConversation = async (agentId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/conversations?userId=${user?.id}&agentId=${agentId}&limit=1`);
+      const data = await res.json();
+      
+      if (data.success && data.conversations && data.conversations.length > 0) {
+        const recentConversation = data.conversations[0];
+        // Load the full conversation with all messages
+        const fullRes = await fetch(`${API_URL}/api/conversations/${recentConversation.id}`);
+        const fullData = await fullRes.json();
+        
+        if (fullData.success && fullData.conversation) {
+          handleLoadConversation(fullData.conversation);
+          return; // Successfully loaded from database
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load recent conversation:', err);
+    }
+    
+    // Fallback: Use agent's default chat history if no saved conversation
+    setChatLog(normalizeHistory(selectedAgent));
+  };
 
   /**
    * Load active A/B test sessions for the agent
@@ -117,29 +152,54 @@ export default function ChatPage() {
       } else if (Array.isArray(data)) {
         sessions = data;
       }
+      // Normalize session id for mapping results later
+      sessions = sessions.map((s) => ({ ...s, id: s.id ?? s.session_id ?? s.sessionId }));
 
       // Find first active test session
       const activeTest = sessions.find(s => s.status === 'active');
       
       if (activeTest) {
-        // Randomly pick version A or B
-        const versionId = pickRandomVersion(activeTest.version_a_id, activeTest.version_b_id);
         setActiveTestSession(activeTest);
-        setTestedVersionId(versionId);
         setStatus(`📊 A/B Test Active: "${activeTest.test_name}"`);
       } else {
         setActiveTestSession(null);
         setTestedVersionId(null);
+        setTestedVersionData(null);
       }
     } catch (error) {
       console.error('Error loading A/B tests:', error);
       setActiveTestSession(null);
       setTestedVersionId(null);
+      setTestedVersionData(null);
+    }
+  };
+
+  /**
+   * Fetch a specific version's data
+   */
+  const fetchVersionData = async (versionId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/prompt-versions/${versionId}`);
+      const data = await res.json();
+      if (data.version) {
+        return data.version;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching version data:', error);
+      return null;
     }
   };
 
   const compileSystemPrompt = useMemo(() => {
     if (!selectedAgent) return '';
+    
+    // If we're in an A/B test and have version data, use the version's prompt
+    if (testedVersionData?.prompt_text) {
+      return testedVersionData.prompt_text;
+    }
+    
+    // Otherwise use the agent's default prompt compilation
     const sections = [];
     if (selectedAgent.name) {
       sections.push(`Identity: You are ${selectedAgent.name}.`);
@@ -168,7 +228,7 @@ export default function ChatPage() {
       sections.push(`Primary instructions: ${selectedAgent.system_prompt}`);
     }
     return sections.join('\n\n');
-  }, [selectedAgent]);
+  }, [selectedAgent, testedVersionData]);
 
   const buildMessages = (latestUserMessage) => {
     const history = [...chatLog, { role: 'user', text: latestUserMessage }];
@@ -187,12 +247,93 @@ export default function ChatPage() {
     return [...system, ...formatted];
   };
 
+  /**
+   * Auto-save conversation to database (after each exchange)
+   */
+  /**
+   * Save current conversation to database (manual save)
+   */
+  const saveConversation = async () => {
+    if (!user || !selectedAgent || chatLog.length < 2) {
+      setStatus('Nothing to save yet!');
+      setTimeout(() => setStatus(''), 2000);
+      return;
+    }
+
+    try {
+      // Format messages for storage
+      const messages = chatLog.map(m => ({
+        role: m.role,
+        content: m.text,
+      }));
+
+      const res = await fetch(`${API_URL}/api/conversations/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          agentId: selectedAgent.id,
+          messages: messages,
+          summary: chatLog.find(m => m.role === 'user')?.text || 'Conversation',
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.conversation) {
+        setCurrentConversationId(data.conversation.id);
+        setStatus('✅ Conversation saved to memory!');
+        setTimeout(() => setStatus(''), 3000);
+      }
+    } catch (err) {
+      setStatus('❌ Failed to save conversation');
+      console.error(err);
+      setTimeout(() => setStatus(''), 3000);
+    }
+  };
+
+  /**
+   * Load a conversation from history
+   */
+  const handleLoadConversation = (conversation) => {
+    // Convert stored messages to chat log format
+    const messages = conversation.messages || conversation.conversation_messages || [];
+    const formattedMessages = messages.map((msg, idx) => ({
+      id: `${msg.role}-${idx}`,
+      role: msg.role,
+      text: msg.content || msg.text,
+    }));
+
+    setChatLog(formattedMessages);
+    setCurrentConversationId(conversation.id);
+    setStatus('📂 Conversation loaded!');
+    setTimeout(() => setStatus(''), 2000);
+  };
+
   const handleChatSend = async () => {
     const trimmed = chatInput.trim();
     if (!trimmed || isResponding) return;
     if (!selectedAgent) {
       setStatus('Select an agent before chatting.');
       return;
+    }
+
+    // Pick a new random version for THIS message if A/B test is active
+    let currentVersionId = testedVersionId;
+    let versionPrompt = null;
+    
+    if (activeTestSession) {
+      currentVersionId = pickRandomVersion(
+        activeTestSession.version_a_id, 
+        activeTestSession.version_b_id
+      );
+      setTestedVersionId(currentVersionId);
+      
+      // Fetch the version's prompt
+      const versionData = await fetchVersionData(currentVersionId);
+      setTestedVersionData(versionData);
+      versionPrompt = versionData?.prompt_text || null;
+      
+      console.log(`📊 Using Version ${currentVersionId === activeTestSession.version_a_id ? 'A' : 'B'} for this message`);
     }
 
     const requestStartTime = Date.now();
@@ -204,12 +345,26 @@ export default function ChatPage() {
 
     try {
       const modelMeta = getModelMeta(selectedAgent.model_id);
-      const response = await fetch('/api/chat', {
+      
+      // Build messages with the correct system prompt
+      const history = [...chatLog, userEntry];
+      const formatted = history.map((entry) => ({
+        role: entry.role === 'user' ? 'user' : 'assistant',
+        content: entry.text,
+      }));
+      
+      // Use version prompt if A/B testing, otherwise use compiled prompt
+      const systemPromptToUse = versionPrompt || compileSystemPrompt;
+      const messagesWithSystem = systemPromptToUse
+        ? [{ role: 'system', content: systemPromptToUse }, ...formatted]
+        : formatted;
+      
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           modelId: modelMeta.id,
-          messages: buildMessages(trimmed),
+          messages: messagesWithSystem,
           temperature: 0.35,
         }),
       });
@@ -223,11 +378,24 @@ export default function ChatPage() {
       const agentResponse = data.reply;
       const responseTimeMs = Date.now() - requestStartTime;
       
-      setChatLog((prev) => [...prev, { id: `agent-${timestamp}`, role: 'agent', text: agentResponse }]);
+      const agentMessageId = `agent-${timestamp}`;
+      setChatLog((prev) => [...prev, { id: agentMessageId, role: 'agent', text: agentResponse }]);
+      
+      // Store message metadata for implicit tracking
+      if (activeTestSession && currentVersionId) {
+        setMessageMetadata((prev) => ({
+          ...prev,
+          [agentMessageId]: {
+            versionId: currentVersionId,
+            timestamp: Date.now(),
+            isVersionA: currentVersionId === activeTestSession.version_a_id,
+          },
+        }));
+      }
       
       // Record test result if there's an active test
-      if (activeTestSession && testedVersionId) {
-        recordTestResult(trimmed, agentResponse, responseTimeMs);
+      if (activeTestSession && currentVersionId) {
+        recordTestResult(trimmed, agentResponse, responseTimeMs, agentMessageId);
       }
     } catch (error) {
       const errorText = `⚠️ ${error?.message || 'Provider error.'}`;
@@ -243,7 +411,7 @@ export default function ChatPage() {
   /**
    * Record test result to the A/B test database
    */
-  const recordTestResult = async (userPrompt, agentResponse, responseTimeMs) => {
+  const recordTestResult = async (userPrompt, agentResponse, responseTimeMs, messageId) => {
     try {
       const res = await fetch(`${API_URL}/api/a-b-tests/${activeTestSession.id}/results`, {
         method: 'POST',
@@ -257,11 +425,15 @@ export default function ChatPage() {
         }),
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         console.error('Error recording test result:', data);
       } else {
-        console.log('✓ Test result recorded');
+        const resultId = data?.result?.id;
+        if (resultId && messageId) {
+          setResultIdsByMessage((prev) => ({ ...prev, [messageId]: resultId }));
+        }
+        console.log(`✓ Test result recorded for Version ${testedVersionId === activeTestSession.version_a_id ? 'A' : 'B'}`);
       }
     } catch (error) {
       console.error('Error recording test result:', error);
@@ -269,7 +441,42 @@ export default function ChatPage() {
   };
 
   /**
-   * Rate a response (thumbs up/down)
+   * Calculate implicit quality signals
+   */
+  const calculateImplicitSignals = (messageId) => {
+    const messageIndex = chatLog.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return {};
+
+    const nextMessage = chatLog[messageIndex + 1];
+    const hasFollowUp = !!nextMessage && nextMessage.role === 'user';
+    
+    // Check if user repeated/rephrased the same question
+    const previousUserMessage = chatLog
+      .slice(0, messageIndex)
+      .reverse()
+      .find((m) => m.role === 'user');
+    const isRephrased = previousUserMessage && nextMessage && 
+      nextMessage.text.toLowerCase().includes(previousUserMessage.text.toLowerCase().slice(0, 20));
+
+    // Calculate engagement time if there's a follow-up
+    const metadata = messageMetadata[messageId];
+    const nextMessageTimestamp = messageMetadata[nextMessage?.id]?.timestamp;
+    const engagementTime = metadata && nextMessageTimestamp 
+      ? nextMessageTimestamp - metadata.timestamp 
+      : null;
+
+    return {
+      has_follow_up: hasFollowUp,
+      is_rephrased_question: isRephrased,
+      engagement_time_ms: engagementTime,
+      conversation_continued: hasFollowUp && !isRephrased,
+      implicit_positive: hasFollowUp && !isRephrased && (engagementTime ? engagementTime > 3000 : true),
+      implicit_negative: isRephrased || (engagementTime ? engagementTime < 1000 : false),
+    };
+  };
+
+  /**
+   * Rate a response (thumbs up/down) with implicit signals
    */
   const handleRateResponse = async (messageId, liked) => {
     try {
@@ -279,18 +486,21 @@ export default function ChatPage() {
       const qualityScore = liked ? 90 : 30;
       const relevanceScore = liked ? 85 : 35;
       const helpfulnessScore = liked ? 88 : 32;
+      const testResultId = activeTestSession ? resultIdsByMessage[messageId] ?? null : null;
+      const implicitSignals = calculateImplicitSignals(messageId);
 
       const res = await fetch(`${API_URL}/api/agents/${selectedAgent.id}/rate-response`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversation_id: messageId,
-          test_result_id: activeTestSession ? messageId : null,
+          test_result_id: testResultId,
           rating,
           quality_score: qualityScore,
           relevance_score: relevanceScore,
           helpfulness_score: helpfulnessScore,
           feedback_text: liked ? 'Helpful response' : 'Not helpful',
+          ...implicitSignals, // Include implicit tracking data
         }),
       });
 
@@ -298,7 +508,7 @@ export default function ChatPage() {
         const data = await res.json();
         console.error('Error rating response:', data);
       } else {
-        console.log('✓ Response rated');
+        console.log('✓ Response rated with implicit signals');
         setRatedMessages((prev) => ({
           ...prev,
           [messageId]: liked ? 'thumbs-up' : 'thumbs-down',
@@ -307,6 +517,135 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Error rating response:', error);
     }
+  };
+
+  /**
+   * Format message text with basic markdown-like formatting
+   */
+  const formatMessage = (text) => {
+    if (!text) return '';
+    
+    // Split by double line breaks for paragraphs
+    const paragraphs = text.split('\n\n');
+    
+    return paragraphs.map((para, pIndex) => {
+      // Split by single line breaks
+      const lines = para.split('\n');
+      
+      return (
+        <div key={pIndex} style={{ marginBottom: pIndex < paragraphs.length - 1 ? '4px' : '0' }}>
+          {lines.map((line, lIndex) => {
+            // Check if it's a bullet point
+            if (line.trim().match(/^[-•*]\s/)) {
+              const content = line.trim().replace(/^[-•*]\s/, '');
+              return (
+                <div key={lIndex} style={{ paddingLeft: '14px', position: 'relative', marginBottom: '0px' }}>
+                  <span style={{ position: 'absolute', left: '0', top: '0' }}>•</span>
+                  <span>{formatInlineText(content)}</span>
+                </div>
+              );
+            }
+            
+            // Check if it's a numbered list
+            if (line.trim().match(/^\d+\.\s/)) {
+              return (
+                <div key={lIndex} style={{ paddingLeft: '14px', marginBottom: '0px' }}>
+                  {formatInlineText(line.trim())}
+                </div>
+              );
+            }
+            
+            // Check if it's a heading (starts with ###, ##, or #)
+            if (line.trim().match(/^#{1,3}\s/)) {
+              const level = line.match(/^(#{1,3})/)[0].length;
+              const content = line.replace(/^#{1,3}\s/, '');
+              const fontSize = level === 1 ? '1em' : level === 2 ? '0.95em' : '0.9em';
+              return (
+                <div key={lIndex} style={{ 
+                  fontWeight: '700', 
+                  fontSize, 
+                  marginTop: lIndex > 0 ? '3px' : '0',
+                  marginBottom: '2px',
+                  color: '#84ffe1'
+                }}>
+                  {formatInlineText(content)}
+                </div>
+              );
+            }
+            
+            // Skip empty lines
+            if (!line.trim()) return null;
+            
+            // Regular line
+            return (
+              <span key={lIndex} style={{ display: 'block', marginBottom: '0px' }}>
+                {formatInlineText(line)}
+              </span>
+            );
+          })}
+        </div>
+      );
+    });
+  };
+
+  /**
+   * Format inline text (bold, italic, code)
+   */
+  const formatInlineText = (text) => {
+    const parts = [];
+    let currentText = text;
+    let key = 0;
+    
+    // Bold text **text**
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    // Inline code `code`
+    const codeRegex = /`([^`]+)`/g;
+    
+    // Combine patterns
+    const combined = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = combined.exec(currentText)) !== null) {
+      // Add text before match
+      if (match.index > lastIndex) {
+        parts.push(
+          <span key={key++}>{currentText.substring(lastIndex, match.index)}</span>
+        );
+      }
+      
+      // Add formatted match
+      if (match[0].startsWith('**')) {
+        // Bold
+        parts.push(
+          <strong key={key++} style={{ fontWeight: '700', color: '#84ffe1' }}>
+            {match[2]}
+          </strong>
+        );
+      } else if (match[0].startsWith('`')) {
+        // Inline code
+        parts.push(
+          <code key={key++} style={{ 
+            background: 'rgba(255, 255, 255, 0.1)', 
+            padding: '2px 6px', 
+            borderRadius: '4px',
+            fontFamily: 'monospace',
+            fontSize: '0.9em'
+          }}>
+            {match[3]}
+          </code>
+        );
+      }
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // Add remaining text
+    if (lastIndex < currentText.length) {
+      parts.push(<span key={key++}>{currentText.substring(lastIndex)}</span>);
+    }
+    
+    return parts.length > 0 ? parts : text;
   };
 
   return (
@@ -378,7 +717,86 @@ export default function ChatPage() {
           <div className="stage-window">
             {chatLog.map((bubble) => (
               <div key={bubble.id} className={`chat-bubble ${bubble.role === 'user' ? 'me' : ''}`}>
-                {bubble.text}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <div style={{ flex: 1, lineHeight: '1.3' }}>
+                    {formatMessage(bubble.text)}
+                    {/* Show version badge if in A/B test */}
+                    {bubble.role === 'agent' && messageMetadata[bubble.id] && (
+                      <div style={{ 
+                        marginTop: '8px', 
+                        fontSize: '11px', 
+                        color: 'var(--muted)',
+                        fontWeight: '500'
+                      }}>
+                        Version {messageMetadata[bubble.id].isVersionA ? 'A' : 'B'}
+                      </div>
+                    )}
+                  </div>
+                  {/* Inline rating buttons for agent messages */}
+                  {bubble.role === 'agent' && activeTestSession && !bubble.id.includes('fallback') && !bubble.id.includes('intro') && (
+                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                      {!ratedMessages[bubble.id] ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRateResponse(bubble.id, true)}
+                            style={{
+                              background: 'none',
+                              border: '1px solid var(--border)',
+                              borderRadius: '4px',
+                              padding: '4px 6px',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              transition: 'all 0.2s',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#10b98120';
+                              e.currentTarget.style.borderColor = '#10b981';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'none';
+                              e.currentTarget.style.borderColor = 'var(--border)';
+                            }}
+                            title="Helpful"
+                          >
+                            👍
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRateResponse(bubble.id, false)}
+                            style={{
+                              background: 'none',
+                              border: '1px solid var(--border)',
+                              borderRadius: '4px',
+                              padding: '4px 6px',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              transition: 'all 0.2s',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#ef444420';
+                              e.currentTarget.style.borderColor = '#ef4444';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'none';
+                              e.currentTarget.style.borderColor = 'var(--border)';
+                            }}
+                            title="Not helpful"
+                          >
+                            👎
+                          </button>
+                        </>
+                      ) : (
+                        <span style={{ 
+                          fontSize: '14px',
+                          color: ratedMessages[bubble.id] === 'thumbs-up' ? '#10b981' : '#ef4444',
+                        }}>
+                          {ratedMessages[bubble.id] === 'thumbs-up' ? '👍' : '👎'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -396,6 +814,22 @@ export default function ChatPage() {
             />
             <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent}>
               {isResponding ? 'Thinking…' : 'Send'}
+            </button>
+            <button 
+              className="btn ghost compact" 
+              type="button" 
+              onClick={saveConversation}
+              title="Save this conversation to memory"
+            >
+              💾 Save
+            </button>
+            <button 
+              className="btn ghost compact" 
+              type="button" 
+              onClick={() => setShowHistoryPanel(true)}
+              title="View conversation history"
+            >
+              📂 History
             </button>
           </div>
         </section>
@@ -430,90 +864,24 @@ export default function ChatPage() {
 
               {activeTestSession && (
                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-                  <p className="rail-label">📊 A/B Test</p>
+                  <p className="rail-label">📊 A/B Test Active</p>
                   <div className="cap-card">
                     <span className="cap-label">Test Name</span>
                     <b>{activeTestSession.test_name}</b>
                   </div>
                   <div className="cap-card">
-                    <span className="cap-label">Testing Version</span>
+                    <span className="cap-label">Current Version</span>
                     <b style={{ color: '#10b981' }}>
                       {testedVersionId === activeTestSession.version_a_id ? 'A' : 'B'}
                     </b>
                   </div>
                   <div className="cap-card">
-                    <span className="cap-label">Progress</span>
-                    <b>Recording responses…</b>
+                    <span className="cap-label">Tracking</span>
+                    <b>Implicit + Manual Ratings</b>
                   </div>
-                </div>
-              )}
-
-              {chatLog.length > 0 && (
-                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-                  <p className="rail-label">⭐ Rate Response</p>
-                  {(() => {
-                    const lastAgentMessage = [...chatLog].reverse().find((m) => m.role === 'agent');
-                    if (!lastAgentMessage) return <p className="muted">No response yet</p>;
-                    if (ratedMessages[lastAgentMessage.id]) {
-                      return (
-                        <p className="muted">
-                          {ratedMessages[lastAgentMessage.id] === 'thumbs-up' ? '👍 Marked helpful' : '👎 Marked unhelpful'}
-                        </p>
-                      );
-                    }
-                    return (
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleRateResponse(lastAgentMessage.id, true)}
-                          style={{
-                            background: 'none',
-                            border: '1px solid var(--border)',
-                            fontSize: '24px',
-                            cursor: 'pointer',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            transition: 'all 0.2s',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.target.style.background = 'var(--success-light)';
-                            e.target.style.borderColor = '#10b981';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.style.background = 'none';
-                            e.target.style.borderColor = 'var(--border)';
-                          }}
-                          title="Helpful"
-                        >
-                          👍
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRateResponse(lastAgentMessage.id, false)}
-                          style={{
-                            background: 'none',
-                            border: '1px solid var(--border)',
-                            fontSize: '24px',
-                            cursor: 'pointer',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            transition: 'all 0.2s',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.target.style.background = 'var(--error-light)';
-                            e.target.style.borderColor = '#ef4444';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.style.background = 'none';
-                            e.target.style.borderColor = 'var(--border)';
-                          }}
-                          title="Not helpful"
-                        >
-                          👎
-                        </button>
-                      </div>
-                    );
-                  })()}
+                  <p className="muted" style={{ marginTop: '12px', fontSize: '12px' }}>
+                    💡 Rate responses inline with 👍👎 buttons. We also track engagement automatically.
+                  </p>
                 </div>
               )}
             </div>
@@ -522,6 +890,13 @@ export default function ChatPage() {
           )}
         </aside>
       </div>
+
+      <ConversationHistory 
+        agentId={selectedAgentId}
+        onLoadConversation={handleLoadConversation}
+        isOpen={showHistoryPanel}
+        onClose={() => setShowHistoryPanel(false)}
+      />
     </div>
   );
 }

@@ -20,6 +20,13 @@ export const modelOptions = [
     envKey: 'DEEPSEEK_API_KEY',
     helper: 'Cost-optimized DeepSeek endpoint',
   },
+  {
+    id: 'llama-3.3-70b-versatile',
+    label: 'Groq - Llama 3.3 70B',
+    provider: 'groq',
+    envKey: 'GROQ_API_KEY',
+    helper: 'Ultra-fast inference via Groq',
+  },
 ];
 
 export const getModelMeta = (modelId) =>

@@ -912,7 +912,11 @@ export default function BuilderPage() {
           {/* Model Comparison Tab */}
           {builderTab === 'comparison' && selectedAgentId && (
             <div style={{ padding: '20px', background: 'var(--card)', borderRadius: '8px', marginTop: '20px' }}>
-              <ModelComparison agentId={selectedAgentId} systemPrompt={form.prompt} />
+              <ModelComparison 
+                agentId={selectedAgentId} 
+                systemPrompt={form.prompt}
+                onSelectModel={(modelId) => setForm((prev) => ({ ...prev, model: modelId }))}
+              />
             </div>
           )}
         </div>

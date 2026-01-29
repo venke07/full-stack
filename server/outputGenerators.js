@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { Document, Packer, Paragraph, HeadingLevel } from 'docx';
 
 class OutputGenerators {
   constructor() {
@@ -52,71 +53,94 @@ class OutputGenerators {
   }
 
   /**
-   * Generate Word Document (using simple DOCX format)
-   * Note: For production, use 'docx' or 'pptx' npm package
+   * Generate Word Document with proper formatting
    */
   async generateWordDocument(content, filename) {
     try {
-      // Try to use docx library if available
-      try {
-        const { Document, Packer, Paragraph, HeadingLevel } = await import('docx');
+      const paragraphs = content
+        .split('\n\n')
+        .filter(p => p.trim())
+        .map(p => new Paragraph({
+          text: p.trim(),
+          spacing: { after: 200 },
+        }));
 
-        const doc = new Document({
-          sections: [
-            {
-              children: [
-                new Paragraph({
-                  text: 'Generated Document',
-                  heading: HeadingLevel.HEADING_1,
-                }),
-                new Paragraph(''),
-                ...this.parseContentToParagraphs(content),
-              ],
-            },
-          ],
-        });
+      const doc = new Document({
+        sections: [
+          {
+            children: [
+              new Paragraph({
+                text: 'Generated Document',
+                heading: HeadingLevel.HEADING_1,
+                spacing: { after: 400 },
+              }),
+              new Paragraph({
+                text: `Generated on ${new Date().toLocaleString()}`,
+                spacing: { after: 400 },
+                size: 18,
+              }),
+              ...paragraphs,
+            ],
+          },
+        ],
+      });
 
-        const filepath = path.join(this.outputDir, filename || `document_${Date.now()}.docx`);
-        const buffer = await Packer.toBuffer(doc);
-        fs.writeFileSync(filepath, buffer);
+      const filepath = path.join(this.outputDir, filename || `document_${Date.now()}.docx`);
+      const buffer = await Packer.toBuffer(doc);
+      fs.writeFileSync(filepath, buffer);
 
-        return {
-          success: true,
-          filename: path.basename(filepath),
-          filepath,
-          type: 'docx',
-          size: fs.statSync(filepath).size,
-        };
-      } catch (e) {
-        // Fallback to markdown/text if docx not available
-        console.warn('docx library not available, saving as text');
-        return this.generateTextDocument(content, filename || `document_${Date.now()}.txt`);
-      }
-    } catch (error) {
       return {
-        success: false,
-        error: error.message,
+        success: true,
+        filename: path.basename(filepath),
+        filepath,
+        type: 'docx',
+        size: fs.statSync(filepath).size,
       };
+    } catch (error) {
+      console.warn('Error generating Word document:', error.message);
+      return this.generateTextDocument(content, filename || `document_${Date.now()}.txt`);
     }
   }
 
   /**
-   * Convert text to paragraphs for Word doc
+   * Generate CSV document
    */
-  parseContentToParagraphs(content) {
-    const Paragraph = require('docx')?.Paragraph || class Paragraph {
-      constructor(config) { this.config = config; }
-    };
+  generateCSVDocument(data, filename) {
+    let csvContent = '';
+    
+    if (Array.isArray(data) && data.length > 0) {
+      // If it's an array of objects
+      if (typeof data[0] === 'object') {
+        const headers = Object.keys(data[0]);
+        csvContent = headers.join(',') + '\n';
+        csvContent += data.map(row => 
+          headers.map(header => {
+            const value = row[header];
+            // Escape quotes and wrap in quotes if needed
+            return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
+              ? `"${value.replace(/"/g, '""')}"` 
+              : value;
+          }).join(',')
+        ).join('\n');
+      } else {
+        // If it's an array of arrays
+        csvContent = data.map(row => 
+          Array.isArray(row) ? row.join(',') : row
+        ).join('\n');
+      }
+    } else if (typeof data === 'string') {
+      csvContent = data;
+    }
 
-    return content
-      .split('\n\n')
-      .filter(p => p.trim())
-      .map(
-        p =>
-          new Paragraph({
-            text: p.trim(),
-          })
-      );
+    const filepath = path.join(this.outputDir, filename || `data_${Date.now()}.csv`);
+    fs.writeFileSync(filepath, csvContent, 'utf-8');
+    return {
+      success: true,
+      filename: path.basename(filepath),
+      filepath,
+      type: 'csv',
+      size: fs.statSync(filepath).size,
+    };
   }
 
   /**
@@ -211,11 +235,128 @@ class OutputGenerators {
   }
 
   /**
+   * Generate image as SVG (simple text-based)
+   */
+  async generateImage(content, filename) {
+    try {
+      let imagePath = path.join(this.outputDir, filename || `image_${Date.now()}.svg`);
+
+      // If content is base64 encoded image data, save as-is
+      if (content.startsWith('data:image') || content.startsWith('/9j/') || content.startsWith('iVBOR')) {
+        let buffer;
+        let ext = '.png';
+        
+        if (content.startsWith('data:image')) {
+          const match = content.match(/data:image\/(\w+);base64,/);
+          if (match) ext = '.' + match[1];
+          const base64Data = content.replace(/^data:image\/\w+;base64,/, '');
+          buffer = Buffer.from(base64Data, 'base64');
+        } else {
+          buffer = Buffer.from(content, 'base64');
+        }
+        
+        imagePath = path.join(this.outputDir, filename || `image_${Date.now()}${ext}`);
+        fs.writeFileSync(imagePath, buffer);
+        
+        return {
+          success: true,
+          filename: path.basename(imagePath),
+          filepath: imagePath,
+          type: 'image',
+          size: fs.statSync(imagePath).size,
+        };
+      }
+
+      // Create SVG image with description
+      const escapeHtml = (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML || str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      };
+
+      const lines = content.substring(0, 500).split('\n').slice(0, 10);
+      const textElements = lines.map((line, i) => 
+        `<text x="20" y="${40 + i * 30}" font-size="14" font-family="Arial" fill="#333">${line.substring(0, 80)}</text>`
+      ).join('\n');
+
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#grad1)"/>
+  <rect x="50" y="50" width="700" height="500" fill="white" rx="10"/>
+  <text x="400" y="100" font-size="28" font-family="Arial" font-weight="bold" fill="#333" text-anchor="middle">Generated Image</text>
+  ${textElements}
+  <text x="400" y="550" font-size="12" font-family="Arial" fill="#999" text-anchor="middle">Generated on ${new Date().toLocaleString()}</text>
+</svg>`;
+
+      fs.writeFileSync(imagePath, svg, 'utf-8');
+
+      return {
+        success: true,
+        filename: path.basename(imagePath),
+        filepath: imagePath,
+        type: 'image',
+        size: fs.statSync(imagePath).size,
+      };
+    } catch (error) {
+      console.warn('Error generating image:', error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Generate CSV document
+   */
+  generateCSVDocument(data, filename) {
+    let csvContent = '';
+    
+    if (Array.isArray(data) && data.length > 0) {
+      // If it's an array of objects
+      if (typeof data[0] === 'object') {
+        const headers = Object.keys(data[0]);
+        csvContent = headers.join(',') + '\n';
+        csvContent += data.map(row => 
+          headers.map(header => {
+            const value = row[header];
+            // Escape quotes and wrap in quotes if needed
+            return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
+              ? `"${value.replace(/"/g, '""')}"` 
+              : value;
+          }).join(',')
+        ).join('\n');
+      } else {
+        // If it's an array of arrays
+        csvContent = data.map(row => 
+          Array.isArray(row) ? row.join(',') : row
+        ).join('\n');
+      }
+    } else if (typeof data === 'string') {
+      csvContent = data;
+    }
+
+    const filepath = path.join(this.outputDir, filename || `data_${Date.now()}.csv`);
+    fs.writeFileSync(filepath, csvContent, 'utf-8');
+    return {
+      success: true,
+      filename: path.basename(filepath),
+      filepath,
+      type: 'csv',
+      size: fs.statSync(filepath).size,
+    };
+  }
+
+  /**
    * Generate document based on format
    */
   async generateDocument(content, format = 'text', filename = null) {
-    const timestamp = Date.now();
-
     switch (format.toLowerCase()) {
       case 'word':
       case 'docx':
@@ -226,7 +367,17 @@ class OutputGenerators {
       case 'md':
         return this.generateMarkdownDocument(content, filename);
       case 'json':
-        return this.generateJsonDocument(content, filename);
+        return this.generateJsonDocument(
+          typeof content === 'string' ? JSON.parse(content) : content,
+          filename
+        );
+      case 'csv':
+        return this.generateCSVDocument(content, filename);
+      case 'image':
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+        return await this.generateImage(content, filename);
       case 'text':
       case 'txt':
       default:
