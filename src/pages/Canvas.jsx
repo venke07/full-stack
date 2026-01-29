@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
 
 const DATA_TRANSFER_TYPE = 'application/canvas-node';
@@ -446,7 +447,7 @@ export default function CanvasPage() {
       }
 
       const newAgent = data[0];
-      alert(`✅ Agent "${newAgent.name}" created successfully!`);
+      alert(`Agent "${newAgent.name}" created successfully.`);
 
       // Pass workflow data to Builder via state
       navigate(`/builder?agentId=${newAgent.id}`, {
@@ -488,33 +489,35 @@ export default function CanvasPage() {
     });
   };
 
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Workflow Studio</p>
+      <h1>Flow Canvas</h1>
+      <p className="dashboard-sub">Orchestrate triggers, reasoning blocks, and actions before creating an agent.</p>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="page-actions compact">
+      <button
+        type="button"
+        className="btn primary"
+        onClick={() => setShowCreateModal(true)}
+        disabled={nodes.length === 0}
+      >
+        Save as agent
+      </button>
+      <Link className="btn secondary" to="/builder">
+        Builder
+      </Link>
+      <Link className="btn secondary" to="/home">
+        Overview
+      </Link>
+    </div>
+  );
+
   return (
-    <div className="app canvas-page">
-      <header>
-        <div className="brand">
-          <div className="logo">AI</div>
-          <div>
-            <h1>Workflow Canvas</h1>
-            <div className="sub">Drag nodes, bind them to real AI models, then connect the flow.</div>
-          </div>
-        </div>
-        <div className="header-actions">
-          <button
-            className="btn primary compact"
-            onClick={() => setShowCreateModal(true)}
-            disabled={nodes.length === 0}
-            title={nodes.length === 0 ? 'Add nodes first' : 'Create agent from this workflow'}
-          >
-            💾 Save as Agent
-          </button>
-          <Link className="btn ghost compact" to="/home">
-            Dashboard
-          </Link>
-          <Link className="btn ghost compact" to="/builder">
-            Form Builder →
-          </Link>
-        </div>
-      </header>
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
 
       {/* Create Agent Modal */}
       {showCreateModal && (
@@ -562,7 +565,8 @@ export default function CanvasPage() {
 
             <div className="modal-actions">
               <button
-                className="btn ghost"
+                className="btn secondary"
+                type="button"
                 onClick={() => setShowCreateModal(false)}
                 disabled={isSaving}
               >
@@ -570,15 +574,31 @@ export default function CanvasPage() {
               </button>
               <button
                 className="btn primary"
+                type="button"
                 onClick={handleCreateAgentFromWorkflow}
                 disabled={isSaving || !agentName.trim()}
               >
-                {isSaving ? '⏳ Creating...' : '✅ Create Agent'}
+                {isSaving ? 'Creating…' : 'Create agent'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <div className="canvas-toolbar">
+        <div>
+          <p className="summary">
+            {nodes.length}
+            {' '}
+            node{nodes.length === 1 ? '' : 's'} •
+            {' '}
+            {connections.length}
+            {' '}
+            connection{connections.length === 1 ? '' : 's'}
+          </p>
+          <p>Drag blocks from the palette or drop saved agents to expand your flow.</p>
+        </div>
+      </div>
 
       <section className="canvas-shell">
         <aside className="canvas-sidebar palette">
@@ -780,6 +800,6 @@ export default function CanvasPage() {
           )}
         </aside>
       </section>
-    </div>
+    </DashboardLayout>
   );
 }

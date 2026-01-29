@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
 import ConversationHistory from '../components/ConversationHistory.jsx';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -701,354 +702,336 @@ export default function ChatPage() {
    */
   const formatInlineText = (text) => {
     const parts = [];
-    let currentText = text;
     let key = 0;
-    
-    // Bold text **text**
-    const boldRegex = /\*\*(.+?)\*\*/g;
-    // Inline code `code`
-    const codeRegex = /`([^`]+)`/g;
-    
-    // Combine patterns
     const combined = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
     let lastIndex = 0;
     let match;
-    
-    while ((match = combined.exec(currentText)) !== null) {
-      // Add text before match
+
+    while ((match = combined.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(
-          <span key={key++}>{currentText.substring(lastIndex, match.index)}</span>
-        );
+        parts.push(<span key={key++}>{text.substring(lastIndex, match.index)}</span>);
       }
-      
-      // Add formatted match
+
       if (match[0].startsWith('**')) {
-        // Bold
         parts.push(
           <strong key={key++} style={{ fontWeight: '700', color: '#84ffe1' }}>
             {match[2]}
-          </strong>
+          </strong>,
         );
-      } else if (match[0].startsWith('`')) {
-        // Inline code
+      } else {
         parts.push(
-          <code key={key++} style={{ 
-            background: 'rgba(255, 255, 255, 0.1)', 
-            padding: '2px 6px', 
-            borderRadius: '4px',
-            fontFamily: 'monospace',
-            fontSize: '0.9em'
-          }}>
+          <code
+            key={key++}
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '0.9em',
+            }}
+          >
             {match[3]}
-          </code>
+          </code>,
         );
       }
-      
+
       lastIndex = match.index + match[0].length;
     }
-    
-    // Add remaining text
-    if (lastIndex < currentText.length) {
-      parts.push(<span key={key++}>{currentText.substring(lastIndex)}</span>);
+
+    if (lastIndex < text.length) {
+      parts.push(<span key={key++}>{text.substring(lastIndex)}</span>);
     }
-    
+
     return parts.length > 0 ? parts : text;
   };
 
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Conversation Lab</p>
+      <h1>Chat Surface</h1>
+      <p className="dashboard-sub">Test the agent experience before shipping.</p>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="page-actions">
+      <Link className="btn secondary" to="/builder">
+        Back to builder
+      </Link>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
+
   return (
-    <div className="app chat-page">
-      <header>
-        <div className="brand">
-          <div className="logo">AI</div>
-          <div>
-            <h1>Chat Surface</h1>
-            <div className="sub">Test the agent experience before shipping.</div>
-          </div>
-        </div>
-        <div className="header-actions">
-          <Link className="btn ghost compact" to="/builder">
-            ← Back to Builder
-          </Link>
-          <Link className="btn ghost compact" to="/home">
-            Dashboard
-          </Link>
-        </div>
-      </header>
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+      <div className="chat-page">
+        {status && <div className="status-bar">{status}</div>}
 
-      {status && <div className="status-bar">{status}</div>}
+        <div className="chat-shell">
+          <aside className="chat-rail">
+            <p className="rail-label">Current Agent</p>
+            {isLoadingAgents ? (
+              <p className="muted">Loading agents…</p>
+            ) : agents.length === 0 ? (
+              <div className="rail-empty">
+                <p>No agents yet.</p>
+                <Link className="btn primary" to="/builder">
+                  Create one
+                </Link>
+              </div>
+            ) : (
+              <ul className="rail-list">
+                {agents.map((agent) => (
+                  <li key={agent.id}>
+                    <button
+                      type="button"
+                      className={`rail-item ${selectedAgentId === agent.id ? 'active' : ''}`}
+                      onClick={() => setSelectedAgentId(agent.id)}
+                    >
+                      <div className="rail-pill">{agent.name?.slice(0, 2)?.toUpperCase() || 'AI'}</div>
+                      <div>
+                        <b>{agent.name || 'Untitled agent'}</b>
+                        <p className="muted">{agent.description || 'Add a description in Builder.'}</p>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link className="btn gradient" to="/builder">
+              ← Back to builder
+            </Link>
+          </aside>
 
-      <div className="chat-shell">
-        <aside className="chat-rail">
-          <p className="rail-label">Current Agent</p>
-          {isLoadingAgents ? (
-            <p className="muted">Loading agents…</p>
-          ) : agents.length === 0 ? (
-            <div className="rail-empty">
-              <p>No agents yet.</p>
-              <Link className="btn primary" to="/builder">
-                Create one
-              </Link>
+          <section className="chat-stage">
+            <div className="stage-header">
+              <div>
+                <h2>{selectedAgent?.name || 'Pick an agent'}</h2>
+                <p className="muted">{selectedAgent?.description || 'Choose an agent on the left to start chatting.'}</p>
+              </div>
+              {selectedAgent && <span className="badge live">Active and Ready</span>}
             </div>
-          ) : (
-            <ul className="rail-list">
-              {agents.map((agent) => (
-                <li key={agent.id}>
-                  <button
-                    type="button"
-                    className={`rail-item ${selectedAgentId === agent.id ? 'active' : ''}`}
-                    onClick={() => setSelectedAgentId(agent.id)}
-                  >
-                    <div className="rail-pill">{agent.name?.slice(0, 2)?.toUpperCase() || 'AI'}</div>
-                    <div>
-                      <b>{agent.name || 'Untitled agent'}</b>
-                      <p className="muted">{agent.description || 'Add a description in Builder.'}</p>
+            <div className="stage-window">
+              {chatLog.map((bubble) => (
+                <div key={bubble.id} className={`chat-bubble ${bubble.role === 'user' ? 'me' : ''}`}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <div style={{ flex: 1, lineHeight: '1.3' }}>
+                      {formatMessage(bubble.text)}
+                      {bubble.role === 'agent' && messageMetadata[bubble.id] && (
+                        <div
+                          style={{
+                            marginTop: '8px',
+                            fontSize: '11px',
+                            color: 'var(--muted)',
+                            fontWeight: '500',
+                          }}
+                        >
+                          Version {messageMetadata[bubble.id].isVersionA ? 'A' : 'B'}
+                        </div>
+                      )}
                     </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Link className="btn gradient" to="/builder">
-            ← Back to builder
-          </Link>
-        </aside>
-
-        <section className="chat-stage">
-          <div className="stage-header">
-            <div>
-              <h2>{selectedAgent?.name || 'Pick an agent'}</h2>
-              <p className="muted">{selectedAgent?.description || 'Choose an agent on the left to start chatting.'}</p>
-            </div>
-            {selectedAgent && <span className="badge live">Active and Ready</span>}
-          </div>
-          <div className="stage-window">
-            {chatLog.map((bubble) => (
-              <div key={bubble.id} className={`chat-bubble ${bubble.role === 'user' ? 'me' : ''}`}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                  <div style={{ flex: 1, lineHeight: '1.3' }}>
-                    {formatMessage(bubble.text)}
-                    {/* Show version badge if in A/B test */}
-                    {bubble.role === 'agent' && messageMetadata[bubble.id] && (
-                      <div style={{ 
-                        marginTop: '8px', 
-                        fontSize: '11px', 
-                        color: 'var(--muted)',
-                        fontWeight: '500'
-                      }}>
-                        Version {messageMetadata[bubble.id].isVersionA ? 'A' : 'B'}
+                    {bubble.role === 'agent' && activeTestSession && !bubble.id.includes('fallback') && !bubble.id.includes('intro') && (
+                      <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                        {!ratedMessages[bubble.id] ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleRateResponse(bubble.id, true)}
+                              style={{
+                                background: 'none',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                padding: '4px 6px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                transition: 'all 0.2s',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#10b98120';
+                                e.currentTarget.style.borderColor = '#10b981';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'none';
+                                e.currentTarget.style.borderColor = 'var(--border)';
+                              }}
+                              title="Helpful"
+                            >
+                              👍
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRateResponse(bubble.id, false)}
+                              style={{
+                                background: 'none',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                padding: '4px 6px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                transition: 'all 0.2s',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#ef444420';
+                                e.currentTarget.style.borderColor = '#ef4444';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'none';
+                                e.currentTarget.style.borderColor = 'var(--border)';
+                              }}
+                              title="Not helpful"
+                            >
+                              👎
+                            </button>
+                          </>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: '14px',
+                              color: ratedMessages[bubble.id] === 'thumbs-up' ? '#10b981' : '#ef4444',
+                            }}
+                          >
+                            {ratedMessages[bubble.id] === 'thumbs-up' ? '👍' : '👎'}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
-                  {/* Inline rating buttons for agent messages */}
-                  {bubble.role === 'agent' && activeTestSession && !bubble.id.includes('fallback') && !bubble.id.includes('intro') && (
-                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                      {!ratedMessages[bubble.id] ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleRateResponse(bubble.id, true)}
-                            style={{
-                              background: 'none',
-                              border: '1px solid var(--border)',
-                              borderRadius: '4px',
-                              padding: '4px 6px',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              transition: 'all 0.2s',
+                </div>
+              ))}
+            </div>
+            <div className="stage-input">
+              <input
+                type="text"
+                placeholder={isListening ? 'Listening...' : 'Type your message…'}
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleChatSend();
+                  }
+                }}
+              />
+              {voiceSupported && (
+                <button
+                  className={`btn voice-btn ${isListening ? 'listening' : ''}`}
+                  type="button"
+                  onClick={isListening ? stopListening : startListening}
+                  disabled={isResponding}
+                  title={isListening ? 'Stop listening' : 'Click to speak'}
+                >
+                  {isListening ? '⏹️' : '🎤'}
+                </button>
+              )}
+              <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent}>
+                {isResponding ? 'Thinking…' : 'Send'}
+              </button>
+              <button className="btn ghost compact" type="button" onClick={saveConversation} title="Save this conversation to memory">
+                💾 Save
+              </button>
+              <button
+                className="btn ghost compact"
+                type="button"
+                onClick={() => setShowHistoryPanel(true)}
+                title="View conversation history"
+              >
+                📂 History
+              </button>
+            </div>
+          </section>
+
+          <aside className="chat-sidebar">
+            <p className="rail-label">Capabilities</p>
+            {selectedAgent ? (
+              <div className="capabilities">
+                <div className="cap-card">
+                  <span className="cap-label">Model</span>
+                  <b>{getModelMeta(selectedAgent.model_id).label}</b>
+                </div>
+                <div className="cap-card">
+                  <span className="cap-label">Formality</span>
+                  <b>{selectedAgent.sliders?.formality ?? 50}%</b>
+                </div>
+                <div className="cap-card">
+                  <span className="cap-label">Creativity</span>
+                  <b>{selectedAgent.sliders?.creativity ?? 50}%</b>
+                </div>
+                <div className="cap-card">
+                  <span className="cap-label">Tools</span>
+                  <b>
+                    {selectedAgent.tools
+                      ? Object.entries(selectedAgent.tools)
+                          .filter(([, enabled]) => enabled)
+                          .map(([key]) => key.toUpperCase())
+                          .join(', ') || 'None'
+                      : 'None'}
+                  </b>
+                </div>
+
+                {voiceSupported && (
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                    <p className="rail-label">🎤 Voice Chat</p>
+                    <div className="voice-controls">
+                      <div className="voice-toggle">
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={voiceEnabled}
+                            onChange={(e) => {
+                              setVoiceEnabled(e.target.checked);
+                              if (!e.target.checked) {
+                                stopSpeaking();
+                              }
                             }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = '#10b98120';
-                              e.currentTarget.style.borderColor = '#10b981';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'none';
-                              e.currentTarget.style.borderColor = 'var(--border)';
-                            }}
-                            title="Helpful"
-                          >
-                            👍
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRateResponse(bubble.id, false)}
-                            style={{
-                              background: 'none',
-                              border: '1px solid var(--border)',
-                              borderRadius: '4px',
-                              padding: '4px 6px',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              transition: 'all 0.2s',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = '#ef444420';
-                              e.currentTarget.style.borderColor = '#ef4444';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'none';
-                              e.currentTarget.style.borderColor = 'var(--border)';
-                            }}
-                            title="Not helpful"
-                          >
-                            👎
-                          </button>
-                        </>
-                      ) : (
-                        <span style={{ 
-                          fontSize: '14px',
-                          color: ratedMessages[bubble.id] === 'thumbs-up' ? '#10b981' : '#ef4444',
-                        }}>
-                          {ratedMessages[bubble.id] === 'thumbs-up' ? '👍' : '👎'}
-                        </span>
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <span>Auto-play responses</span>
+                        </label>
+                      </div>
+                      {isPlaying && (
+                        <button className="btn ghost compact" onClick={stopSpeaking} style={{ marginTop: '8px', width: '100%' }}>
+                          🔇 Stop Speaking
+                        </button>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="stage-input">
-            <input
-              type="text"
-              placeholder={isListening ? "Listening..." : "Type your message…"}
-              value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  handleChatSend();
-                }
-              }}
-            />
-            {voiceSupported && (
-              <button 
-                className={`btn voice-btn ${isListening ? 'listening' : ''}`}
-                type="button" 
-                onClick={isListening ? stopListening : startListening}
-                disabled={isResponding}
-                title={isListening ? "Stop listening" : "Click to speak"}
-              >
-                {isListening ? '⏹️' : '🎤'}
-              </button>
-            )}
-            <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent}>
-              {isResponding ? 'Thinking…' : 'Send'}
-            </button>
-            <button 
-              className="btn ghost compact" 
-              type="button" 
-              onClick={saveConversation}
-              title="Save this conversation to memory"
-            >
-              💾 Save
-            </button>
-            <button 
-              className="btn ghost compact" 
-              type="button" 
-              onClick={() => setShowHistoryPanel(true)}
-              title="View conversation history"
-            >
-              📂 History
-            </button>
-          </div>
-        </section>
+                  </div>
+                )}
 
-        <aside className="chat-sidebar">
-          <p className="rail-label">Capabilities</p>
-          {selectedAgent ? (
-            <div className="capabilities">
-              <div className="cap-card">
-                <span className="cap-label">Model</span>
-                <b>{getModelMeta(selectedAgent.model_id).label}</b>
-              </div>
-              <div className="cap-card">
-                <span className="cap-label">Formality</span>
-                <b>{selectedAgent.sliders?.formality ?? 50}%</b>
-              </div>
-              <div className="cap-card">
-                <span className="cap-label">Creativity</span>
-                <b>{selectedAgent.sliders?.creativity ?? 50}%</b>
-              </div>
-              <div className="cap-card">
-                <span className="cap-label">Tools</span>
-                <b>
-                  {selectedAgent.tools
-                    ? Object.entries(selectedAgent.tools)
-                        .filter(([, enabled]) => enabled)
-                        .map(([key]) => key.toUpperCase())
-                        .join(', ') || 'None'
-                    : 'None'}
-                </b>
-              </div>
-
-              {voiceSupported && (
-                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-                  <p className="rail-label">🎤 Voice Chat</p>
-                  <div className="voice-controls">
-                    <div className="voice-toggle">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={voiceEnabled} 
-                          onChange={(e) => {
-                            setVoiceEnabled(e.target.checked);
-                            if (!e.target.checked) {
-                              stopSpeaking();
-                            }
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        />
-                        <span>Auto-play responses</span>
-                      </label>
+                {activeTestSession && (
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                    <p className="rail-label">📊 A/B Test Active</p>
+                    <div className="cap-card">
+                      <span className="cap-label">Test Name</span>
+                      <b>{activeTestSession.test_name}</b>
                     </div>
-                    {isPlaying && (
-                      <button 
-                        className="btn ghost compact"
-                        onClick={stopSpeaking}
-                        style={{ marginTop: '8px', width: '100%' }}
-                      >
-                        🔇 Stop Speaking
-                      </button>
-                    )}
+                    <div className="cap-card">
+                      <span className="cap-label">Current Version</span>
+                      <b style={{ color: '#10b981' }}>{testedVersionId === activeTestSession.version_a_id ? 'A' : 'B'}</b>
+                    </div>
+                    <div className="cap-card">
+                      <span className="cap-label">Tracking</span>
+                      <b>Implicit + Manual Ratings</b>
+                    </div>
+                    <p className="muted" style={{ marginTop: '12px', fontSize: '12px' }}>
+                      💡 Rate responses inline with 👍👎 buttons. We also track engagement automatically.
+                    </p>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            ) : (
+              <p className="muted">Select an agent to view its configuration.</p>
+            )}
+          </aside>
+        </div>
 
-              {activeTestSession && (
-                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-                  <p className="rail-label">📊 A/B Test Active</p>
-                  <div className="cap-card">
-                    <span className="cap-label">Test Name</span>
-                    <b>{activeTestSession.test_name}</b>
-                  </div>
-                  <div className="cap-card">
-                    <span className="cap-label">Current Version</span>
-                    <b style={{ color: '#10b981' }}>
-                      {testedVersionId === activeTestSession.version_a_id ? 'A' : 'B'}
-                    </b>
-                  </div>
-                  <div className="cap-card">
-                    <span className="cap-label">Tracking</span>
-                    <b>Implicit + Manual Ratings</b>
-                  </div>
-                  <p className="muted" style={{ marginTop: '12px', fontSize: '12px' }}>
-                    💡 Rate responses inline with 👍👎 buttons. We also track engagement automatically.
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="muted">Select an agent to view its configuration.</p>
-          )}
-        </aside>
+        <ConversationHistory
+          agentId={selectedAgentId}
+          onLoadConversation={handleLoadConversation}
+          isOpen={showHistoryPanel}
+          onClose={() => setShowHistoryPanel(false)}
+        />
       </div>
-
-      <ConversationHistory 
-        agentId={selectedAgentId}
-        onLoadConversation={handleLoadConversation}
-        isOpen={showHistoryPanel}
-        onClose={() => setShowHistoryPanel(false)}
-      />
-    </div>
+    </DashboardLayout>
   );
 }

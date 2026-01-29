@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { getModelMeta } from '../lib/modelOptions.js';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -23,7 +24,6 @@ const downloadFile = (url, filename) => {
 
 export default function MultiAgentChat() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [chatMode, setChatMode] = useState('independent'); // 'independent', 'orchestrated', 'auto', 'debate'
   const [workflowMode, setWorkflowMode] = useState('sequential'); // 'sequential' or 'parallel'
   const [selectedAgents, setSelectedAgents] = useState([]);
@@ -672,107 +672,131 @@ export default function MultiAgentChat() {
     return parts.length > 0 ? parts : text;
   };
 
+  const modeHelper = {
+    independent: 'Agents respond independently',
+    orchestrated: 'Workflow orchestration',
+    auto: 'Smart routing',
+    debate: 'Structured debate',
+  }[chatMode];
+
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Swarm Collaboration</p>
+      <h1>Multi-Agent Conversation</h1>
+      <p className="dashboard-sub">
+        {modeHelper} · {selectedAgents.length}{' '}
+        active agent{selectedAgents.length === 1 ? '' : 's'}
+      </p>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="page-actions">
+      <Link className="btn secondary" to="/builder">
+        Open builder
+      </Link>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
+
   if (agentsLoading) {
     return (
-      <div className="multi-agent-chat">
-        <div className="chat-header-bar">
-          <div className="chat-title">
-            <h2>Multi-Agent Conversation</h2>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+      <DashboardLayout headerContent={headerContent} actions={headerActions}>
+        <div
+          className="multi-agent-chat"
+          style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
           <p>Loading your agents...</p>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
   if (allAgents.length === 0) {
     return (
-      <div className="multi-agent-chat">
-        <div className="chat-header-bar">
-          <div className="chat-title">
-            <h2>Multi-Agent Conversation</h2>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', textAlign: 'center' }}>
+      <DashboardLayout headerContent={headerContent} actions={headerActions}>
+        <div
+          className="multi-agent-chat"
+          style={{
+            minHeight: '60vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+          }}
+        >
           <p>No active agents found. Create and publish agents first!</p>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
   return (
-    <div className="multi-agent-chat">
-      <div className="chat-header-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button 
-            className="back-btn"
-            onClick={() => navigate(-1)}
-            title="Go back"
-            type="button"
-          >
-            ← Back
-          </button>
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+      <div className="multi-agent-chat">
+        <div className="chat-header-bar">
           <div className="chat-title">
-            <h2>Multi-Agent Conversation</h2>
-            <p>{selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''} active</p>
+            <h3>Mode: {modeHelper}</h3>
+            <p>
+              {selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''} active
+            </p>
           </div>
-        </div>
-        <div className="chat-controls">
-          <div className="mode-toggle">
-            <button
-              className={`mode-btn ${chatMode === 'independent' ? 'active' : ''}`}
-              onClick={() => setChatMode('independent')}
-              title="Agents respond independently"
-            >
-              Independent
-            </button>
-            <button
-              className={`mode-btn ${chatMode === 'orchestrated' ? 'active' : ''}`}
-              onClick={() => setChatMode('orchestrated')}
-              title="Agents collaborate in a workflow"
-            >
-              Orchestrated
-            </button>
-            <button
-              className={`mode-btn ${chatMode === 'auto' ? 'active' : ''}`}
-              onClick={() => setChatMode('auto')}
-              title="Smart routing & auto-selection"
-            >
-              Smart Routing
-            </button>
-            <button
-              className={`mode-btn ${chatMode === 'debate' ? 'active' : ''}`}
-              onClick={() => setChatMode('debate')}
-              title="Agents debate and reach consensus"
-            >
-              Debate
-            </button>
-          </div>
-          
-          {(chatMode === 'orchestrated' || chatMode === 'auto') && chatMode !== 'debate' && (
-            <div className="workflow-toggle">
+          <div className="chat-controls">
+            <div className="mode-toggle">
               <button
-                className={`mode-btn ${workflowMode === 'sequential' ? 'active' : ''}`}
-                onClick={() => setWorkflowMode('sequential')}
-                title="Agents work in sequence"
+                className={`mode-btn ${chatMode === 'independent' ? 'active' : ''}`}
+                onClick={() => setChatMode('independent')}
+                title="Agents respond independently"
               >
-                Sequential
+                Independent
               </button>
               <button
-                className={`mode-btn ${workflowMode === 'parallel' ? 'active' : ''}`}
-                onClick={() => setWorkflowMode('parallel')}
-                title="Agents work in parallel"
+                className={`mode-btn ${chatMode === 'orchestrated' ? 'active' : ''}`}
+                onClick={() => setChatMode('orchestrated')}
+                title="Agents collaborate in a workflow"
               >
-                Parallel
+                Orchestrated
+              </button>
+              <button
+                className={`mode-btn ${chatMode === 'auto' ? 'active' : ''}`}
+                onClick={() => setChatMode('auto')}
+                title="Smart routing & auto-selection"
+              >
+                Smart Routing
+              </button>
+              <button
+                className={`mode-btn ${chatMode === 'debate' ? 'active' : ''}`}
+                onClick={() => setChatMode('debate')}
+                title="Agents debate and reach consensus"
+              >
+                Debate
               </button>
             </div>
-          )}
-        </div>
-      </div>
 
-      <div className={`chat-container chat-mode-${chatMode}`}>
+            {(chatMode === 'orchestrated' || chatMode === 'auto') && chatMode !== 'debate' && (
+              <div className="workflow-toggle">
+                <button
+                  className={`mode-btn ${workflowMode === 'sequential' ? 'active' : ''}`}
+                  onClick={() => setWorkflowMode('sequential')}
+                  title="Agents work in sequence"
+                >
+                  Sequential
+                </button>
+                <button
+                  className={`mode-btn ${workflowMode === 'parallel' ? 'active' : ''}`}
+                  onClick={() => setWorkflowMode('parallel')}
+                  title="Agents work in parallel"
+                >
+                  Parallel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={`chat-container chat-mode-${chatMode}`}>
         {/* Agent Selector */}
         {chatMode !== 'auto' && (
           <div className="agent-selector">
@@ -995,5 +1019,6 @@ export default function MultiAgentChat() {
         </div>
       </div>
     </div>
+    </DashboardLayout>
   );
 }
