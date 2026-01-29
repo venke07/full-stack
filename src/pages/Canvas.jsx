@@ -35,6 +35,7 @@ const NODE_SIZE = { width: 240, height: 150 };
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const snapValue = (value, step = 20) => Math.round(value / step) * step;
+const stampOrder = (list = []) => list.map((node, index) => ({ ...node, order: index + 1 }));
 
 const generateId = () =>
   (typeof crypto !== 'undefined' && crypto.randomUUID
@@ -54,6 +55,7 @@ const normalizeNode = (node = {}) => ({
     y: Number.isFinite(node.position?.y) ? node.position.y : 60,
   },
   updatedAt: node.updatedAt ?? new Date().toISOString(),
+  order: Number.isFinite(node.order) ? node.order : 0,
 });
 
 const normalizeActivity = (entry = {}) => ({
@@ -85,7 +87,7 @@ const loadStored = (key, fallback, normalizer) => {
   }
 };
 
-const DEFAULT_NODES = [
+const DEFAULT_NODES = stampOrder([
   normalizeNode({
     title: 'Listen for intent',
     detail: 'Capture the utterance, detect the job-to-be-done, and hydrate context slots.',
@@ -114,7 +116,7 @@ const DEFAULT_NODES = [
     tags: ['handoff'],
     position: { x: 360, y: 320 },
   }),
-];
+]);
 
 const formatRelativeTime = (isoString) => {
   if (!isoString) {
@@ -160,16 +162,19 @@ export default function CanvasPage() {
   const nodesRef = useRef(DEFAULT_NODES);
 
   const [nodes, setNodes] = useState(() =>
-    loadStored(
-      STORAGE_KEYS.nodes,
-      DEFAULT_NODES,
-      (value) => normalizeCollection(value, normalizeNode, DEFAULT_NODES),
+    stampOrder(
+      loadStored(
+        STORAGE_KEYS.nodes,
+        DEFAULT_NODES,
+        (value) => normalizeCollection(value, normalizeNode, DEFAULT_NODES),
+      ),
     ),
   );
   const [activity, setActivity] = useState(() =>
     loadStored(STORAGE_KEYS.activity, [], (value) => normalizeCollection(value, normalizeActivity, [])),
   );
   const [selectedId, setSelectedId] = useState(null);
+  const [isBoardExpanded, setBoardExpanded] = useState(false);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -200,6 +205,16 @@ export default function CanvasPage() {
   }, [activity]);
 
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedId) ?? null, [nodes, selectedId]);
+  const selectedNodeOrder = useMemo(() => {
+    if (!selectedNode) {
+      return 0;
+    }
+    if (Number.isFinite(selectedNode.order) && selectedNode.order > 0) {
+      return selectedNode.order;
+    }
+    const fallbackIndex = nodes.findIndex((node) => node.id === selectedNode.id);
+    return fallbackIndex >= 0 ? fallbackIndex + 1 : 0;
+  }, [nodes, selectedNode]);
   const liveCount = useMemo(() => nodes.filter((node) => node.status === 'live').length, [nodes]);
 
   const recordActivity = useCallback((text) => {
@@ -315,7 +330,7 @@ export default function CanvasPage() {
       status: 'draft',
       position,
     });
-    setNodes((prev) => [...prev, newNode]);
+    setNodes((prev) => stampOrder([...prev, newNode]));
     setSelectedId(newNode.id);
     recordActivity(`Added ${template.label}`);
   };
@@ -341,7 +356,7 @@ export default function CanvasPage() {
       const idx = prev.findIndex((node) => node.id === nodeId);
       const next = [...prev];
       next.splice(idx + 1, 0, duplicate);
-      return next;
+      return stampOrder(next);
     });
     setSelectedId(duplicate.id);
     recordActivity(`Duplicated ${source.title}`);
@@ -349,7 +364,7 @@ export default function CanvasPage() {
 
   const handleDeleteNode = (nodeId) => {
     const removed = nodes.find((node) => node.id === nodeId);
-    setNodes((prev) => prev.filter((node) => node.id !== nodeId));
+    setNodes((prev) => stampOrder(prev.filter((node) => node.id !== nodeId)));
     if (removed) {
       recordActivity(`Removed ${removed.title}`);
     }
@@ -400,6 +415,74 @@ export default function CanvasPage() {
     );
     recordActivity('Snapped nodes to grid');
   };
+
+  const handleShiftHierarchy = useCallback(
+    (nodeId, delta) => {
+      if (!delta || nodesRef.current.length < 2) {
+        return;
+      }
+      let movedTitle = null;
+      const directionLabel = delta < 0 ? 'up' : 'down';
+      setNodes((prev) => {
+        const index = prev.findIndex((node) => node.id === nodeId);
+        if (index < 0) {
+          return prev;
+        }
+        const targetIndex = clamp(index + delta, 0, prev.length - 1);
+        if (targetIndex === index) {
+          return prev;
+        }
+        const next = [...prev];
+        const [item] = next.splice(index, 1);
+        next.splice(targetIndex, 0, item);
+        movedTitle = item.title;
+        const stamped = stampOrder(next);
+        return stamped.map((node) =>
+          node.id === item.id ? { ...node, updatedAt: new Date().toISOString() } : node,
+        );
+      });
+      if (movedTitle) {
+        recordActivity(`Moved ${movedTitle} ${directionLabel}`);
+      }
+    },
+    [recordActivity],
+  );
+
+  const handleSetHierarchy = useCallback(
+    (nodeId, rawPosition) => {
+      if (rawPosition === '' || rawPosition === null || rawPosition === undefined) {
+        return;
+      }
+      const numericPosition = Number(rawPosition);
+      if (!Number.isFinite(numericPosition)) {
+        return;
+      }
+      const total = nodesRef.current?.length ?? 0;
+      if (total <= 1) {
+        return;
+      }
+      const desiredIndex = clamp(Math.round(numericPosition) - 1, 0, total - 1);
+      let movedTitle = null;
+      setNodes((prev) => {
+        const index = prev.findIndex((node) => node.id === nodeId);
+        if (index < 0 || index === desiredIndex) {
+          return prev;
+        }
+        const next = [...prev];
+        const [item] = next.splice(index, 1);
+        next.splice(desiredIndex, 0, item);
+        movedTitle = item.title;
+        const stamped = stampOrder(next);
+        return stamped.map((node) =>
+          node.id === item.id ? { ...node, updatedAt: new Date().toISOString() } : node,
+        );
+      });
+      if (movedTitle) {
+        recordActivity(`Set ${movedTitle} to step ${desiredIndex + 1}`);
+      }
+    },
+    [recordActivity],
+  );
 
   const handleSimulateFlow = () => {
     if (!nodes.length) {
@@ -452,6 +535,9 @@ export default function CanvasPage() {
       <button className="btn ghost" type="button" onClick={handleAutoLayout} disabled={!nodes.length}>
         Auto layout
       </button>
+      <button className="btn ghost" type="button" onClick={() => setBoardExpanded((prev) => !prev)}>
+        {isBoardExpanded ? 'Shrink map' : 'Enlarge map'}
+      </button>
       <Link className="btn ghost" to="/builder">
         Builder
       </Link>
@@ -469,7 +555,7 @@ export default function CanvasPage() {
         ))}
       </div>
 
-      <section className="blueprint-shell">
+      <section className={`blueprint-shell ${isBoardExpanded ? 'is-expanded' : ''}`}>
         <aside className="node-palette">
           <div className="palette-head">
             <p className="eyebrow">Block library</p>
@@ -538,8 +624,9 @@ export default function CanvasPage() {
                 <p className="muted">Use the library to spawn nodes, then drag them into place.</p>
               </div>
             )}
-            {nodes.map((node) => {
+            {nodes.map((node, index) => {
               const accent = NODE_TYPES[node.type]?.accent ?? NODE_TYPES.action.accent;
+              const orderLabel = node.order || index + 1;
               return (
                 <article
                   key={node.id}
@@ -549,7 +636,10 @@ export default function CanvasPage() {
                   onDoubleClick={() => handleDuplicateNode(node.id)}
                 >
                   <header className="node-handle">
-                    <span>{NODE_TYPES[node.type]?.label}</span>
+                    <div className="node-meta">
+                      <span className="node-index">#{orderLabel}</span>
+                      <span className="node-role">{NODE_TYPES[node.type]?.label}</span>
+                    </div>
                     <div className="node-drag-handle" />
                   </header>
                   <h3 className="node-title" title={node.title}>
@@ -603,6 +693,38 @@ export default function CanvasPage() {
                 />
                 <span className="meta-label">Owner</span>
                 <input value={selectedNode.owner} onChange={(event) => handleUpdateNode(selectedNode.id, { owner: event.target.value })} />
+                <span className="meta-label">Hierarchy</span>
+                <div className="hierarchy-row">
+                  <div className="hierarchy-input">
+                    <span>#</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={nodes.length}
+                      value={selectedNodeOrder}
+                      onChange={(event) => handleSetHierarchy(selectedNode.id, event.target.value)}
+                    />
+                    <span className="hierarchy-total">of {nodes.length}</span>
+                  </div>
+                  <div className="hierarchy-bumpers">
+                    <button
+                      type="button"
+                      className="pill soft"
+                      onClick={() => handleShiftHierarchy(selectedNode.id, -1)}
+                      disabled={selectedNodeOrder <= 1}
+                    >
+                      Move up
+                    </button>
+                    <button
+                      type="button"
+                      className="pill soft"
+                      onClick={() => handleShiftHierarchy(selectedNode.id, 1)}
+                      disabled={selectedNodeOrder >= nodes.length}
+                    >
+                      Move down
+                    </button>
+                  </div>
+                </div>
                 <div className="inspector-row">
                   <button
                     type="button"

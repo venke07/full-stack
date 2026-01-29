@@ -14,12 +14,228 @@
   --radius: 16px;
 }
 
+/* Workspace layout + navigation */
+.workspace-shell {
+  min-height: 100vh;
+  display: flex;
+  gap: 0;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(122, 240, 213, 0.08), transparent 55%),
+    radial-gradient(circle at 80% 10%, rgba(106, 168, 255, 0.09), transparent 45%),
+    var(--bg);
+  color: var(--text);
+}
+
+.workspace-nav {
+  width: 280px;
+  padding: 32px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(5, 9, 24, 0.96), rgba(3, 5, 16, 0.98));
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+  position: sticky;
+  top: 0;
+  min-height: 100vh;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(106, 168, 255, 0.85), rgba(122, 240, 213, 0.85));
+  color: #050c1f;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  display: grid;
+  place-items: center;
+}
+
+.nav-brand p {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.nav-brand strong {
+  display: block;
+  font-size: 1.3rem;
+  letter-spacing: -0.03em;
+}
+
+.nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+  flex: 1;
+}
+
+.nav-link {
+  text-decoration: none;
+  color: inherit;
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.nav-link:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  transform: translateX(4px);
+}
+
+.nav-link.is-active {
+  border-color: rgba(106, 168, 255, 0.65);
+  background: rgba(106, 168, 255, 0.15);
+  box-shadow: 0 12px 30px rgba(6, 15, 40, 0.35);
+}
+
+.nav-link-label {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.nav-link-helper {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.nav-link.slim {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  border: none;
+  border-radius: 0;
+  padding: 12px 0;
+  background: transparent;
+  gap: 12px;
+}
+
+.nav-footer {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ghost-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.ghost-link:hover {
+  color: var(--text);
+}
+
+.nav-footer .ghost-link {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+}
+
+.nav-footer .ghost-link:hover {
+  color: var(--text);
+}
+
+.workspace-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 30% 0%, rgba(106, 168, 255, 0.08), transparent 55%),
+    radial-gradient(circle at 90% 10%, rgba(122, 240, 213, 0.08), transparent 45%),
+    linear-gradient(180deg, rgba(10, 13, 32, 0.95), rgba(6, 7, 20, 0.98));
+}
+
+.workspace-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 32px 40px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(8, 11, 30, 0.85);
+  backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.topbar-heading h1 {
+  margin: 6px 0 0;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.chip-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .blueprint-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 320px;
   gap: 24px;
   align-items: start;
   margin-top: 30px;
+}
+
+.blueprint-shell.is-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.blueprint-shell.is-expanded .node-palette,
+.blueprint-shell.is-expanded .node-inspector {
+  display: none;
+}
+
+.blueprint-shell.is-expanded .blueprint-board {
+  min-height: 820px;
+}
+
+.blueprint-shell.is-expanded .blueprint-board-wrapper {
+  grid-column: 1 / -1;
 }
 
 .node-palette,
@@ -223,8 +439,27 @@
   color: var(--muted);
 }
 
-.node-handle span {
+.node-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-role {
   color: var(--node-accent, var(--text));
+}
+
+.node-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .node-drag-handle {
@@ -379,6 +614,58 @@
   gap: 12px;
   flex-wrap: wrap;
   margin: 14px 0;
+}
+
+.hierarchy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.hierarchy-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hierarchy-input input {
+  width: 54px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 15px;
+  text-align: center;
+  font-family: inherit;
+}
+
+.hierarchy-input input:focus {
+  outline: none;
+}
+
+.hierarchy-total {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hierarchy-bumpers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hierarchy-bumpers .pill {
+  text-transform: none;
+  letter-spacing: 0.04em;
 }
 
 .activity-log {
@@ -1762,7 +2049,6 @@ header {
   font-weight: 800;
   box-shadow: var(--shadow);
 }
-}
 
 h1 {
   font-size: 22px;
@@ -2945,6 +3231,9 @@ textarea {
     flex-direction: column;
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    min-height: auto;
+    padding: 24px 20px;
   }
 
   .nav-links {
