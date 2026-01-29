@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -151,23 +152,38 @@ export default function FusionLab() {
     return `Mostly ${agentB?.name}`;
   };
 
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Experimentation</p>
+      <h1>Fusion Lab</h1>
+      <p className="dashboard-sub">Combine two existing agents into a tuned hybrid with blended prompts, sliders, and tools.</p>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="page-actions">
+      <Link className="btn secondary" to="/builder">
+        Open builder
+      </Link>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
+
   return (
-    <div className="fusion-lab-container">
-      <header className="fusion-header">
-        <div className="fusion-title-section">
-          <h1>⚗️ Agent Fusion Lab</h1>
-          <p>Combine two agents to create a hybrid with merged capabilities</p>
-        </div>
-        <div className="fusion-nav">
-          <Link to="/home" className="btn ghost compact">
-            ← Back to Dashboard
-          </Link>
-        </div>
-      </header>
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+      <div className="fusion-lab-container">
+        <header className="fusion-header">
+          <div className="fusion-title-section">
+            <h1>⚗️ Agent Fusion Lab</h1>
+            <p>Combine two agents to create a hybrid with merged capabilities</p>
+          </div>
+        </header>
 
-      {status && <div className="fusion-status">{status}</div>}
+        {status && <div className="fusion-status">{status}</div>}
 
-      <div className="fusion-workspace">
+        <div className="fusion-workspace">
         {/* Left: Agent Selection */}
         <div className="fusion-panel agent-selection-panel">
           <h2>Select Agents to Fuse</h2>
@@ -379,7 +395,8 @@ export default function FusionLab() {
             <p className="empty-hint">Mix their personalities, prompts, and tools to create a unique hybrid agent!</p>
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

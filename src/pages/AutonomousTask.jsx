@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext.jsx';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export default function AutonomousTask() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [taskDescription, setTaskDescription] = useState('');
   const [outputFormat, setOutputFormat] = useState('document');
   const [loading, setLoading] = useState(false);
@@ -293,363 +291,371 @@ export default function AutonomousTask() {
     return parts.length > 0 ? parts : text;
   };
 
-  return (
-    <div className="autonomous-task-page">
-      <div className="task-header">
-        <button
-          className="back-btn"
-          onClick={() => navigate(-1)}
-          title="Go back"
-          type="button"
-        >
-          ← Back
-        </button>
-        <div className="task-title">
-          <h1>🤖 Autonomous Task Executor</h1>
-          <p>AI-powered multi-agent task automation system</p>
+  const renderHistoryCards = () => {
+    if (historyEntries.length === 0) {
+      return <p className="muted">No prior executions logged yet.</p>;
+    }
+
+    return historyEntries.map((entry, index) => (
+      <div key={index} className="history-card">
+        <div className="history-meta">
+          <span className="meta-label">Task</span>
+          <p>{entry.taskDescription}</p>
         </div>
+        <div className="history-meta">
+          <span className="meta-label">Output</span>
+          <p>{entry.outputFormat}</p>
+        </div>
+        <div className="history-meta">
+          <span className="meta-label">Date</span>
+          <p>{new Date(entry.created_at).toLocaleString()}</p>
+        </div>
+        <button className="ghost-btn" onClick={() => handleUseHistory(entry)}>
+          Use Task
+        </button>
       </div>
+    ));
+  };
 
-      <div className="task-container">
-        {!result ? (
-          <div className="task-input-section">
-            <div className="input-card">
-              <h2>Describe Your Task</h2>
-              <p className="subtitle">The system will automatically select the best agents and execute steps to complete it.</p>
-              
-              <div className="input-group">
-                <label>Task Description</label>
-                <textarea
-                  value={taskDescription}
-                  onChange={(e) => setTaskDescription(e.target.value)}
-                  placeholder="E.g., Create a comprehensive marketing strategy for a SaaS product, generate a machine learning tutorial for beginners, analyze market trends for Q1 2024, etc."
-                  rows={8}
-                  disabled={loading}
-                  className="task-textarea"
-                />
-                <p className="input-hint">📝 Be descriptive! More details help the AI agents understand exactly what you need.</p>
+  const renderActiveTab = () => {
+    if (activeTab === 'overview' && result?.result) {
+      return (
+        <div className="result-overview">
+          <div className="result-card">
+            <div className="card-header">
+              <h3>Final Output</h3>
+              <div className="card-actions">
+                <button className="ghost-btn" onClick={handleCopyResult}>
+                  {copiedToClipboard ? '✅ Copied' : '📋 Copy'}
+                </button>
+                {result?.document?.filename && (
+                  <button className="ghost-btn" onClick={handleDownloadFile}>
+                    📥 Download Document
+                  </button>
+                )}
               </div>
+            </div>
+            <div className="result-text">{formatMessage(result.result.finalResult)}</div>
+          </div>
 
-              <div className="input-group">
-                <label>Output Format</label>
-                <p className="input-hint">Choose how you want the final result delivered</p>
-                <div className="format-grid">
-                  {[
-                    { value: 'none', label: '📋 Display Only', desc: 'View in browser' },
-                    { value: 'document', label: '📄 Word Document', desc: 'Professional format' },
-                    { value: 'markdown', label: '📝 Markdown', desc: 'Edit-friendly' },
-                    { value: 'html', label: '🌐 HTML Page', desc: 'Web-ready' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      className={`format-option ${outputFormat === opt.value ? 'selected' : ''}`}
-                      onClick={() => setOutputFormat(opt.value)}
-                      disabled={loading}
-                    >
-                      <div className="format-label">{opt.label}</div>
-                      <div className="format-desc">{opt.desc}</div>
-                    </button>
+          <div className="result-card">
+            <div className="card-header">
+              <h3>Task Metadata</h3>
+              <button className="ghost-btn" onClick={handleExportJSON}>
+                ⬇️ Export JSON
+              </button>
+            </div>
+            <div className="metadata-grid">
+              <div>
+                <span className="meta-label">Output Format</span>
+                <span className="meta-value">{outputFormat}</span>
+              </div>
+              <div>
+                <span className="meta-label">Steps Completed</span>
+                <span className="meta-value">{intermediateSteps.length}</span>
+              </div>
+              <div>
+                <span className="meta-label">Execution Time</span>
+                <span className="meta-value">
+                  ~{(Object.values(executionTimes).reduce((a, b) => a + b, 0) / 1000).toFixed(1)}s
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTab === 'analysis' && taskAnalysis) {
+      return (
+        <div className="analysis-grid">
+          <div className="analysis-card">
+            <h3>Task Breakdown</h3>
+            <ul>
+              {taskAnalysis.breakdown?.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="analysis-card">
+            <h3>Agent Strategy</h3>
+            <p>{taskAnalysis.strategy}</p>
+            {taskAnalysis.recommendedAgents && (
+              <div className="recommended-agents">
+                <h4>Recommended Agents</h4>
+                <ul>
+                  {taskAnalysis.recommendedAgents.map((agent, index) => (
+                    <li key={index}>{agent}</li>
                   ))}
-                </div>
-              </div>
-
-              {error && (
-                <div className="error-message">
-                  <span>⚠️ {error}</span>
-                </div>
-              )}
-
-              {loading && (
-                <div className="loading-indicator">
-                  <div className="spinner"></div>
-                  <div className="loading-text">
-                    <p className="progress-message">{currentStep}</p>
-                    <div className="progress-bar-container">
-                      <div className="progress-bar" style={{ width: `${executionProgress}%` }}></div>
-                    </div>
-                    <p className="progress-percent">{executionProgress}% Complete</p>
-                  </div>
-                </div>
-              )}
-
-              <button
-                className="submit-btn"
-                onClick={handleSubmitTask}
-                disabled={!taskDescription.trim() || loading}
-              >
-                {loading ? '⏳ Executing...' : '▶️ Execute Task'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="task-result-section">
-            <div className="result-header-card">
-              <div className="header-content">
-                <h2>✅ Task Completed Successfully!</h2>
-                <p className="completion-time">Task executed in ~{(Object.values(executionTimes).reduce((a, b) => a + b, 0) / 1000).toFixed(1)}s</p>
-              </div>
-              <button
-                className="new-task-btn"
-                onClick={() => {
-                  setResult(null);
-                  setTaskDescription('');
-                  setIntermediateSteps([]);
-                  setError(null);
-                  setTaskAnalysis(null);
-                  setActiveTab('overview');
-                }}
-              >
-                ➕ New Task
-              </button>
-            </div>
-
-            <div className="results-tabs">
-              <button
-                className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-                onClick={() => setActiveTab('overview')}
-              >
-                📊 Overview
-              </button>
-              <button
-                className={`tab-btn ${activeTab === 'steps' ? 'active' : ''}`}
-                onClick={() => setActiveTab('steps')}
-              >
-                🔄 Steps ({intermediateSteps.length})
-              </button>
-              <button
-                className={`tab-btn ${activeTab === 'analysis' ? 'active' : ''}`}
-                onClick={() => setActiveTab('analysis')}
-              >
-                🎯 Analysis
-              </button>
-              <button
-                className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveTab('history');
-                  loadHistory();
-                }}
-              >
-                🕑 History
-              </button>
-            </div>
-
-            {activeTab === 'overview' && (
-              <div className="tab-content">
-                {/* Summary Stats */}
-                <div className="summary-stats">
-                  <div className="stat-card">
-                    <div className="stat-icon">🤖</div>
-                    <div className="stat-content">
-                      <div className="stat-label">Agents Used</div>
-                      <div className="stat-value">{new Set(intermediateSteps.map(s => s.agent)).size}</div>
-                    </div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-icon">⚙️</div>
-                    <div className="stat-content">
-                      <div className="stat-label">Execution Steps</div>
-                      <div className="stat-value">{intermediateSteps.length}</div>
-                    </div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-icon">📄</div>
-                    <div className="stat-content">
-                      <div className="stat-label">Output Format</div>
-                      <div className="stat-value">{outputFormat.toUpperCase()}</div>
-                    </div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-icon">✅</div>
-                    <div className="stat-content">
-                      <div className="stat-label">Status</div>
-                      <div className="stat-value">Complete</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Final Result */}
-                <div className="result-box">
-                  <div className="result-header-inner">
-                    <h3>📋 Final Result</h3>
-                    <div className="result-actions">
-                      <button
-                        className="action-btn"
-                        onClick={handleCopyResult}
-                        title="Copy to clipboard"
-                      >
-                        {copiedToClipboard ? '✅ Copied!' : '📋 Copy'}
-                      </button>
-                      <button
-                        className="action-btn"
-                        onClick={handleExportJSON}
-                        title="Export as JSON"
-                      >
-                        💾 Export
-                      </button>
-                    </div>
-                  </div>
-                  <div className="result-content">
-                    {formatMessage(result.result.finalResult)}
-                  </div>
-                </div>
-
-                {/* Generated Document */}
-                {result.document?.success && (
-                  <div className="document-box">
-                    <h3>💾 Generated Document</h3>
-                    <div className="document-card">
-                      <div className="doc-info">
-                        <div className="doc-icon">📄</div>
-                        <div className="doc-details">
-                          <p className="doc-name">{result.document.filename}</p>
-                          <p className="doc-meta">
-                            {result.document.type.toUpperCase()} • {(result.document.size / 1024).toFixed(2)} KB
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        className="download-btn"
-                        onClick={handleDownloadFile}
-                      >
-                        📥 Download
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'steps' && (
-              <div className="tab-content">
-                <div className="steps-timeline">
-                  {intermediateSteps.length > 0 ? (
-                    intermediateSteps.map((step, index) => (
-                      <div key={index} className="timeline-item">
-                        <div className="timeline-dot"></div>
-                        <div className="timeline-content">
-                          <div
-                            className="step-header-expanded"
-                            onClick={() => setExpandedSteps({
-                              ...expandedSteps,
-                              [index]: !expandedSteps[index]
-                            })}
-                          >
-                            <div className="step-title">
-                              <span className="step-badge">{step.stepNumber}</span>
-                              <span className="step-name">{step.agent}</span>
-                              <span className="step-capability-tag">{step.capability}</span>
-                            </div>
-                            <div className="step-duration">
-                              {executionTimes[step.stepNumber] 
-                                ? `${(executionTimes[step.stepNumber] / 1000).toFixed(2)}s` 
-                                : 'Processing...'}
-                            </div>
-                          </div>
-                          
-                          {expandedSteps[index] && (
-                            <div className="step-details-expanded">
-                              <div className="detail-section">
-                                <h4>📥 Input</h4>
-                                <p className="detail-text">{step.input}</p>
-                              </div>
-                              <div className="detail-section">
-                                <h4>📤 Output</h4>
-                                <div className="detail-output">
-                                  {formatMessage(step.output)}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="no-data">No execution steps recorded</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'analysis' && (
-              <div className="tab-content">
-                {taskAnalysis && (
-                  <div className="analysis-card">
-                    <h3>🎯 Task Analysis</h3>
-                    <div className="analysis-grid">
-                      <div className="analysis-item">
-                        <span className="label">Pattern Detected:</span>
-                        <span className="value">{taskAnalysis.description}</span>
-                      </div>
-                      <div className="analysis-item">
-                        <span className="label">Confidence Score:</span>
-                        <span className="value">
-                          {taskAnalysis.confidence.toFixed(1)}%
-                          <div className="confidence-bar">
-                            <div 
-                              className="confidence-fill" 
-                              style={{ width: `${taskAnalysis.confidence}%` }}
-                            ></div>
-                          </div>
-                        </span>
-                      </div>
-                      <div className="analysis-item full-width">
-                        <span className="label">Required Capabilities:</span>
-                        <div className="capabilities-list">
-                          {taskAnalysis.requiredCapabilities.map((cap, idx) => (
-                            <span key={idx} className="capability">{cap}</span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'history' && (
-              <div className="tab-content">
-                <div className="history-list">
-                  {historyLoading && <p className="info-text">Loading history...</p>}
-                  {historyError && <p className="error-message">⚠️ {historyError}</p>}
-                  {!historyLoading && !historyError && historyEntries.length === 0 && (
-                    <p className="info-text">No past runs yet. Complete a task to see it here.</p>
-                  )}
-                  {!historyLoading && historyEntries.length > 0 && (
-                    <div className="history-grid">
-                      {historyEntries.map((item) => (
-                        <div key={item.id} className="history-card">
-                          <div className="history-meta">
-                            <span className="history-format">{item.outputFormat?.toUpperCase?.() || 'DOCUMENT'}</span>
-                            <span className="history-date">{new Date(item.createdAt).toLocaleString()}</span>
-                          </div>
-                          <div className="history-title">{item.taskDescription || 'Untitled task'}</div>
-                          {item.summary && (
-                            <div className="history-summary">
-                              {item.summary.slice(0, 160)}{item.summary.length > 160 ? '…' : ''}
-                            </div>
-                          )}
-                          <div className="history-actions">
-                            <button
-                              type="button"
-                              className="action-btn"
-                              onClick={() => handleUseHistory(item)}
-                            >
-                              ↩️ Load Task
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                </ul>
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      );
+    }
 
-      <style>{`
+    if (activeTab === 'steps' && intermediateSteps.length > 0) {
+      return (
+        <div className="steps-timeline">
+          {intermediateSteps.map((step, index) => (
+            <div key={index} className={`step-card ${expandedSteps[index] ? 'expanded' : ''}`}>
+              <div
+                className="step-header"
+                onClick={() =>
+                  setExpandedSteps((prev) => ({
+                    ...prev,
+                    [index]: !prev[index],
+                  }))
+                }
+              >
+                <div>
+                  <span className="step-number">Step {step.stepNumber}</span>
+                  <h4>{step.title || step.goal}</h4>
+                </div>
+                <div className="step-meta">
+                  <span>
+                    {executionTimes[step.stepNumber]
+                      ? `${(executionTimes[step.stepNumber] / 1000).toFixed(1)}s`
+                      : '—'}{' '}
+                  </span>
+                  <button className="ghost-btn">{expandedSteps[index] ? 'Collapse' : 'Expand'}</button>
+                </div>
+              </div>
+              {expandedSteps[index] && (
+                <div className="step-body">
+                  <p>{step.description}</p>
+                  {step.result && (
+                    <div className="step-result">
+                      <h5>Result</h5>
+                      <div>{formatMessage(step.result)}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (activeTab === 'history') {
+      return (
+        <div className="history-section">
+          <div className="history-header">
+            <div>
+              <h3>Execution History</h3>
+              <p>Replay past autonomous ops</p>
+            </div>
+            <div className="history-actions">
+              <button className="ghost-btn" onClick={loadHistory} disabled={historyLoading}>
+                {historyLoading ? 'Refreshing...' : '↻ Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {historyError && <div className="error-message">⚠️ {historyError}</div>}
+
+          <div className="history-list">{renderHistoryCards()}</div>
+        </div>
+      );
+    }
+
+    return <p className="muted">No data to display yet.</p>;
+  };
+
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Task Automation</p>
+      <h1>Autonomous Task Executor</h1>
+      <p className="dashboard-sub">AI-powered multi-agent workflows with memory and tooling.</p>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="page-actions">
+      <Link className="btn secondary" to="/canvas">
+        Open flow canvas
+      </Link>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
+
+  return (
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+      <>
+        <div className="autonomous-task-page">
+          <div className="task-header">
+          <div className="task-title">
+            <h2>Execution console</h2>
+            <p>AI-powered multi-agent task automation system</p>
+          </div>
+        </div>
+
+        <div className="task-container">
+          {!result ? (
+            <div className="task-input-section">
+              <div className="input-card">
+                <h2>Describe Your Task</h2>
+                <p className="subtitle">The system will automatically select the best agents and execute steps to complete it.</p>
+
+                <div className="input-group">
+                  <label>Task Description</label>
+                  <textarea
+                    value={taskDescription}
+                    onChange={(e) => setTaskDescription(e.target.value)}
+                    placeholder="E.g., Create a comprehensive marketing strategy for a SaaS product, generate a machine learning tutorial for beginners, analyze market trends for Q1 2024, etc."
+                    rows={8}
+                    disabled={loading}
+                    className="task-textarea"
+                  />
+                  <p className="input-hint">📝 Be descriptive! More details help the AI agents understand exactly what you need.</p>
+                </div>
+
+                <div className="input-group">
+                  <label>Output Format</label>
+                  <p className="input-hint">Choose how you want the final result delivered</p>
+                  <div className="format-grid">
+                    {[
+                      { value: 'none', label: '📋 Display Only', desc: 'View in browser' },
+                      { value: 'document', label: '📄 Word Document', desc: 'Professional format' },
+                      { value: 'markdown', label: '📝 Markdown', desc: 'Edit-friendly' },
+                      { value: 'html', label: '🌐 HTML Page', desc: 'Web-ready' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`format-option ${outputFormat === opt.value ? 'selected' : ''}`}
+                        onClick={() => setOutputFormat(opt.value)}
+                        disabled={loading}
+                      >
+                        <div className="format-label">{opt.label}</div>
+                        <div className="format-desc">{opt.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="error-message">
+                    <span>⚠️ {error}</span>
+                  </div>
+                )}
+
+                {loading && (
+                  <div className="loading-indicator">
+                    <div className="spinner"></div>
+                    <div className="loading-text">
+                      <p className="progress-message">{currentStep}</p>
+                      <div className="progress-bar-container">
+                        <div className="progress-bar" style={{ width: `${executionProgress}%` }}></div>
+                      </div>
+                      <p className="progress-percent">{executionProgress}% Complete</p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  className="submit-btn"
+                  onClick={handleSubmitTask}
+                  disabled={!taskDescription.trim() || loading}
+                >
+                  {loading ? '⏳ Executing...' : '▶️ Execute Task'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="task-result-section">
+              <div className="result-header-card">
+                <div className="header-content">
+                  <h2>✅ Task Completed Successfully!</h2>
+                  <p className="completion-time">
+                    Task executed in ~{(Object.values(executionTimes).reduce((a, b) => a + b, 0) / 1000).toFixed(1)}s
+                  </p>
+                </div>
+                <button
+                  className="new-task-btn"
+                  onClick={() => {
+                    setResult(null);
+                    setTaskDescription('');
+                    setIntermediateSteps([]);
+                    setError(null);
+                    setTaskAnalysis(null);
+                    setActiveTab('overview');
+                  }}
+                >
+                  ➕ New Task
+                </button>
+              </div>
+
+              <div className="task-tabs">
+                {['overview', 'analysis', 'steps', 'history'].map((tab) => (
+                  <button
+                    key={tab}
+                    className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
+                    onClick={() => {
+                      setActiveTab(tab);
+                      if (tab === 'history' && historyEntries.length === 0) {
+                        loadHistory();
+                      }
+                    }}
+                  >
+                    {tab === 'overview' && 'Overview'}
+                    {tab === 'analysis' && 'Task Analysis'}
+                    {tab === 'steps' && 'Execution Steps'}
+                    {tab === 'history' && 'History'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="tab-content">{renderActiveTab()}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="insights-panel">
+          <div className="insight-card">
+            <h3>Execution Insights</h3>
+            <div className="insight-metrics">
+              <div>
+                <span className="metric-label">Avg. Duration</span>
+                <span className="metric-value">4.2 min</span>
+              </div>
+              <div>
+                <span className="metric-label">Agent Coverage</span>
+                <span className="metric-value">3 agents</span>
+              </div>
+              <div>
+                <span className="metric-label">Reuse Rate</span>
+                <span className="metric-value">62%</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="insight-card">
+            <h3>Execution Tips</h3>
+            <ul className="tips-list">
+              <li>Break complex objectives into bullet points for faster planning.</li>
+              <li>Select "Markdown" for editable briefs you can tweak before sharing.</li>
+              <li>Use History to store repeatable playbooks.</li>
+            </ul>
+          </div>
+
+          <div className="insight-card">
+            <h3>Need Inspiration?</h3>
+            <ul className="prompt-list">
+              <li>"Draft a product launch plan with timelines and owners."</li>
+              <li>"Summarize last quarter's performance and recommended actions."</li>
+              <li>"Teach me the basics of retrieval augmented generation."</li>
+            </ul>
+          </div>
+        </div>
+
+  </div>
+
+  <style>{`
         * {
           box-sizing: border-box;
         }
@@ -1441,6 +1447,7 @@ export default function AutonomousTask() {
           font-size: 13px;
         }
       `}</style>
-    </div>
+      </>
+    </DashboardLayout>
   );
 }
