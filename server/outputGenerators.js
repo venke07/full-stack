@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Document, Packer, Paragraph, HeadingLevel } from 'docx';
+import { Document, Packer, Paragraph, HeadingLevel } from 'docx';
 
 class OutputGenerators {
   constructor() {
@@ -57,68 +58,28 @@ class OutputGenerators {
    */
   async generateWordDocument(content, filename) {
     try {
-      // Split content into sections and paragraphs
-      const lines = content.split('\n');
-      const children = [];
-
-      // Add title
-      children.push(
-        new Paragraph({
-          text: 'Agent Report',
-          heading: HeadingLevel.HEADING_1,
+      const paragraphs = content
+        .split('\n\n')
+        .filter(p => p.trim())
+        .map(p => new Paragraph({
+          text: p.trim(),
           spacing: { after: 200 },
-        })
-      );
+        }));
 
-      // Add timestamp
-      children.push(
-        new Paragraph({
-          text: `Generated: ${new Date().toLocaleString()}`,
-          spacing: { after: 300 },
-        })
-      );
-
-      // Process content lines
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        // Check if it's a section header (starts with ===)
-        if (line.trim().startsWith('===') && line.trim().endsWith('===')) {
-          const sectionTitle = line.replace(/===/g, '').trim();
-          children.push(
-            new Paragraph({
-              text: sectionTitle,
-              heading: HeadingLevel.HEADING_2,
-              spacing: { before: 300, after: 200 },
-            })
-          );
-        } else if (line.trim()) {
-          // Regular paragraph
-          children.push(
-            new Paragraph({
-              text: line,
-              spacing: { after: 100 },
-            })
-          );
-        } else {
-          // Empty line - add spacing
-          children.push(
-            new Paragraph({
-              text: '',
-              spacing: { after: 100 },
-            })
-          );
-        }
-      }
-
-      const doc = new Document({
-        sections: [
-          {
-            properties: {},
-            children: children,
-          },
-        ],
-      });
+        const doc = new Document({
+          sections: [
+            {
+              children: [
+                new Paragraph({
+                  text: 'Generated Document',
+                  heading: HeadingLevel.HEADING_1,
+                }),
+                new Paragraph(''),
+                ...this.parseContentToParagraphs(content),
+              ],
+            },
+          ],
+        });
 
       const filepath = path.join(this.outputDir, filename || `document_${Date.now()}.docx`);
       const buffer = await Packer.toBuffer(doc);
@@ -132,9 +93,8 @@ class OutputGenerators {
         size: fs.statSync(filepath).size,
       };
     } catch (error) {
-      console.error('Error generating Word document:', error.message, error.stack);
-      // Fallback to text document
-      return this.generateTextDocument(content, filename ? filename.replace('.docx', '.txt') : `document_${Date.now()}.txt`);
+      console.warn('Error generating Word document:', error.message);
+      return this.generateTextDocument(content, filename || `document_${Date.now()}.txt`);
     }
   }
 
