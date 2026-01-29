@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
 
 const templateAgents = [
@@ -91,7 +92,7 @@ const deriveTagsFromAgent = (agent) => {
 };
 
 export default function HomePage() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
   const [banner, setBanner] = useState(null);
@@ -106,6 +107,7 @@ export default function HomePage() {
   const [sortMode, setSortMode] = useState('recent');
   const [mutatingId, setMutatingId] = useState(null);
   const [isTemplateAction, setIsTemplateAction] = useState(false);
+  const [expandedAgentId, setExpandedAgentId] = useState(null);
 
   const showBanner = useCallback((text, type = 'info') => {
     if (!text) {
@@ -359,363 +361,305 @@ export default function HomePage() {
     setIsTemplateAction(false);
   };
 
-  return (
-    <div className="agent-dashboard">
-      <div className="dashboard-header">
-        <div>
-          <p className="eyebrow">Agent Command Center</p>
-          <h1>Agent Dashboard</h1>
-          <p className="dashboard-sub">Manage and monitor every AI agent linked to {user?.email || 'your account'}.</p>
-        </div>
-        <div className="dashboard-header-actions">
-          <Link className="new-agent-btn" to="/builder">
-            ➕ New Agent
-          </Link>
-          <Link className="btn secondary compact" to="/templates" style={{ textDecoration: 'none' }}>
-            📚 Templates
-          </Link>
-          <Link className="btn secondary compact" to="/testing" style={{ textDecoration: 'none' }}>
-            🧪 Test
-          </Link>
-          <label className="import-agent-btn" title="Import Agent">
-            📥 Import
-            <input 
-              type="file" 
-              accept=".json" 
-              onChange={handleImportAgent} 
-              style={{ display: 'none' }}
-            />
-          </label>
-          <button 
-            className="btn secondary compact"
-            onClick={() => setShowCollectionModal(true)}
-            title="Manage Collections"
-          >
-            📁 Collections
-          </button>
-          <div className="search-box">
-            <input
-              type="text"
-              placeholder="Search agents…"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-            />
-          </div>
-          {/* Multi-Agent Chat Button */}
-          <button 
-            className="multi-chat-icon-btn"
-            onClick={() => navigate('/multi-chat')}
-            title="Multi-Agent Chat"
-            type="button"
-          >
-            🤖💬
-          </button>
-          {/* Fusion Lab Button */}
-          <button 
-            className="fusion-lab-icon-btn"
-            onClick={() => navigate('/fusion-lab')}
-            title="Agent Fusion Lab"
-            type="button"
-          >
-            ⚗️✨
-          </button>
-          {/* Autonomous Task Button */}
-          <button 
-            className="autonomous-icon-btn"
-            onClick={() => navigate('/autonomous')}
-            title="Autonomous Task Executor"
-            type="button"
-          >
-            🤖⚡
-          </button>
-          {/* Single Chat Button */}
-          <button 
-            className="chat-icon-btn"
-            onClick={() => navigate('/chat')}
-            title="Single Agent Chat"
-            type="button"
-          >
-            💬
-          </button>
-          <button className="signout-btn" type="button" onClick={signOut}>
-            Sign out
-          </button>
-          <button 
-            className="profile-btn"
-            onClick={() => navigate('/profile')}
-            title="View Profile"
-            type="button"
-          >
-            👤
-          </button>
-        </div>
-      </div>
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Agent Command Center</p>
+      <h1>Agent Portfolio</h1>
+      <p className="dashboard-sub">
+        Manage and monitor every AI agent linked to {user?.email || 'this workspace'}.
+      </p>
+    </div>
+  );
 
-      <div className="dashboard-toolbar">
-        <div className="filters">
-          {FILTERS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={`filter-btn ${filter === option ? 'active-filter' : ''}`}
-              onClick={() => setFilter(option)}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-        <div className="toolbar-controls">
+  const headerActions = (
+    <div className="page-actions">
+      <Link className="btn primary" to="/builder">
+        Create agent
+      </Link>
+      <Link className="btn secondary" to="/templates">
+        Templates
+      </Link>
+      <Link className="btn secondary" to="/testing">
+        Testing lab
+      </Link>
+      <button
+        type="button"
+        className="btn secondary"
+        onClick={() => setShowCollectionModal(true)}
+      >
+        Collections
+      </button>
+      <label className="btn secondary import-control" title="Import agent JSON">
+        Import
+        <input
+          type="file"
+          accept=".json"
+          onChange={handleImportAgent}
+        />
+      </label>
+    </div>
+  );
+
+  const toggleAgentRow = (agentKey) => {
+    setExpandedAgentId((prev) => (prev === agentKey ? null : agentKey));
+  };
+
+  const shouldShowReset = (
+    (searchTerm || providerFilter !== 'All Providers' || collectionFilter !== 'All Collections')
+    && filter !== 'Templates'
+  );
+
+  return (
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+      <section className="agent-dashboard">
+        <div className="agent-controls">
+          <div className="filter-row">
+            {FILTERS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`filter-chip ${filter === option ? 'is-active' : ''}`}
+                onClick={() => setFilter(option)}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+
           {filter !== 'Templates' && (
-            <>
-              <select 
-                className="collection-filter-select" 
-                value={collectionFilter} 
-                onChange={(event) => setCollectionFilter(event.target.value)}
-              >
-                <option value="All Collections">All Collections</option>
-                {collections.map((col) => (
-                  <option key={col} value={col}>📁 {col}</option>
-                ))}
-              </select>
-              <select 
-                className="provider-filter-select" 
-                value={providerFilter} 
-                onChange={(event) => setProviderFilter(event.target.value)}
-              >
-                <option value="All Providers">All Providers</option>
-                <option value="openai">🟢 OpenAI</option>
-                <option value="google">🔵 Google</option>
-                <option value="groq">🟣 Groq</option>
-                <option value="deepseek">🟠 DeepSeek</option>
-              </select>
-              <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
-                <option value="recent">Recently Added</option>
-                <option value="az">A – Z</option>
-              </select>
-            </>
-          )}
-          {filter !== 'Templates' && displayAgents.length > 0 && (
-            <div className="results-count">
-              {displayAgents.length} agent{displayAgents.length !== 1 ? 's' : ''}
+            <div className="control-grid">
+              <div className="search-field">
+                <label htmlFor="agent-search">Search</label>
+                <input
+                  id="agent-search"
+                  type="text"
+                  placeholder="Find by name, tag, or model"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
+              </div>
+              <div className="select-field">
+                <label htmlFor="collection-select">Collection</label>
+                <select
+                  id="collection-select"
+                  value={collectionFilter}
+                  onChange={(event) => setCollectionFilter(event.target.value)}
+                >
+                  <option value="All Collections">All Collections</option>
+                  {collections.map((col) => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="select-field">
+                <label htmlFor="provider-select">Provider</label>
+                <select
+                  id="provider-select"
+                  value={providerFilter}
+                  onChange={(event) => setProviderFilter(event.target.value)}
+                >
+                  <option value="All Providers">All Providers</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="google">Google</option>
+                  <option value="groq">Groq</option>
+                  <option value="deepseek">DeepSeek</option>
+                </select>
+              </div>
+              <div className="select-field">
+                <label htmlFor="sort-select">Sort</label>
+                <select id="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+                  <option value="recent">Most recent</option>
+                  <option value="az">A — Z</option>
+                </select>
+              </div>
             </div>
           )}
-          {(searchTerm || providerFilter !== 'All Providers' || collectionFilter !== 'All Collections') && filter !== 'Templates' && (
-            <button 
-              className="clear-filters-btn" 
-              onClick={() => {
-                setSearchTerm('');
-                setProviderFilter('All Providers');
-                setCollectionFilter('All Collections');
-              }}
-              title="Clear search and filters"
-            >
-              ✕ Clear
-            </button>
-          )}
+
+          <div className="control-meta">
+            <span>{displayAgents.length} {filter === 'Templates' ? 'template' : 'agent'}{displayAgents.length !== 1 ? 's' : ''}</span>
+            {shouldShowReset && (
+              <button
+                type="button"
+                className="ghost-link"
+                onClick={() => {
+                  setSearchTerm('');
+                  setProviderFilter('All Providers');
+                  setCollectionFilter('All Collections');
+                }}
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
         </div>
-      </div>
 
-      {banner?.text && <div className={`dashboard-status ${banner.type}`}>{banner.text}</div>}
+        {banner?.text && <div className={`dashboard-status ${banner.type}`}>{banner.text}</div>}
 
-      <section className="dashboard-grid">
-        {isLoading ? (
-          <div className="dashboard-empty">Loading your agents…</div>
-        ) : displayAgents.length === 0 ? (
-          <div className="dashboard-empty">No agents found.</div>
-        ) : (
-          displayAgents.map((agent) => (
-            <div
-              key={agent.id || agent.name}
-              className={`dashboard-card-enhanced ${filter === 'Templates' ? 'template-card' : ''}`}
-            >
-              {/* Card Header with Status Indicator */}
-              <div className="card-header-enhanced">
-                <div className="card-title-row">
-                  <div className="health-indicator-wrapper">
-                    {agent.status === 'published' ? (
-                      <span className="health-indicator green" title="Active">🟢</span>
-                    ) : (
-                      <span className="health-indicator gray" title="Draft">⚪</span>
-                    )}
-                    <span className="card-title-enhanced">{agent.name}</span>
-                  </div>
-                  {filter === 'Templates' ? (
-                    <span className="status-badge template">Template</span>
-                  ) : (
-                    <span className={`status-badge ${agent.status === 'published' ? 'active' : 'draft'}`}>
-                      {agent.uiStatus}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Card Body */}
-              <div className="card-body-enhanced">
-                <p className="card-description">{agent.description || agent.desc || 'No description provided'}</p>
-                
-                {/* Quick Stats */}
-                {!filter.includes('Templates') && (
-                  <div className="quick-stats">
-                    <div className="stat-item">
-                      <span className="stat-icon">🔧</span>
-                      <span className="stat-label">Model:</span>
-                      <span className="stat-value">{agent.model_label || agent.model_id || 'N/A'}</span>
-                    </div>
-                    <div className="stat-item">
-                      <span className="stat-icon">📅</span>
-                      <span className="stat-label">Updated:</span>
-                      <span className="stat-value">{agent.lastUsed}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tags */}
-                {(agent.tags || []).length > 0 && (
-                  <div className="tags-enhanced">
-                    {(agent.tags || []).slice(0, 3).map((tag) => (
-                      <span key={tag} className="tag-enhanced">
-                        #{tag}
-                      </span>
-                    ))}
-                    {(agent.tags || []).length > 3 && (
-                      <span className="tag-enhanced more">+{(agent.tags || []).length - 3}</span>
-                    )}
-                  </div>
-                )}
-
-                {/* Collection Selector */}
-                {!filter.includes('Templates') && (
-                  <div className="collection-selector">
-                    <label className="collection-label">Collection:</label>
-                    <select 
-                      className="collection-dropdown"
-                      value={agent.collection || ''}
-                      onChange={(e) => handleUpdateCollection(agent, e.target.value || null)}
-                      disabled={mutatingId === agent.id}
-                    >
-                      <option value="">No Collection</option>
-                      {collections.map((col) => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              {/* Card Actions */}
-              <div className="card-footer-enhanced">
-                {filter === 'Templates' ? (
+        <div className="agent-grid">
+          {isLoading ? (
+            <div className="dashboard-empty">Loading your agents…</div>
+          ) : displayAgents.length === 0 ? (
+            <div className="dashboard-empty">No entries match the current view.</div>
+          ) : (
+            displayAgents.map((agent) => {
+              const cardKey = agent.id ? `agent-${agent.id}` : `template-${agent.name}`;
+              const isExpanded = expandedAgentId === cardKey;
+              const isTemplate = filter === 'Templates';
+              return (
+                <article
+                  key={cardKey}
+                  className={`agent-card ${isExpanded ? 'is-open' : ''} ${isTemplate ? 'is-template' : ''}`}
+                >
                   <button
                     type="button"
-                    className="btn-primary-enhanced full-width"
-                    disabled={isTemplateAction}
-                    onClick={() => handleAddTemplate(agent)}
+                    className="agent-card-toggle"
+                    onClick={() => toggleAgentRow(cardKey)}
+                    aria-expanded={isExpanded}
                   >
-                    <span className="btn-icon">➕</span>
-                    Use Template
+                    <div>
+                      <p className="agent-card-subtitle">{agent.collection || 'Unsorted'}</p>
+                      <h3>{agent.name || agent.desc || 'Untitled agent'}</h3>
+                    </div>
+                    <div className="agent-card-meta">
+                      <span className={`status-chip ${isTemplate ? 'template' : agent.status === 'published' ? 'active' : 'draft'}`}>
+                        {isTemplate ? 'Template' : agent.uiStatus}
+                      </span>
+                      <span className="chevron" aria-hidden="true" />
+                    </div>
                   </button>
-                ) : (
-                  <div className="quick-actions">
-                    <button
-                      type="button"
-                      className="action-btn primary"
-                      onClick={() => navigate(`/chat?agentId=${agent.id}`)}
-                      title="Start Chat"
-                    >
-                      <span className="action-icon">💬</span>
-                      Chat
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn secondary"
-                      onClick={() => navigate(`/testing?agentId=${agent.id}`)}
-                      title="Test Agent"
-                    >
-                      <span className="action-icon">🧪</span>
-                      Test
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn secondary"
-                      onClick={() => handleExportAgent(agent)}
-                      title="Export Agent"
-                    >
-                      <span className="action-icon">📤</span>
-                      Export
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn secondary"
-                      onClick={() => navigate('/builder')}
-                      title="Edit Agent"
-                    >
-                      <span className="action-icon">✏️</span>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className={`action-btn ${agent.status === 'published' ? 'warning' : 'success'}`}
-                      disabled={mutatingId === agent.id}
-                      onClick={() => handleToggleStatus(agent)}
-                      title={agent.status === 'published' ? 'Deactivate' : 'Activate'}
-                    >
-                      <span className="action-icon">{agent.status === 'published' ? '⏸️' : '▶️'}</span>
-                      {agent.status === 'published' ? 'Pause' : 'Activate'}
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn danger"
-                      disabled={mutatingId === agent.id}
-                      onClick={() => handleDelete(agent)}
-                      title="Delete Agent"
-                    >
-                      <span className="action-icon">🗑️</span>
-                    </button>
+                  <div className="agent-card-summary">
+                    <div>
+                      <p className="label">Model</p>
+                      <p className="value">{agent.model_label || agent.model_id || 'Not assigned'}</p>
+                    </div>
+                    {!isTemplate && (
+                      <div>
+                        <p className="label">Updated</p>
+                        <p className="value">{agent.lastUsed}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="label">Tags</p>
+                      <p className="value">{(agent.tags || []).slice(0, 3).join(', ') || '—'}</p>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          ))
-        )}
+                  <p className="agent-card-description">{agent.description || agent.desc || 'No description provided yet.'}</p>
+                  {isExpanded && (
+                    <div className="agent-card-details">
+                      {!isTemplate && (
+                        <div className="collection-selector">
+                          <label htmlFor={`collection-${cardKey}`}>Collection</label>
+                          <select
+                            id={`collection-${cardKey}`}
+                            value={agent.collection || ''}
+                            onChange={(event) => handleUpdateCollection(agent, event.target.value || null)}
+                            disabled={mutatingId === agent.id}
+                          >
+                            <option value="">None</option>
+                            {collections.map((col) => (
+                              <option key={col} value={col}>{col}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {(agent.tags || []).length > 0 && (
+                        <div className="tag-deck">
+                          {(agent.tags || []).map((tag) => (
+                            <span key={tag} className="tag-pill">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {isTemplate ? (
+                        <button
+                          type="button"
+                          className="btn primary full-width"
+                          disabled={isTemplateAction}
+                          onClick={() => handleAddTemplate(agent)}
+                        >
+                          Add to drafts
+                        </button>
+                      ) : (
+                        <div className="agent-card-actions">
+                          <button type="button" onClick={() => navigate(`/chat?agentId=${agent.id}`)}>
+                            Open chat
+                          </button>
+                          <button type="button" onClick={() => navigate(`/testing?agentId=${agent.id}`)}>
+                            Testing view
+                          </button>
+                          <button type="button" onClick={() => navigate('/builder')}>
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => handleExportAgent(agent)}>
+                            Export JSON
+                          </button>
+                          <button
+                            type="button"
+                            className="link-danger"
+                            disabled={mutatingId === agent.id}
+                            onClick={() => handleToggleStatus(agent)}
+                          >
+                            {agent.status === 'published' ? 'Pause agent' : 'Activate agent'}
+                          </button>
+                          <button
+                            type="button"
+                            className="link-danger"
+                            disabled={mutatingId === agent.id}
+                            onClick={() => handleDelete(agent)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </article>
+              );
+            })
+          )}
+        </div>
       </section>
 
-      {/* Collection Management Modal */}
       {showCollectionModal && (
         <div className="modal-overlay" onClick={() => setShowCollectionModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Manage Collections</h2>
-              <button className="modal-close" onClick={() => setShowCollectionModal(false)}>✕</button>
+              <h2>Collections</h2>
+              <button className="modal-close" type="button" onClick={() => setShowCollectionModal(false)}>
+                Close
+              </button>
             </div>
             <div className="modal-body">
               <div className="collection-list">
-                <h3>Existing Collections</h3>
+                <h3>Existing collections</h3>
                 {collections.map((col) => (
                   <div key={col} className="collection-item">
-                    <span className="collection-icon">📁</span>
+                    <span className="collection-dot" aria-hidden="true" />
                     <span className="collection-name">{col}</span>
                     <span className="collection-count">
-                      {agents.filter(a => a.collection === col).length} agents
+                      {agents.filter((agent) => agent.collection === col).length} agents
                     </span>
                   </div>
                 ))}
               </div>
               <div className="add-collection-form">
-                <h3>Create New Collection</h3>
+                <h3>Create new collection</h3>
                 <div className="input-group">
                   <input
                     type="text"
-                    placeholder="Collection name..."
+                    placeholder="Collection name"
                     value={newCollectionName}
-                    onChange={(e) => setNewCollectionName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddCollection()}
+                    onChange={(event) => setNewCollectionName(event.target.value)}
+                    onKeyDown={(event) => event.key === 'Enter' && handleAddCollection()}
                   />
-                  <button 
-                    className="btn-primary" 
+                  <button
+                    type="button"
+                    className="btn primary"
                     onClick={handleAddCollection}
                     disabled={!newCollectionName.trim()}
                   >
-                    Add Collection
+                    Create
                   </button>
                 </div>
               </div>
@@ -723,6 +667,6 @@ export default function HomePage() {
           </div>
         </div>
       )}
-    </div>
+    </DashboardLayout>
   );
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
 import PromptVersioning from '../components/PromptVersioning.jsx';
 import ABTesting from '../components/ABTesting.jsx';
@@ -221,7 +222,7 @@ function Switch({ active, onToggle, label }) {
 }
 
 export default function BuilderPage() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [chatInput, setChatInput] = useState('');
@@ -712,46 +713,34 @@ export default function BuilderPage() {
     setStatus('Draft reset.');
   };
 
-  const handleSignOut = async () => {
-    await signOut();
-  };
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Design Studio</p>
+      <h1>Agent Builder</h1>
+      <p className="dashboard-sub">Shape prompts, behaviours, and tooling before publishing.</p>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="page-actions compact">
+      <div className="chip-tray">
+        <span className="status-chip subtle">Autosave enabled</span>
+        <span className="status-chip subtle">{selectedAgentId ? 'Editing existing agent' : 'New draft'}</span>
+      </div>
+      <Link className="btn secondary" to="/canvas">
+        Flow canvas
+      </Link>
+      <Link className="btn secondary" to="/chat">
+        Launch chat
+      </Link>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
 
   return (
-    <div className="app builder-page">
-      <header>
-        <div className="brand">
-          <div className="logo">AI</div>
-          <div>
-            <h1>Agent Builder</h1>
-            <div className="sub">Build and configure your AI agent</div>
-          </div>
-        </div>
-        <div className="header-actions">
-          <div className="header-meta">
-            <span className="chip">🔒 Autosave enabled</span>
-            <span className="chip">✨ Draft</span>
-          </div>
-          <div className="account-pill">
-            <div>
-              <div className="pill-label">Account</div>
-              <b>{user?.email}</b>
-            </div>
-            <button className="btn ghost compact" type="button" onClick={handleSignOut}>
-              Sign out
-            </button>
-          </div>
-          <Link className="btn ghost compact" to="/canvas">
-            Flow Canvas →
-          </Link>
-          <Link className="btn ghost compact" to="/chat">
-            Launch Chat →
-          </Link>
-          <Link className="btn ghost compact" to="/home">
-            ← Back to Home
-          </Link>
-        </div>
-      </header>
-
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
       {status && <div className="status-bar">{status}</div>}
 
       <div className="grid builder-grid">
@@ -1190,7 +1179,7 @@ export default function BuilderPage() {
               className="btn secondary"
               onClick={() => navigate(`/testing?agentId=${selectedAgentId}`)}
             >
-              🧪 Test Agent
+              Open testing view
             </button>
           )}
           <button
@@ -1203,6 +1192,6 @@ export default function BuilderPage() {
           </button>
         </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

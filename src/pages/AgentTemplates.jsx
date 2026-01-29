@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { agentTemplates, categories, getTemplatesByCategory } from '../data/agentTemplates';
 import { supabase } from '../lib/supabaseClient.js';
 import { getModelMeta } from '../lib/modelOptions.js';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -63,7 +64,7 @@ export default function AgentTemplates() {
         throw error;
       }
 
-      alert(`✅ "${template.name}" has been added to your drafts!`);
+      alert(`"${template.name}" has been added to your drafts.`);
       navigate('/home');
     } catch (error) {
       console.error('Failed to import template:', error);
@@ -74,23 +75,27 @@ export default function AgentTemplates() {
     }
   };
 
-  return (
-    <div className="app">
-      <header>
-        <div className="brand">
-          <div className="logo">AI</div>
-          <div>
-            <h1>Agent Templates</h1>
-            <div className="sub">Pre-built agents ready to use</div>
-          </div>
-        </div>
-        <div className="header-actions">
-          <button className="btn ghost compact" onClick={() => navigate('/home')}>
-            ← Back to Dashboard
-          </button>
-        </div>
-      </header>
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Template Library</p>
+      <h1>Agent Templates</h1>
+      <p className="dashboard-sub">Browse pre-built personas and drop them straight into your drafts.</p>
+    </div>
+  );
 
+  const headerActions = (
+    <div className="page-actions">
+      <button type="button" className="btn secondary" onClick={() => navigate('/builder')}>
+        Open Builder
+      </button>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
+
+  return (
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 20px' }}>
         {/* Search and Filter */}
         <div className="templates-controls">
@@ -380,6 +385,6 @@ export default function AgentTemplates() {
           }
         }
       `}</style>
-    </div>
+    </DashboardLayout>
   );
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -155,45 +156,29 @@ export default function TestingPlayground() {
     return true;
   });
 
-  return (
-    <div className="app">
-      <header>
-        <div className="brand">
-          <button
-            onClick={() => navigate('/home')}
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              borderRadius: '8px',
-              padding: '8px 12px',
-              color: 'inherit',
-              cursor: 'pointer',
-              fontSize: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = 'rgba(255, 255, 255, 0.1)';
-              e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
-              e.target.style.borderColor = 'rgba(255, 255, 255, 0.12)';
-            }}
-          >
-            ← Back
-          </button>
-          <div className="logo">🧪</div>
-          <div>
-            <h1>Agent Testing Playground</h1>
-            <div className="sub">Test and validate your agents</div>
-          </div>
-        </div>
-      </header>
+  const headerContent = (
+    <div className="page-heading">
+      <p className="eyebrow">Quality Lab</p>
+      <h1>Testing Playground</h1>
+      <p className="dashboard-sub">Run consistency sweeps, capture subjective ratings, and benchmark agents before launch.</p>
+    </div>
+  );
 
-      <main className="container" style={{ maxWidth: '1200px' }}>
+  const headerActions = (
+    <div className="page-actions">
+      <button type="button" className="btn secondary" onClick={() => navigate('/builder')}>
+        Open builder
+      </button>
+      <Link className="btn secondary" to="/home">
+        Back to overview
+      </Link>
+    </div>
+  );
+
+  return (
+    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+      <div className="app testing-playground">
+        <main className="container" style={{ maxWidth: '1200px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px', marginTop: '24px' }}>
           {/* Left Panel: Test Setup */}
           <div>
@@ -476,9 +461,9 @@ export default function TestingPlayground() {
             </div>
           </div>
         </div>
-      </main>
+        </main>
 
-      <style>{`
+        <style>{`
         .container {
           margin: 0 auto;
           padding: 0 20px;
@@ -613,44 +598,13 @@ export default function TestingPlayground() {
           margin-top: 6px;
         }
 
-        header {
-          padding: 24px 20px;
-          background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(122, 240, 213, 0.1));
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .brand {
-          display: flex;
-          gap: 16px;
-          align-items: center;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
-
-        .logo {
-          font-size: 32px;
-          min-width: 50px;
-          text-align: center;
-        }
-
-        .brand h1 {
-          margin: 0;
-          font-size: 24px;
-          font-weight: 600;
-        }
-
-        .brand .sub {
-          font-size: 13px;
-          color: var(--muted);
-          margin-top: 2px;
-        }
-
         @media (max-width: 900px) {
           main {
             grid-template-columns: 1fr !important;
           }
         }
       `}</style>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
