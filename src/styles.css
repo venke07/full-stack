@@ -2001,6 +2001,30 @@ textarea {
   border-color: transparent;
 }
 
+.chat-bubble.family {
+  border-color: rgba(122, 240, 213, 0.6);
+  background: rgba(122, 240, 213, 0.08);
+}
+
+.bubble-text {
+  white-space: pre-wrap;
+}
+
+.bubble-tag {
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.bubble-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .stage-input {
   display: flex;
   gap: 12px;
@@ -2033,6 +2057,18 @@ textarea {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
   padding: 12px 14px;
+}
+
+.cap-card.family-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cap-card.family-card .btn.ghost.compact.active {
+  border-color: rgba(122, 240, 213, 0.6);
+  color: var(--accent-2);
+  background: rgba(122, 240, 213, 0.12);
 }
 
 .cap-label {

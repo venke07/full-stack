@@ -49,7 +49,9 @@ export default function ChatPage() {
   const [chatInput, setChatInput] = useState('');
   const [status, setStatus] = useState('');
   const [isResponding, setIsResponding] = useState(false);
+  const [isExplainingId, setIsExplainingId] = useState(null);
   const [isLoadingAgents, setIsLoadingAgents] = useState(false);
+  const [isFamilyModeEnabled, setIsFamilyModeEnabled] = useState(false);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -163,6 +165,32 @@ export default function ChatPage() {
     return [...system, ...formatted];
   };
 
+  const findPreviousUserMessage = (bubbleId) => {
+    const index = chatLog.findIndex((entry) => entry.id === bubbleId);
+    if (index <= 0) return '';
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      if (chatLog[cursor].role === 'user') {
+        return chatLog[cursor].text;
+      }
+    }
+    return '';
+  };
+
+  const buildFamilyExplainMessages = ({ agentReply, userQuestion }) => {
+    const contextLine = userQuestion ? `User asked: ${userQuestion}\n\n` : '';
+    return [
+      {
+        role: 'system',
+        content:
+          'Rewrite the assistant reply so a family member with no technical background can understand it. Use short sentences, everyday words, and keep the meaning the same. Do not add new facts. Keep any warnings. If there are steps, list them as short numbered points. Keep it under 120 words.',
+      },
+      {
+        role: 'user',
+        content: `${contextLine}Assistant reply: ${agentReply}`.trim(),
+      },
+    ];
+  };
+
   const handleChatSend = async () => {
     const trimmed = chatInput.trim();
     if (!trimmed || isResponding) return;
@@ -214,6 +242,74 @@ export default function ChatPage() {
       ]);
     } finally {
       setIsResponding(false);
+    }
+  };
+
+  const handleCopyFamilyText = async (text) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('Family version copied to clipboard.');
+    } catch (error) {
+      setStatus('Copy failed. You can manually select the text.');
+    }
+  };
+
+  const handleExplainForFamily = async (bubble) => {
+    if (!selectedAgent || !isFamilyModeEnabled || isExplainingId) return;
+    if (!bubble?.text) return;
+
+    setIsExplainingId(bubble.id);
+    setStatus('');
+
+    try {
+      const modelMeta = getModelMeta(selectedAgent.model_id);
+      const userQuestion = findPreviousUserMessage(bubble.id);
+      const promptMessages = buildFamilyExplainMessages({
+        agentReply: bubble.text,
+        userQuestion,
+      });
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: modelMeta.id,
+          messages: promptMessages,
+          temperature: 0.2,
+        }),
+      });
+
+      if (!response.ok) {
+        const { error } = await response.json();
+        throw new Error(error || 'Provider call failed');
+      }
+
+      const data = await response.json();
+      setChatLog((prev) => [
+        ...prev,
+        {
+          id: `family-${Date.now()}`,
+          role: 'agent',
+          kind: 'family',
+          text: data.reply,
+        },
+      ]);
+
+      const usagePayload = buildUsageEvent({
+        userId: user?.id,
+        agentId: selectedAgent.id,
+        modelId: modelMeta.id,
+        promptMessages,
+        responseText: data.reply,
+        source: 'family-explain',
+        messageCount: 1,
+      });
+      void logUsageEvent({ supabaseClient: supabase, payload: usagePayload });
+    } catch (error) {
+      setStatus(`Explain failed: ${error?.message || 'Provider error.'}`);
+    } finally {
+      setIsExplainingId(null);
     }
   };
 
@@ -285,8 +381,35 @@ export default function ChatPage() {
           </div>
           <div className="stage-window">
             {chatLog.map((bubble) => (
-              <div key={bubble.id} className={`chat-bubble ${bubble.role === 'user' ? 'me' : ''}`}>
-                {bubble.text}
+              <div
+                key={bubble.id}
+                className={`chat-bubble ${bubble.role === 'user' ? 'me' : ''} ${bubble.kind === 'family' ? 'family' : ''}`}
+              >
+                {bubble.kind === 'family' && <div className="bubble-tag">Family version</div>}
+                <div className="bubble-text">{bubble.text}</div>
+                {bubble.kind === 'family' && (
+                  <div className="bubble-actions">
+                    <button
+                      type="button"
+                      className="btn ghost compact"
+                      onClick={() => handleCopyFamilyText(bubble.text)}
+                    >
+                      Copy family text
+                    </button>
+                  </div>
+                )}
+                {bubble.role === 'agent' && bubble.kind !== 'family' && isFamilyModeEnabled && (
+                  <div className="bubble-actions">
+                    <button
+                      type="button"
+                      className="btn ghost compact"
+                      onClick={() => handleExplainForFamily(bubble)}
+                      disabled={isResponding || isExplainingId === bubble.id}
+                    >
+                      {isExplainingId === bubble.id ? 'Explaining...' : 'Explain to my family'}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -334,6 +457,17 @@ export default function ChatPage() {
                         .join(', ') || 'None'
                     : 'None'}
                 </b>
+              </div>
+              <div className="cap-card family-card">
+                <span className="cap-label">Family-friendly mode</span>
+                <p className="muted">Enable to rewrite replies in simple, everyday language.</p>
+                <button
+                  type="button"
+                  className={`btn ghost compact ${isFamilyModeEnabled ? 'active' : ''}`}
+                  onClick={() => setIsFamilyModeEnabled((prev) => !prev)}
+                >
+                  {isFamilyModeEnabled ? 'Enabled' : 'Enable'}
+                </button>
               </div>
             </div>
           ) : (

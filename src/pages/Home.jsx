@@ -6,10 +6,70 @@ import { modelOptions } from '../lib/modelOptions.js';
 import { buildShareUrl, generateShareToken } from '../lib/sharing.js';
 
 const templateAgents = [
-  { name: 'Marketing Advisor', desc: 'Provides marketing strategy advice', tags: ['Web Search', 'Research'], status: 'Template' },
-  { name: 'Product Designer', desc: 'Generates user flow and design ideas', tags: ['Creative', 'UX'], status: 'Template' },
-  { name: 'HR Assistant', desc: 'Helps with candidate screening and hiring', tags: ['Screening', 'Forms'], status: 'Template' },
-  { name: 'Tutor Assistant', desc: 'Explains concepts and generates lessons', tags: ['Education'], status: 'Template' },
+  {
+    name: 'Study Coach',
+    desc: 'Explains concepts simply, builds study plans, and creates quick quizzes.',
+    prompt:
+      'You are a study coach for students. Focus on exams: break topics into small steps, suggest a weekly plan, and use spaced repetition. After explanations, give 3-5 quick practice questions and a simple checklist for what to review next.',
+    tags: ['Education', 'Factual'],
+    status: 'Template',
+  },
+  {
+    name: 'Career Resume Coach',
+    desc: 'Improves resumes and cover letters and prepares interview Q&A.',
+    prompt:
+      'You help users improve resumes and cover letters. Ask for missing details, rewrite bullets with action + impact, and keep ATS-friendly formatting. For interviews, suggest STAR-style answers and 3 tailored questions to practice.',
+    tags: ['Writing', 'Factual'],
+    status: 'Template',
+  },
+  {
+    name: 'Wellness Buddy',
+    desc: 'Supports healthy routines with gentle habits and daily check-ins.',
+    prompt:
+      'You are a wellness buddy. Offer gentle, non-medical lifestyle tips, daily check-ins, and small habit ideas. Encourage consistency, rest, and hydration. Avoid medical advice and suggest seeing a professional for health concerns.',
+    tags: ['Lifestyle'],
+    status: 'Template',
+  },
+  {
+    name: 'Budget Helper',
+    desc: 'Creates simple budgets and savings plans without investment advice.',
+    prompt:
+      'You help with basic budgeting. Build a simple monthly budget, track bills, and suggest weekly cash flow check-ins. Avoid investment advice. Provide 3 easy ways to reduce spending based on categories.',
+    tags: ['Factual'],
+    status: 'Template',
+  },
+  {
+    name: 'Parenting Helper',
+    desc: 'Gives age-appropriate activity ideas and calm response scripts.',
+    prompt:
+      'You help caregivers with age-appropriate activities and calm, respectful response scripts. Ask the child age, suggest 2-3 activities, and provide a short “say this” script for tricky moments.',
+    tags: ['Family'],
+    status: 'Template',
+  },
+  {
+    name: 'Elder-Friendly Assistant',
+    desc: 'Uses short sentences and clear steps for everyday tasks.',
+    prompt:
+      'You assist older adults with clear, slow-paced explanations. Use short sentences, one step at a time, and ask one question at the end to confirm understanding. Avoid jargon.',
+    tags: ['Accessibility'],
+    status: 'Template',
+  },
+  {
+    name: 'Small Business Planner',
+    desc: 'Builds simple plans, task lists, and customer reply drafts.',
+    prompt:
+      'You help small business owners plan the week, draft short customer replies, and organize tasks. Provide a simple priority list and a 3-step next action plan.',
+    tags: ['Web Search', 'Planning'],
+    status: 'Template',
+  },
+  {
+    name: 'Travel Planner',
+    desc: 'Creates simple itineraries, packing lists, and travel checklists.',
+    prompt:
+      'You help plan trips with simple itineraries, packing lists, and checklist reminders. Ask about budget, dates, and pace. Provide a day-by-day outline and a compact packing list.',
+    tags: ['Web Search'],
+    status: 'Template',
+  },
 ];
 
 const FILTERS = ['All', 'Active', 'Draft', 'Templates'];
@@ -37,6 +97,7 @@ const defaultTemplatePayload = (userId, template) => {
     user_id: userId,
     name: template.name,
     description: template.desc,
+    system_prompt: template.prompt || '',
     status: 'draft',
     guardrails: { factual: true, opinions: true },
     sliders: { formality: 50, creativity: 50 },
