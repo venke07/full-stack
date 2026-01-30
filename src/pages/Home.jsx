@@ -398,6 +398,7 @@ export default function HomePage() {
           onChange={handleImportAgent}
         />
       </label>
+      <TutorialLauncher />
     </div>
   );
 

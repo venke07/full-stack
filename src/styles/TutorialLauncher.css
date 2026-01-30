@@ -2,6 +2,7 @@
 
 .tutorial-launcher {
   position: relative;
+  z-index: 20000;
 }
 
 .tutorial-launcher-btn {
@@ -37,10 +38,12 @@
   background: white;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  z-index: 10000;
+  z-index: 20001;
   min-width: 300px;
   margin-top: 8px;
   animation: slideDown 0.2s ease-out;
+  max-height: calc(100vh - 140px);
+  overflow: hidden;
 }
 
 @keyframes slideDown {
@@ -162,7 +165,7 @@
   bottom: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
-  z-index: 10001;
+  z-index: 20002;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
@@ -53,6 +53,7 @@ const normalizeHistory = (agent) => {
 
 export default function ChatPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [chatLog, setChatLog] = useState(fallbackChat);
@@ -938,11 +939,11 @@ export default function ChatPage() {
                 <button
                   className={`btn voice-btn ${isListening ? 'listening' : ''}`}
                   type="button"
-                  onClick={isListening ? stopListening : startListening}
+                  onClick={() => navigate('/voice-chat')}
                   disabled={!selectedAgent || isResponding}
-                  title={isListening ? 'Stop listening' : 'Start voice input'}
+                  title="Open voice chat"
                 >
-                  {isListening ? '⏹️' : '🎤'}
+                  🎤
                 </button>
               )}
               <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent}>

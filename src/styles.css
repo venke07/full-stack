@@ -230,6 +230,7 @@ body {
   z-index: 2;
   flex-wrap: wrap;
   align-items: center;
+  overflow: visible;
 }
 
 .topbar-heading h1 {
@@ -247,6 +248,7 @@ body {
   justify-content: flex-end;
   flex-wrap: wrap;
   min-width: 0;
+  overflow: visible;
 }
 
 .chip-label {
@@ -768,6 +770,7 @@ body {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
+  overflow: visible;
 }
 
 .page-actions.compact {
@@ -820,6 +823,7 @@ body {
 .workspace-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 32px 40px 48px;
   display: flex;
   flex-direction: column;
@@ -3505,12 +3509,22 @@ textarea {
   word-wrap: break-word;
   overflow-wrap: break-word;
   word-break: break-word;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .rail-item .muted {
   word-wrap: break-word;
   overflow-wrap: break-word;
   font-size: 0.75rem;
+  display: -webkit-box;
+  line-clamp: 3;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .rail-item.active {
@@ -4116,6 +4130,7 @@ select {
   padding: 20px 24px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)), var(--surface);
+  overflow: visible;
 }
 
 .chat-title {
@@ -4140,6 +4155,15 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
+  overflow: visible;
+}
+
+/* Ensure guided tutorial menu clears left nav in multi-agent */
+.multi-agent-chat .tutorial-menu {
+  position: fixed;
+  top: 92px;
+  right: 32px;
+  max-width: min(360px, calc(100vw - 360px));
 }
 
 .mode-toggle {
@@ -4239,11 +4263,21 @@ select {
   gap: 4px;
 }
 
+.agent-option label {
+  min-width: 0;
+  display: block;
+}
+
 .agent-option b {
   word-wrap: break-word;
   overflow-wrap: break-word;
   word-break: break-word;
   font-size: 0.95rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .agent-option p {
@@ -4251,6 +4285,11 @@ select {
   overflow-wrap: break-word;
   font-size: 0.75rem;
   margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .agent-option:hover {
@@ -4279,6 +4318,7 @@ select {
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--text);
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5897,43 +5937,182 @@ select {
 }
 
 /* ===== Fusion Lab Styles ===== */
-.fusion-lab-container {
+/* ============================================
+  FUSION LAB - REFRESHED LAYOUT
+  ============================================ */
+
+.fusion-lab-fullscreen {
+  min-height: 100vh;
+  width: 100%;
+  background:
+    radial-gradient(circle at 10% 12%, rgba(112, 168, 255, 0.18), transparent 45%),
+    radial-gradient(circle at 90% 18%, rgba(122, 240, 213, 0.14), transparent 45%),
+    linear-gradient(180deg, #0b1022 0%, #0a0f1c 45%, #080c18 100%);
+  color: var(--text);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+}
+
+.fusion-lab-header {
+  padding: 20px 40px 28px;
+  background: rgba(11, 16, 34, 0.92);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.25);
+}
+
+.fusion-back-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fusion-back-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(106, 168, 255, 0.4);
+  transform: translateX(-2px);
+}
+
+.fusion-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 24px;
-  height: 100%;
+}
+
+.fusion-title-section h1 {
+  margin: 0 0 6px 0;
+  font-size: 2.6rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #8ab6ff 0%, #7af0d5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.02em;
+}
+
+.fusion-title-section p {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.fusion-lab-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 36px 40px 48px;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .fusion-status {
-  padding: 12px 20px;
-  background: rgba(106, 168, 255, 0.15);
-  border: 1px solid rgba(106, 168, 255, 0.3);
-  border-radius: 12px;
-  margin-bottom: 20px;
+  padding: 14px 24px;
+  background: rgba(122, 240, 213, 0.12);
+  border: 1px solid rgba(122, 240, 213, 0.3);
+  border-radius: 14px;
   text-align: center;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  animation: statusSlideIn 0.3s ease;
+}
+
+@keyframes statusSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .fusion-workspace {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-  min-height: 600px;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 1fr) minmax(320px, 1.2fr);
+  gap: 28px;
+  min-height: 680px;
+  flex: 1;
 }
 
 .fusion-panel {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(15, 22, 42, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  padding: 24px;
+  border-radius: 20px;
+  padding: 28px;
   overflow-y: auto;
-  max-height: 80vh;
+  overflow-x: hidden;
+  max-height: calc(100vh - 260px);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+}
+
+.fusion-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(138, 182, 255, 0.5), transparent);
+  opacity: 0.6;
+}
+
+.fusion-panel:hover {
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.36);
+  border-color: rgba(138, 182, 255, 0.35);
+  transform: translateY(-2px);
+}
+
+/* Custom scrollbar for fusion panels */
+.fusion-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.fusion-panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+}
+
+.fusion-panel::-webkit-scrollbar-thumb {
+  background: rgba(138, 182, 255, 0.35);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+
+.fusion-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(138, 182, 255, 0.55);
 }
 
 .fusion-panel h2 {
-  margin: 0 0 20px 0;
-  font-size: 1.3rem;
+  margin: 0 0 6px 0;
+  font-size: 1.6rem;
   color: var(--text);
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .agent-selection-panel {
@@ -5945,24 +6124,26 @@ select {
 .agent-selector {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .agent-selector label {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.3px;
 }
 
 .agent-selector select {
-  padding: 12px 14px;
+  padding: 14px 16px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s;
+  outline: none;
 }
 
 .agent-selector select:hover {
@@ -5971,17 +6152,26 @@ select {
 }
 
 .agent-selector select:focus {
-  outline: none;
   border-color: rgba(106, 168, 255, 0.5);
   box-shadow: 0 0 0 3px rgba(106, 168, 255, 0.1);
 }
 
 .agent-card-mini {
-  background: linear-gradient(135deg, rgba(106, 168, 255, 0.1), rgba(122, 240, 213, 0.08));
-  border: 1px solid rgba(106, 168, 255, 0.2);
-  border-radius: 12px;
-  padding: 16px;
-  animation: fadeIn 0.3s ease;
+  background: rgba(12, 20, 38, 0.85);
+  border: 1px solid rgba(138, 182, 255, 0.2);
+  border-radius: 18px;
+  padding: 22px;
+  animation: fadeIn 0.4s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-card-mini::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 15% 15%, rgba(138, 182, 255, 0.18), transparent 45%);
+  opacity: 0.6;
 }
 
 @keyframes fadeIn {
@@ -5996,206 +6186,301 @@ select {
 }
 
 .agent-card-mini h3 {
-  margin: 0 0 8px 0;
-  font-size: 1.1rem;
+  margin: 0 0 12px 0;
+  font-size: 1.4rem;
   color: var(--text);
+  font-weight: 700;
 }
 
 .agent-card-mini .agent-desc {
-  margin: 0 0 12px 0;
-  font-size: 0.85rem;
+  margin: 0 0 16px 0;
+  font-size: 1rem;
   color: var(--muted);
-  line-height: 1.4;
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  line-clamp: 3;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .agent-card-mini .mini-stats {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 0.8rem;
+  gap: 10px;
+  font-size: 0.95rem;
   color: var(--muted);
+}
+
+.agent-card-mini .mini-stats span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .fusion-symbol {
   text-align: center;
-  font-size: 2.5rem;
-  animation: pulse 2s ease-in-out infinite;
-  margin: 10px 0;
+  font-size: 3rem;
+  animation: pulse 2.6s ease-in-out infinite;
+  margin: 12px 0;
+  filter: drop-shadow(0 0 16px rgba(138, 182, 255, 0.45));
 }
 
 @keyframes pulse {
   0%, 100% {
     transform: scale(1);
-    opacity: 0.7;
+    opacity: 0.6;
   }
   50% {
     transform: scale(1.2);
-    opacity: 1;
+    opacity: 0.95;
   }
 }
 
 .fusion-controls-panel {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
 }
 
 .ratio-label {
   text-align: center;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #7af0d5;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #8ef2da;
   margin: 0;
-  padding: 8px;
+  padding: 12px 16px;
   background: rgba(122, 240, 213, 0.1);
-  border-radius: 8px;
+  border-radius: 14px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
 .fusion-slider-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .slider-label {
-  font-size: 0.85rem;
-  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
   white-space: nowrap;
   flex-shrink: 0;
+  min-width: 100px;
+}
+
+.slider-label:first-child {
+  text-align: right;
+}
+
+.slider-label:last-child {
+  text-align: left;
 }
 
 .fusion-slider {
   flex: 1;
   -webkit-appearance: none;
   appearance: none;
-  height: 8px;
-  border-radius: 10px;
-  background: linear-gradient(to right, 
-    rgba(106, 168, 255, 0.3) 0%, 
-    rgba(122, 240, 213, 0.3) 100%);
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(to right, rgba(138, 182, 255, 0.45), rgba(122, 240, 213, 0.45));
   outline: none;
   cursor: pointer;
+  min-width: 250px;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .fusion-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6aa8ff, #7af0d5);
+  background: linear-gradient(135deg, #8ab6ff, #7af0d5);
   cursor: pointer;
-  box-shadow: 0 0 20px rgba(106, 168, 255, 0.5);
+  box-shadow: 0 0 14px rgba(138, 182, 255, 0.5), 0 4px 10px rgba(0, 0, 0, 0.35);
   transition: all 0.2s;
+  border: 2px solid rgba(255, 255, 255, 0.9);
 }
 
 .fusion-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 0 30px rgba(106, 168, 255, 0.8);
+  transform: scale(1.15);
+  box-shadow: 0 0 22px rgba(138, 182, 255, 0.7), 0 6px 16px rgba(0, 0, 0, 0.5);
 }
 
 .fusion-slider::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6aa8ff, #7af0d5);
+  background: linear-gradient(135deg, #8ab6ff, #7af0d5);
   cursor: pointer;
-  border: none;
-  box-shadow: 0 0 20px rgba(106, 168, 255, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 14px rgba(138, 182, 255, 0.5), 0 4px 10px rgba(0, 0, 0, 0.35);
   transition: all 0.2s;
 }
 
 .fusion-slider::-moz-range-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 0 30px rgba(106, 168, 255, 0.8);
+  transform: scale(1.15);
+  box-shadow: 0 0 22px rgba(138, 182, 255, 0.7), 0 6px 16px rgba(0, 0, 0, 0.5);
 }
 
 .ratio-display {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .ratio-bar {
   display: flex;
-  height: 40px;
-  border-radius: 10px;
+  height: 42px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .ratio-fill-a {
-  background: linear-gradient(135deg, rgba(106, 168, 255, 0.4), rgba(106, 168, 255, 0.6));
+  background: linear-gradient(135deg, rgba(138, 182, 255, 0.55), rgba(138, 182, 255, 0.75));
   transition: width 0.3s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-weight: 600;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.ratio-fill-a::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  animation: shimmer 2s infinite;
 }
 
 .ratio-fill-b {
-  background: linear-gradient(135deg, rgba(122, 240, 213, 0.4), rgba(122, 240, 213, 0.6));
+  background: linear-gradient(135deg, rgba(122, 240, 213, 0.55), rgba(122, 240, 213, 0.75));
   transition: width 0.3s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-weight: 600;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.ratio-fill-b::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  animation: shimmer 2s infinite 1s;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 .ratio-percentages {
   display: flex;
   justify-content: space-between;
-  margin-top: 8px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted);
+  margin-top: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .fusion-name-input {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .fusion-name-input label {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.3px;
 }
 
 .fusion-name-input input {
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 1rem;
   transition: all 0.2s;
+  outline: none;
 }
 
 .fusion-name-input input:focus {
-  outline: none;
-  border-color: rgba(106, 168, 255, 0.5);
-  box-shadow: 0 0 0 3px rgba(106, 168, 255, 0.1);
+  border-color: rgba(138, 182, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(138, 182, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .fusion-btn {
-  padding: 16px 24px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #6aa8ff, #7af0d5);
+  padding: 16px 28px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #8ab6ff 0%, #7af0d5 100%);
   border: none;
-  color: #000;
+  color: #0a0d15;
   cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 4px 20px rgba(106, 168, 255, 0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 10px 26px rgba(106, 168, 255, 0.4);
+  letter-spacing: 0.4px;
+  margin-top: 10px;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+}
+
+.fusion-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+  transition: left 0.5s;
+}
+
+.fusion-btn:hover::before {
+  left: 100%;
 }
 
 .fusion-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(106, 168, 255, 0.5);
+  box-shadow: 0 14px 36px rgba(106, 168, 255, 0.55);
+}
+
+.fusion-btn:active:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(106, 168, 255, 0.45);
 }
 
 .fusion-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .preview-panel {
@@ -6216,7 +6501,7 @@ select {
 .fusion-preview-card {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .preview-header {
@@ -6224,111 +6509,130 @@ select {
   justify-content: space-between;
   align-items: center;
   padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .preview-header h3 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1.4rem;
   color: var(--text);
+  font-weight: 700;
+  word-wrap: break-word;
+  flex: 1;
+  min-width: 200px;
 }
 
 .preview-badge {
-  padding: 4px 12px;
-  background: linear-gradient(135deg, rgba(106, 168, 255, 0.2), rgba(122, 240, 213, 0.2));
-  border: 1px solid rgba(106, 168, 255, 0.3);
+  padding: 6px 12px;
+  background: rgba(122, 240, 213, 0.12);
+  border: 1px solid rgba(122, 240, 213, 0.35);
   border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #7af0d5;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #8ef2da;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .preview-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .preview-section label {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
 }
 
 .preview-section p {
   margin: 0;
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.6;
+  font-size: 0.96rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .preview-stats {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .stat-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 .stat-item > span:first-child {
-  min-width: 100px;
-  font-size: 0.85rem;
-  color: var(--muted);
+  min-width: 110px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .stat-bar {
   flex: 1;
+  min-width: 120px;
   height: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .stat-fill {
   height: 100%;
-  background: linear-gradient(to right, #6aa8ff, #7af0d5);
+  background: linear-gradient(to right, #8ab6ff, #7af0d5);
   transition: width 0.3s ease;
 }
 
 .stat-value {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
-  font-size: 0.9rem;
-  min-width: 40px;
+  font-size: 0.95rem;
+  min-width: 45px;
   text-align: right;
 }
 
 .preview-model {
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  font-weight: 500;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
 }
 
 .preview-tools {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
 .tool-badge {
   padding: 6px 12px;
-  background: rgba(106, 168, 255, 0.15);
-  border: 1px solid rgba(106, 168, 255, 0.3);
+  background: rgba(138, 182, 255, 0.16);
+  border: 1px solid rgba(138, 182, 255, 0.3);
   border-radius: 20px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--text);
 }
 
 .composition-viz {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .composition-item {
@@ -6337,12 +6641,19 @@ select {
   align-items: center;
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.composition-item span:first-child {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .composition-percent {
-  font-weight: 600;
-  color: #7af0d5;
+  font-weight: 700;
+  font-size: 1rem;
+  color: #8ef2da;
 }
 
 .fusion-empty-state {
@@ -6352,37 +6663,53 @@ select {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 60px 40px;
+  padding: 80px 48px;
+  background: rgba(15, 22, 42, 0.65);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
 }
 
 .fusion-empty-state .empty-icon {
-  font-size: 5rem;
-  margin-bottom: 20px;
-  opacity: 0.3;
+  font-size: 6rem;
+  margin-bottom: 24px;
+  opacity: 0.35;
+  animation: float 3.2s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
 }
 
 .fusion-empty-state h3 {
-  margin: 0 0 12px 0;
-  font-size: 1.5rem;
+  margin: 0 0 16px 0;
+  font-size: 1.8rem;
+  font-weight: 800;
   color: var(--text);
 }
 
 .fusion-empty-state p {
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
   color: var(--muted);
-  font-size: 1rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
 }
 
 .fusion-empty-state .empty-hint {
-  font-size: 0.9rem;
-  color: rgba(122, 240, 213, 0.7);
+  font-size: 1rem;
+  color: rgba(142, 242, 218, 0.9);
+  font-weight: 600;
 }
 
 .fusion-lab-icon-btn {
   padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: linear-gradient(135deg, rgba(106, 168, 255, 0.1), rgba(122, 240, 213, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(138, 182, 255, 0.12);
   color: var(--text);
   font-size: 1.1rem;
   cursor: pointer;
@@ -6390,10 +6717,122 @@ select {
 }
 
 .fusion-lab-icon-btn:hover {
-  background: linear-gradient(135deg, rgba(106, 168, 255, 0.2), rgba(122, 240, 213, 0.15));
-  border-color: rgba(106, 168, 255, 0.3);
+  background: rgba(138, 182, 255, 0.2);
+  border-color: rgba(138, 182, 255, 0.35);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(106, 168, 255, 0.3);
+  box-shadow: 0 6px 18px rgba(106, 168, 255, 0.3);
+}
+
+/* Responsive Fusion Lab */
+@media (max-width: 1600px) {
+  .fusion-workspace {
+    grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(280px, 1.1fr);
+    gap: 22px;
+  }
+  
+  .fusion-panel {
+    padding: 26px;
+  }
+  
+  .fusion-panel h2 {
+    font-size: 1.5rem;
+  }
+  
+  .fusion-title-section h1 {
+    font-size: 2.3rem;
+  }
+}
+
+@media (max-width: 1400px) {
+  .fusion-workspace {
+    grid-template-columns: repeat(3, minmax(240px, 1fr));
+    gap: 20px;
+  }
+
+  .fusion-panel {
+    padding: 22px;
+  }
+
+  .fusion-lab-container {
+    padding: 26px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .fusion-workspace {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .fusion-empty-state {
+    grid-column: 1;
+  }
+
+  .fusion-panel {
+    max-height: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .fusion-lab-header {
+    padding: 18px 22px;
+  }
+  
+  .fusion-lab-container {
+    padding: 22px;
+  }
+  
+  .fusion-workspace {
+    gap: 20px;
+  }
+  
+  .fusion-panel {
+    padding: 20px;
+  }
+  
+  .fusion-title-section h1 {
+    font-size: 2rem;
+  }
+  
+  .fusion-slider-container {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .slider-label {
+    min-width: auto;
+    text-align: center !important;
+  }
+  
+  .fusion-slider {
+    min-width: auto;
+    width: 100%;
+  }
+  
+  .stat-item {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+  
+  .stat-item > span:first-child {
+    min-width: 90px;
+    font-size: 0.85rem;
+  }
+  
+  .preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .preview-header h3 {
+    font-size: 1.3rem;
+  }
+  
+  .fusion-empty-state {
+    padding: 48px 26px;
+  }
 }
 
 /* Evolution Lab Styles */

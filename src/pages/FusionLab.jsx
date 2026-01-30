@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import './FusionLab.css';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
-import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -152,27 +152,22 @@ export default function FusionLab() {
     return `Mostly ${agentB?.name}`;
   };
 
-  const headerContent = (
-    <div className="page-heading">
-      <p className="eyebrow">Experimentation</p>
-      <h1>Fusion Lab</h1>
-      <p className="dashboard-sub">Combine two existing agents into a tuned hybrid with blended prompts, sliders, and tools.</p>
-    </div>
-  );
-
-  const headerActions = (
-    <div className="page-actions">
-      <Link className="btn secondary" to="/builder">
-        Open builder
-      </Link>
-      <Link className="btn secondary" to="/home">
-        Back to overview
-      </Link>
-    </div>
-  );
-
   return (
-    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+    <div className="fusion-lab-fullscreen">
+      {/* Header */}
+      <header className="fusion-lab-header">
+        <button className="fusion-back-btn" onClick={() => navigate('/home')}>
+          ← Back to Dashboard
+        </button>
+        <div className="fusion-header-content">
+          <div className="fusion-title-section">
+            <h1>⚗️ Fusion Lab</h1>
+            <p>Combine two agents into a powerful hybrid with blended capabilities</p>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
       <div className="fusion-lab-container">
         {status && <div className="fusion-status">{status}</div>}
 
@@ -390,6 +385,6 @@ export default function FusionLab() {
         )}
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

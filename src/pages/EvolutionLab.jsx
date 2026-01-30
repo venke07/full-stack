@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
-import DashboardLayout from '../components/DashboardLayout.jsx';
+import './EvolutionLab.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -182,27 +182,20 @@ export default function EvolutionLab() {
     }
   };
 
-  const headerContent = (
-    <div className="page-heading">
-      <p className="eyebrow">Experimentation</p>
-      <h1>Evolution Lab</h1>
-      <p className="dashboard-sub">Iteratively improve an agent through progressive refinement cycles. Track every generation and compare versions.</p>
-    </div>
-  );
-
-  const headerActions = (
-    <div className="page-actions">
-      <Link className="btn secondary" to="/builder">
-        Open builder
-      </Link>
-      <Link className="btn secondary" to="/home">
-        Back to overview
-      </Link>
-    </div>
-  );
-
   return (
-    <DashboardLayout headerContent={headerContent} actions={headerActions}>
+    <div className="evolution-lab-fullscreen">
+      <header className="evolution-lab-header">
+        <button className="evolution-back-btn" onClick={() => navigate('/home')}>
+          ← Back to Dashboard
+        </button>
+        <div className="evolution-header-content">
+          <div className="evolution-title-section">
+            <h1>🧬 Evolution Lab</h1>
+            <p>Iteratively improve an agent through progressive refinement cycles and compare generations.</p>
+          </div>
+        </div>
+      </header>
+
       <div className="evolution-lab-container">
         {status && <div className="evolution-status">{status}</div>}
 
@@ -384,6 +377,6 @@ export default function EvolutionLab() {
           )}
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   );
 }
