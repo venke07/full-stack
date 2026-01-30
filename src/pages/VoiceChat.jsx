@@ -121,9 +121,13 @@ export default function VoiceChatPage() {
         console.error('Error loading agents:', error);
         setStatus('Failed to load agents');
       } else {
-        setAgents(data || []);
-        if (data && data.length > 0) {
-          setSelectedAgent(data[0]);
+        // Filter to only Gemini agents
+        const geminiAgents = (data || []).filter(a => 
+          a.model_id && a.model_id.startsWith('gemini')
+        );
+        setAgents(geminiAgents);
+        if (geminiAgents.length > 0) {
+          setSelectedAgent(geminiAgents[0]);
         }
       }
       setIsLoadingAgents(false);
@@ -207,7 +211,8 @@ export default function VoiceChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          modelId: selectedAgent.model_id || 'gemini-2.5-flash',
+          agentId: selectedAgent.id,
+          modelId: selectedAgent.model_id || 'gemini-2.0-flash-exp',  // Use Gemini instead
           messages,
           temperature: 0.7,
         }),
@@ -439,13 +444,13 @@ export default function VoiceChatPage() {
                         <strong>{agent.name}</strong>
                         <p className="muted">{agent.description}</p>
                       </div>
-                      <button
+                      <div
                         className="agent-edit-btn"
                         onClick={(e) => startEditingAgent(e, agent)}
                         title="Edit agent"
                       >
                         ✏️
-                      </button>
+                      </div>
                     </button>
                   )}
                 </div>

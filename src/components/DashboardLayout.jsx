@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { label: 'Autonomous', helper: 'Task runner', to: '/autonomous', icon: 'AT' },
   { label: 'Fusion Lab', helper: 'Blend agents', to: '/fusion-lab', icon: 'FL' },
   { label: 'Evolution Lab', helper: 'Refine iteratively', to: '/evolution-lab', icon: 'EL' },
+  { label: 'Analytics', helper: 'Performance insights', to: '/analytics', icon: 'AN' },
 ];
 
 export default function DashboardLayout({ headerContent, actions, children }) {

@@ -3,6 +3,7 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import multer from 'multer';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
 import agentManager from './agentManager.js';
 import intentClassifier from './intentClassifier.js';
@@ -68,6 +69,12 @@ const s3Client = hasStorageConfig
         secretAccessKey: storageSecretKey,
       },
     })
+  : null;
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const analyticsSupabase = supabaseUrl && supabaseKey
+  ? createClient(supabaseUrl, supabaseKey)
   : null;
 
 const upload = multer({
@@ -1932,6 +1939,214 @@ async function streamToText(body, limitBytes) {
  * CONVERSATION MEMORY ENDPOINTS
  */
 
+const MIN_SUMMARY_MESSAGES = 6;
+const SUMMARY_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'your', 'you', 'are', 'was', 'were', 'have', 'has',
+  'had', 'not', 'but', 'can', 'could', 'should', 'would', 'will', 'just', 'into', 'about', 'what', 'when',
+  'where', 'how', 'who', 'why', 'to', 'of', 'in', 'on', 'as', 'it', 'is', 'be', 'by', 'or', 'an', 'a',
+]);
+const POSITIVE_WORDS = ['great', 'good', 'helpful', 'thanks', 'thank', 'love', 'nice', 'awesome', 'perfect'];
+const NEGATIVE_WORDS = ['bad', 'issue', 'problem', 'broken', 'error', 'fail', 'failed', 'sad', 'angry'];
+
+function summarizeMessages(messages = []) {
+  const cleaned = messages
+    .map((m) => (m.content || m.text || '').toString().trim())
+    .filter(Boolean);
+  const allText = cleaned.join(' ');
+
+  const userMessages = messages
+    .filter((m) => m.role === 'user')
+    .map((m) => (m.content || m.text || '').toString().trim())
+    .filter(Boolean);
+
+  const agentMessages = messages
+    .filter((m) => m.role === 'agent' || m.role === 'assistant')
+    .map((m) => (m.content || m.text || '').toString().trim())
+    .filter(Boolean);
+
+  const keyPoints = agentMessages
+    .filter((msg) => !/^\s*(hello|hi|thanks|thank you|great question|i'm|i am)\b/i.test(msg))
+    .filter((msg) => !/\?\s*$/.test(msg))
+    .map((msg) => msg.replace(/\s+/g, ' ').trim())
+    .filter((msg) => msg.length > 40)
+    .slice(-3)
+    .map((msg) => msg.slice(0, 160));
+  const summaryText = (agentMessages[agentMessages.length - 1] || '')
+    .slice(0, 220) || conversationMemory.generateSummary(messages);
+
+  const wordCounts = {};
+  allText
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w && !SUMMARY_STOP_WORDS.has(w))
+    .forEach((word) => {
+      wordCounts[word] = (wordCounts[word] || 0) + 1;
+    });
+  const topics = Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word);
+
+  const actionItems = agentMessages
+    .filter((msg) => /you should|please|next step|we should|recommended/i.test(msg))
+    .slice(-3)
+    .map((msg) => msg.slice(0, 140));
+
+  const positiveHits = POSITIVE_WORDS.reduce((count, word) => count + (allText.toLowerCase().includes(word) ? 1 : 0), 0);
+  const negativeHits = NEGATIVE_WORDS.reduce((count, word) => count + (allText.toLowerCase().includes(word) ? 1 : 0), 0);
+  const sentiment = positiveHits > negativeHits ? 'Positive' : negativeHits > positiveHits ? 'Negative' : 'Neutral';
+
+  return {
+    keyPoints: keyPoints.length ? keyPoints : ['No key points identified'],
+    summary: summaryText || 'No summary available',
+    topics: topics.length ? topics : ['General'],
+    actionItems: actionItems.length ? actionItems : ['No action items identified'],
+    sentiment,
+  };
+}
+
+const parseRangeStart = (range) => {
+  if (!range || range === 'all') return null;
+  const now = new Date();
+  const days = range === '7d' ? 7 : range === '30d' ? 30 : range === '90d' ? 90 : null;
+  if (!days) return null;
+  const start = new Date(now);
+  start.setDate(now.getDate() - days);
+  return start;
+};
+
+const safeNumber = (value) => (Number.isFinite(value) ? value : 0);
+
+/**
+ * Basic analytics aggregation from conversation history.
+ */
+async function buildAgentAnalytics({ userId, agentId, timeRange }) {
+  const allConversations = await conversationMemory.getConversations(userId, agentId, 500);
+  const rangeStart = parseRangeStart(timeRange);
+
+  const current = rangeStart
+    ? allConversations.filter((conv) => new Date(conv.created_at) >= rangeStart)
+    : allConversations;
+
+  const totalConversations = current.length;
+  const totalMessages = current.reduce((sum, conv) => {
+    const count = conv.message_count || (Array.isArray(conv.messages) ? conv.messages.length : 0);
+    return sum + count;
+  }, 0);
+  const avgMessagesPerConvo = totalConversations ? totalMessages / totalConversations : 0;
+
+  const hourCounts = {};
+  const dayCounts = {};
+  current.forEach((conv) => {
+    const created = new Date(conv.created_at);
+    if (Number.isNaN(created.getTime())) return;
+    const hour = created.getHours();
+    const day = created.toLocaleDateString('en-US', { weekday: 'long' });
+    hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    dayCounts[day] = (dayCounts[day] || 0) + 1;
+  });
+
+  const peakHours = Object.keys(hourCounts).length
+    ? `${Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0][0]}:00`
+    : 'N/A';
+  const mostActiveDay = Object.keys(dayCounts).length
+    ? Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0][0]
+    : 'N/A';
+
+  let conversationGrowth = 0;
+  if (rangeStart) {
+    const prevStart = new Date(rangeStart);
+    const prevEnd = new Date(rangeStart);
+    const daysSpan = Math.max(1, Math.round((Date.now() - rangeStart.getTime()) / (24 * 3600 * 1000)));
+    prevStart.setDate(prevStart.getDate() - daysSpan);
+    const previous = allConversations.filter((conv) => {
+      const created = new Date(conv.created_at);
+      return created >= prevStart && created < prevEnd;
+    });
+    const prevCount = previous.length || 0;
+    conversationGrowth = prevCount ? ((totalConversations - prevCount) / prevCount) * 100 : totalConversations ? 100 : 0;
+  }
+
+  let ratings = [];
+  let testResults = [];
+  if (analyticsSupabase) {
+    const ratingQuery = analyticsSupabase
+      .from('response_ratings')
+      .select('rating, quality_score, relevance_score, helpfulness_score, created_at')
+      .eq('agent_id', agentId);
+
+    const testQuery = analyticsSupabase
+      .from('a_b_test_results')
+      .select('response_time_ms, created_at')
+      .eq('agent_id', agentId);
+
+    if (rangeStart) {
+      ratingQuery.gte('created_at', rangeStart.toISOString());
+      testQuery.gte('created_at', rangeStart.toISOString());
+    }
+
+    const ratingsRes = await ratingQuery;
+    const testsRes = await testQuery;
+    ratings = ratingsRes.data || [];
+    testResults = testsRes.data || [];
+  }
+
+  const ratingCount = ratings.length;
+  const avgRating = ratingCount
+    ? ratings.reduce((sum, r) => sum + safeNumber(r.rating), 0) / ratingCount
+    : null;
+  const satisfactionRate = avgRating ? Math.round((avgRating / 5) * 100) : null;
+  const positiveRatings = ratingCount
+    ? Math.round((ratings.filter((r) => safeNumber(r.rating) >= 4).length / ratingCount) * 100)
+    : 0;
+  const negativeRatings = ratingCount
+    ? Math.round((ratings.filter((r) => safeNumber(r.rating) <= 2).length / ratingCount) * 100)
+    : 0;
+
+  const qualityScores = ratings.map((r) => safeNumber(r.quality_score)).filter((v) => v > 0);
+  const relevanceScores = ratings.map((r) => safeNumber(r.relevance_score)).filter((v) => v > 0);
+  const helpfulnessScores = ratings.map((r) => safeNumber(r.helpfulness_score)).filter((v) => v > 0);
+
+  const avgQualityScore = qualityScores.length
+    ? qualityScores.reduce((sum, v) => sum + v, 0) / qualityScores.length
+    : 0;
+  const avgRelevanceScore = relevanceScores.length
+    ? relevanceScores.reduce((sum, v) => sum + v, 0) / relevanceScores.length
+    : 0;
+  const avgHelpfulnessScore = helpfulnessScores.length
+    ? helpfulnessScores.reduce((sum, v) => sum + v, 0) / helpfulnessScores.length
+    : 0;
+
+  const responseTimes = testResults.map((r) => safeNumber(r.response_time_ms)).filter((v) => v > 0);
+  const avgResponseTime = responseTimes.length
+    ? responseTimes.reduce((sum, v) => sum + v, 0) / responseTimes.length
+    : null;
+
+  return {
+    totalConversations,
+    conversationGrowth: Math.round(conversationGrowth),
+    totalMessages,
+    avgMessagesPerConvo,
+    avgResponseTime,
+    satisfactionRate,
+    positiveRatings,
+    negativeRatings,
+    avgQualityScore,
+    avgRelevanceScore,
+    avgHelpfulnessScore,
+    followUpRate: 0,
+    avgEngagementTime: null,
+    conversationContinuationRate: 0,
+    rephrasedQuestionRate: 0,
+    abTestResults: [],
+    peakHours,
+    mostActiveDay,
+    avgSessionLength: null,
+    totalUsers: 1,
+  };
+}
+
 /**
  * Save a conversation
  */
@@ -1956,6 +2171,73 @@ app.post('/api/conversations/save', async (req, res) => {
   } catch (error) {
     console.error('[SAVE_CONVERSATION_ERROR]', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Summarize a conversation
+ */
+app.post('/api/conversations/summarize', async (req, res) => {
+  try {
+    const { messages, conversationId } = req.body;
+    let resolvedMessages = messages;
+
+    if (conversationId) {
+      const stored = await conversationMemory.getConversation(conversationId);
+      if (stored?.conversation_messages?.length) {
+        resolvedMessages = stored.conversation_messages.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
+      } else if (Array.isArray(stored?.messages)) {
+        resolvedMessages = stored.messages;
+      }
+    }
+
+    if (!resolvedMessages || !Array.isArray(resolvedMessages)) {
+      return res.status(400).json({ success: false, error: 'messages array is required' });
+    }
+
+    if (resolvedMessages.length < MIN_SUMMARY_MESSAGES) {
+      return res.json({
+        success: false,
+        error: `Not enough messages to summarize (need at least ${MIN_SUMMARY_MESSAGES}).`,
+      });
+    }
+
+    const summary = summarizeMessages(resolvedMessages);
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('[SUMMARIZE_CONVERSATION_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Agent analytics
+ */
+app.get('/api/agents/:agentId/analytics', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { timeRange = '7d', userId } = req.query;
+
+    if (!agentId) {
+      return res.status(400).json({ success: false, error: 'agentId is required' });
+    }
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const analytics = await buildAgentAnalytics({
+      userId,
+      agentId,
+      timeRange,
+    });
+
+    res.json({ success: true, analytics });
+  } catch (error) {
+    console.error('[AGENT_ANALYTICS_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

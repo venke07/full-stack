@@ -5,9 +5,11 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
 import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import ConversationHistory from '../components/ConversationHistory.jsx';
+import ConversationSummarizer from '../components/ConversationSummarizer.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const MIN_SUMMARY_MESSAGES = 6;
 
 /**
  * Randomly pick between version A and B for the test
@@ -68,6 +70,7 @@ export default function ChatPage() {
   const [resultIdsByMessage, setResultIdsByMessage] = useState({});
   const [messageMetadata, setMessageMetadata] = useState({}); // Track version, timestamp per message
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [showSummarizer, setShowSummarizer] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   
   // Voice Chat States
@@ -960,6 +963,15 @@ export default function ChatPage() {
               >
                 📂 History
               </button>
+              <button
+                className="btn ghost compact"
+                type="button"
+                onClick={() => setShowSummarizer(true)}
+                title="Summarize conversation"
+                disabled={chatLog.length < MIN_SUMMARY_MESSAGES}
+              >
+                📝 Summarize
+              </button>
             </div>
           </section>
 
@@ -1052,6 +1064,14 @@ export default function ChatPage() {
           onLoadConversation={handleLoadConversation}
           isOpen={showHistoryPanel}
           onClose={() => setShowHistoryPanel(false)}
+        />
+
+        <ConversationSummarizer
+          conversationId={currentConversationId}
+          messages={chatLog}
+          agentId={selectedAgentId}
+          isOpen={showSummarizer}
+          onClose={() => setShowSummarizer(false)}
         />
       </div>
     </DashboardLayout>

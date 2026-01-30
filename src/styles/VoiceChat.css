@@ -184,27 +184,19 @@
 }
 
 .agent-edit-btn {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  border-radius: 6px;
   padding: 4px 8px;
-  font-size: 0.75rem;
   cursor: pointer;
-  opacity: 0;
-  transition: all 0.2s ease;
-  color: white;
-}
-
-.agent-option:hover .agent-edit-btn {
-  opacity: 1;
+  opacity: 0.6;
+  transition: opacity 0.2s;
 }
 
 .agent-edit-btn:hover {
-  background: rgba(124, 58, 237, 0.5);
+  opacity: 1;
+}
+
+.agent-option:disabled .agent-edit-btn {
+  pointer-events: none;
+  opacity: 0.3;
 }
 
 /* Agent Edit Form */
