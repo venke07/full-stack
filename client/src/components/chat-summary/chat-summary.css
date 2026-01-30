@@ -1,0 +1,260 @@
+:root {
+  --ud-bg: #0b1626;             
+  --ud-panel: #0f2238;          
+  --ud-panel-2: #102844;         
+  --ud-border: rgba(255, 255, 255, 0.12);
+  --ud-border-strong: rgba(255, 255, 255, 0.18);
+  --ud-text: rgba(255, 255, 255, 0.92);
+  --ud-muted: rgba(255, 255, 255, 0.68);
+
+  --ud-accent: rgb(134, 221, 250);
+  --ud-accent-2: rgb(2, 61, 81);
+
+  --ud-radius: 14px;
+}
+
+html, body {
+  height: 100%;
+  background: #0b1626;
+}
+
+#root {
+  min-height: 100%;
+  background: #0b1626;
+}
+
+.cs-page {
+  max-width: 980px;
+  margin: 18px auto;
+  padding: 18px 16px 40px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: rgba(255, 255, 255, 0.92);
+
+  background: #0f2238;           /* panel bg */
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+
+  min-height: calc(100vh - 36px); /* fill vertically */
+}
+
+/* Header */
+.cs-header {
+  display: grid;
+  grid-template-columns: 120px 1fr 140px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 16px;
+  border-bottom: 1px solid var(--ud-border);
+  margin-bottom: 14px;
+}
+
+.cs-title {
+  text-align: center;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  margin: 0;
+}
+
+/* Buttons (Back / Dashboard) */
+.back-btn,
+.dashboard-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--ud-border-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ud-text);
+  backdrop-filter: blur(6px);
+  position: relative;
+  z-index: 9999;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.back-btn:hover,
+.dashboard-btn:hover {
+  background: rgba(134, 221, 250, 0.12);
+  border-color: rgba(134, 221, 250, 0.55);
+  transform: translateY(-1px);
+}
+
+.back-btn span,
+.dashboard-btn span {
+  font-size: 16px;
+}
+
+/* Search */
+.cs-search-wrap {
+  margin: 14px 0 18px;
+}
+
+.cs-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--ud-border-strong);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cs-search-icon {
+  font-size: 18px;
+  opacity: 0.9;
+}
+
+.cs-search-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  color: var(--ud-text);
+  background: transparent;
+}
+
+.cs-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* List */
+.cs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Card */
+.cs-card {
+  border: 1px solid var(--ud-border);
+  border-radius: var(--ud-radius);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.04));
+  overflow: hidden;
+}
+
+.cs-card.active {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  border-color: rgba(134, 221, 250, 0.35);
+}
+
+/* Card Head (clickable) */
+.cs-card-head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 56px 1fr 44px;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cs-card-head:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cs-card-head-text {
+  min-width: 0;
+}
+
+.cs-card-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: white;
+}
+
+.cs-card-title {
+  font-size: 18px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-card-meta {
+  font-size: 12px;
+  color: var(--ud-muted);
+  flex-shrink: 0;
+}
+
+.cs-card-subtitle {
+  margin-top: 4px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.35;
+}
+
+/* Avatar */
+.avatar {
+  height: 44px;
+  width: 44px;
+  border: 1px solid var(--ud-border-strong);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.avatar-face {
+  font-size: 20px;
+}
+
+/* Chevron */
+.cs-chevron {
+  font-size: 18px;
+  display: grid;
+  place-items: center;
+  height: 34px;
+  width: 34px;
+  border: 1px solid var(--ud-border-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ud-text);
+}
+
+/* Body */
+.cs-card-body {
+  border-top: 1px solid var(--ud-border);
+  padding: 12px 14px 14px;
+}
+
+.cs-summary-text {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.55;
+}
+
+.cs-note {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.25);
+  font-size: 13px;
+  color: var(--ud-muted);
+}
+
+/* Empty */
+.cs-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: var(--ud-radius);
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cs-empty-title {
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.cs-empty-sub {
+  color: var(--ud-muted);
+  font-size: 14px;
+}

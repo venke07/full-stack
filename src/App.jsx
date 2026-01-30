@@ -9,6 +9,10 @@ import CanvasPage from './pages/Canvas.jsx';
 import ChatPage from './pages/Chat.jsx';
 import MultiAgentChat from './pages/MultiAgentChat.jsx';
 import VoiceChatPage from './pages/VoiceChat.jsx';
+import AutonomousTask from './pages/AutonomousTask.jsx';
+import AgentTemplates from './pages/AgentTemplates.jsx';
+import TestingPlayground from './pages/TestingPlayground.jsx';
+import FusionLab from './pages/FusionLab.jsx';
 import LoginPage from './pages/Login.jsx';
 import SignupPage from './pages/Signup.jsx';
 import ProfilePage from './pages/Profile.jsx';
@@ -83,6 +87,34 @@ export default function App() {
             element={(
               <RequireAuth>
                 <VoiceChatPage />
+            path="/autonomous"
+            element={(
+              <RequireAuth>
+                <AutonomousTask />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/templates"
+            element={(
+              <RequireAuth>
+                <AgentTemplates />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/testing"
+            element={(
+              <RequireAuth>
+                <TestingPlayground />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/fusion-lab"
+            element={(
+              <RequireAuth>
+                <FusionLab />
               </RequireAuth>
             )}
           />
