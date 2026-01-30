@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -76,6 +76,7 @@ export default function ChatPage() {
   const [recognition, setRecognition] = useState(null);
   const [synthesis, setSynthesis] = useState(null);
   const [voiceSupported, setVoiceSupported] = useState(false);
+  const recognitionRef = useRef(null);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -112,29 +113,118 @@ export default function ChatPage() {
     fetchAgents();
   }, [user?.id]);
 
-  // Initialize Web Speech API (disabled - custom integration in progress)
+  // Initialize Web Speech API
   useEffect(() => {
-    // Speech recognition disabled for custom integration
-    setVoiceSupported(true); // Keep button visible but non-functional
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      setVoiceSupported(false);
+      return;
+    }
+
+    setVoiceSupported(true);
+    
+    // Initialize speech recognition
+    const recognitionInstance = new SpeechRecognition();
+    recognitionInstance.continuous = false;
+    recognitionInstance.interimResults = true;
+    recognitionInstance.lang = 'en-US';
+
+    recognitionInstance.onstart = () => {
+      setIsListening(true);
+      setStatus('🎤 Listening...');
+    };
+
+    recognitionInstance.onresult = (event) => {
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcriptSegment = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += transcriptSegment;
+        }
+      }
+      if (final) {
+        setInput(final);
+      }
+    };
+
+    recognitionInstance.onend = () => {
+      setIsListening(false);
+      setStatus('');
+    };
+
+    recognitionInstance.onerror = (event) => {
+      setStatus(`Voice error: ${event.error}`);
+      setIsListening(false);
+      setTimeout(() => setStatus(''), 3000);
+    };
+
+    recognitionRef.current = recognitionInstance;
+    setRecognition(recognitionInstance);
+
+    // Check for speech synthesis
+    if (window.speechSynthesis) {
+      setSynthesis(window.speechSynthesis);
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, []);
   
-  // Voice control functions (disabled for custom integration)
+  // Voice control functions
   const startListening = () => {
-    setStatus('🎤 Voice feature coming soon - custom integration in progress');
-    setTimeout(() => setStatus(''), 3000);
+    if (recognitionRef.current && !isListening) {
+      try {
+        recognitionRef.current.start();
+      } catch (error) {
+        console.error('Speech recognition error:', error);
+        setStatus('Failed to start listening');
+        setTimeout(() => setStatus(''), 3000);
+      }
+    }
   };
   
   const stopListening = () => {
-    setStatus('');
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+    }
   };
   
   const speakText = (text) => {
-    // Speech synthesis disabled for custom integration
-    // Will be replaced with custom implementation
+    if (!synthesis || !voiceEnabled) return;
+    
+    // Cancel any ongoing speech
+    synthesis.cancel();
+    
+    setIsPlaying(true);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    utterance.onend = () => {
+      setIsPlaying(false);
+    };
+
+    utterance.onerror = (error) => {
+      console.error('Speech synthesis error:', error);
+      setIsPlaying(false);
+    };
+
+    synthesis.speak(utterance);
   };
   
   const stopSpeaking = () => {
-    setIsPlaying(false);
+    if (synthesis) {
+      synthesis.cancel();
+      setIsPlaying(false);
+    }
   };
 
   useEffect(() => {
@@ -416,6 +506,11 @@ export default function ChatPage() {
       const agentMessageId = `agent-${timestamp}`;
       setChatLog((prev) => [...prev, { id: agentMessageId, role: 'agent', text: agentResponse }]);
       
+      // Speak the response if voice is enabled
+      if (voiceEnabled && agentResponse) {
+        speakText(agentResponse);
+      }
+      
       // Store message metadata for implicit tracking
       if (activeTestSession && currentVersionId) {
         setMessageMetadata((prev) => ({
@@ -443,24 +538,6 @@ export default function ChatPage() {
     }
   };
 
-  return (
-    <div className="app chat-page">
-      <header>
-        <div className="brand">
-          <div className="logo">AI</div>
-          <div>
-            <h1>Chat Surface</h1>
-            <div className="sub">Test the agent experience before shipping.</div>
-          </div>
-        </div>
-        <div className="header-actions">
-          <TutorialLauncher />
-          <Link className="btn ghost compact" to="/builder">
-            ← Back to Builder
-          </Link>
-          <Link className="btn ghost compact" to="/home">
-            Dashboard
-          </Link>
   /**
    * Record test result to the A/B test database
    */
@@ -862,8 +939,8 @@ export default function ChatPage() {
                   className={`btn voice-btn ${isListening ? 'listening' : ''}`}
                   type="button"
                   onClick={isListening ? stopListening : startListening}
-                  disabled={true}
-                  title="Voice feature - custom integration in progress"
+                  disabled={!selectedAgent || isResponding}
+                  title={isListening ? 'Stop listening' : 'Start voice input'}
                 >
                   {isListening ? '⏹️' : '🎤'}
                 </button>

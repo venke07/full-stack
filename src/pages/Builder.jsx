@@ -722,42 +722,6 @@ export default function BuilderPage() {
     </div>
   );
 
-  return (
-    <div className="app builder-page">
-      <header>
-        <div className="brand">
-          <div className="logo">AI</div>
-          <div>
-            <h1>Agent Builder</h1>
-            <div className="sub">Build and configure your AI agent</div>
-          </div>
-        </div>
-        <div className="header-actions">
-          <div className="header-meta">
-            <span className="chip">🔒 Autosave enabled</span>
-            <span className="chip">✨ Draft</span>
-          </div>
-          <TutorialLauncher />
-          <div className="account-pill">
-            <div>
-              <div className="pill-label">Account</div>
-              <b>{user?.email}</b>
-            </div>
-            <button className="btn ghost compact" type="button" onClick={handleSignOut}>
-              Sign out
-            </button>
-          </div>
-          <Link className="btn ghost compact" to="/canvas">
-            Flow Canvas →
-          </Link>
-          <Link className="btn ghost compact" to="/chat">
-            Launch Chat →
-          </Link>
-          <Link className="btn ghost compact" to="/home">
-            ← Back to Home
-          </Link>
-        </div>
-      </header>
   const headerActions = (
     <div className="page-actions compact">
       <div className="chip-tray">
@@ -1196,7 +1160,6 @@ export default function BuilderPage() {
             </button>
           </div>
         </section>
-        </div>
 
       <div className="footer">
         <div className="wrap">
@@ -1228,6 +1191,7 @@ export default function BuilderPage() {
             Publish
           </button>
         </div>
+      </div>
       </div>
     </DashboardLayout>
   );

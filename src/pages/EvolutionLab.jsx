@@ -204,13 +204,6 @@ export default function EvolutionLab() {
   return (
     <DashboardLayout headerContent={headerContent} actions={headerActions}>
       <div className="evolution-lab-container">
-        <header className="evolution-header">
-          <div className="evolution-title-section">
-            <h1>🧬 Agent Evolution Lab</h1>
-            <p>Iteratively refine and improve your agents through progressive generations</p>
-          </div>
-        </header>
-
         {status && <div className="evolution-status">{status}</div>}
 
         <div className="evolution-workspace">

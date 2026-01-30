@@ -88,6 +88,10 @@ export default function App() {
             element={(
               <RequireAuth>
                 <VoiceChatPage />
+              </RequireAuth>
+            )}
+          />
+          <Route
             path="/autonomous"
             element={(
               <RequireAuth>

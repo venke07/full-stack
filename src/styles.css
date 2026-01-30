@@ -5864,36 +5864,10 @@ select {
 
 /* ===== Fusion Lab Styles ===== */
 .fusion-lab-container {
-  min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  padding: 20px;
-}
-
-.fusion-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.fusion-title-section h1 {
-  font-size: 2rem;
-  margin: 0 0 8px 0;
-  background: linear-gradient(135deg, #6aa8ff, #7af0d5);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.fusion-title-section p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.95rem;
+  flex-direction: column;
+  gap: 24px;
+  height: 100%;
 }
 
 .fusion-status {
@@ -6393,30 +6367,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  padding: 0;
-}
-
-.evolution-header {
-  padding: 32px;
-  background: linear-gradient(135deg, rgba(106, 168, 255, 0.1), rgba(122, 240, 213, 0.05));
-  border-radius: 16px;
-  border: 1px solid rgba(106, 168, 255, 0.2);
-}
-
-.evolution-title-section h1 {
-  font-size: 2.2rem;
-  margin: 0 0 8px 0;
-  color: var(--text);
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-}
-
-.evolution-title-section p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 1rem;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
+  height: 100%;
 }
 
 .evolution-workspace {
@@ -6424,6 +6375,14 @@ select {
   grid-template-columns: 1fr 1fr;
   gap: 24px;
   min-height: 60vh;
+}
+
+/* When agent selection panel is alone, make it full width */
+.evolution-workspace > .agent-selection-panel:only-child {
+  grid-column: 1 / -1;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .evolution-panel {
@@ -6891,6 +6850,4 @@ select {
   }
 }
 
-.full {
-  width: 100%;
 }

@@ -749,68 +749,53 @@ export default function MultiAgentChat() {
           <TutorialLauncher />
           <div className="mode-toggle">
             <button
-              className={`mode-btn ${mode === 'multi' ? 'active' : ''}`}
-              onClick={() => setMode('multi')}
+              className={`mode-btn ${chatMode === 'independent' ? 'active' : ''}`}
+              onClick={() => setChatMode('independent')}
+              title="Agents respond independently"
             >
-              Multi
+              Independent
             </button>
             <button
-              className={`mode-btn ${mode === 'single' ? 'active' : ''}`}
-              onClick={() => setMode('single')}
+              className={`mode-btn ${chatMode === 'orchestrated' ? 'active' : ''}`}
+              onClick={() => setChatMode('orchestrated')}
+              title="Agents collaborate in a workflow"
             >
-              Single
+              Orchestrated
             </button>
-          <div className="chat-controls">
-            <div className="mode-toggle">
+            <button
+              className={`mode-btn ${chatMode === 'auto' ? 'active' : ''}`}
+              onClick={() => setChatMode('auto')}
+              title="Smart routing & auto-selection"
+            >
+              Smart Routing
+            </button>
+            <button
+              className={`mode-btn ${chatMode === 'debate' ? 'active' : ''}`}
+              onClick={() => setChatMode('debate')}
+              title="Agents debate and reach consensus"
+            >
+              Debate
+            </button>
+          </div>
+
+          {(chatMode === 'orchestrated' || chatMode === 'auto') && chatMode !== 'debate' && (
+            <div className="workflow-toggle">
               <button
-                className={`mode-btn ${chatMode === 'independent' ? 'active' : ''}`}
-                onClick={() => setChatMode('independent')}
-                title="Agents respond independently"
+                className={`mode-btn ${workflowMode === 'sequential' ? 'active' : ''}`}
+                onClick={() => setWorkflowMode('sequential')}
+                title="Agents work in sequence"
               >
-                Independent
+                Sequential
               </button>
               <button
-                className={`mode-btn ${chatMode === 'orchestrated' ? 'active' : ''}`}
-                onClick={() => setChatMode('orchestrated')}
-                title="Agents collaborate in a workflow"
+                className={`mode-btn ${workflowMode === 'parallel' ? 'active' : ''}`}
+                onClick={() => setWorkflowMode('parallel')}
+                title="Agents work in parallel"
               >
-                Orchestrated
-              </button>
-              <button
-                className={`mode-btn ${chatMode === 'auto' ? 'active' : ''}`}
-                onClick={() => setChatMode('auto')}
-                title="Smart routing & auto-selection"
-              >
-                Smart Routing
-              </button>
-              <button
-                className={`mode-btn ${chatMode === 'debate' ? 'active' : ''}`}
-                onClick={() => setChatMode('debate')}
-                title="Agents debate and reach consensus"
-              >
-                Debate
+                Parallel
               </button>
             </div>
-
-            {(chatMode === 'orchestrated' || chatMode === 'auto') && chatMode !== 'debate' && (
-              <div className="workflow-toggle">
-                <button
-                  className={`mode-btn ${workflowMode === 'sequential' ? 'active' : ''}`}
-                  onClick={() => setWorkflowMode('sequential')}
-                  title="Agents work in sequence"
-                >
-                  Sequential
-                </button>
-                <button
-                  className={`mode-btn ${workflowMode === 'parallel' ? 'active' : ''}`}
-                  onClick={() => setWorkflowMode('parallel')}
-                  title="Agents work in parallel"
-                >
-                  Parallel
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         <div className={`chat-container chat-mode-${chatMode}`}>
@@ -1035,6 +1020,7 @@ export default function MultiAgentChat() {
           )}
         </div>
       </div>
+      <div/>
     </div>
     </DashboardLayout>
   );

@@ -174,13 +174,6 @@ export default function FusionLab() {
   return (
     <DashboardLayout headerContent={headerContent} actions={headerActions}>
       <div className="fusion-lab-container">
-        <header className="fusion-header">
-          <div className="fusion-title-section">
-            <h1>⚗️ Agent Fusion Lab</h1>
-            <p>Combine two agents to create a hybrid with merged capabilities</p>
-          </div>
-        </header>
-
         {status && <div className="fusion-status">{status}</div>}
 
         <div className="fusion-workspace">

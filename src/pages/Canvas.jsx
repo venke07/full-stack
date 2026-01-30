@@ -4,49 +4,6 @@ import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
 import TutorialLauncher from '../components/TutorialLauncher.jsx';
-
-const DATA_TRANSFER_TYPE = 'application/canvas-node';
-const AGENT_ACCENTS = ['#5da9ff', '#3dd6c5', '#ff9b6a', '#b58dff', '#ffd166', '#f472b6'];
-
-const paletteBlocks = [
-  {
-    type: 'trigger',
-    title: 'Salesforce Trigger',
-    description: 'When a new lead updates their status.',
-    accent: 'var(--accent)',
-    modelId: null,
-  },
-  {
-    type: 'action',
-    title: 'Slack Notify',
-    description: 'Send approvals or alerts into any channel.',
-    accent: '#5da9ff',
-    modelId: null,
-  },
-  {
-    type: 'data',
-    title: 'Vector Search',
-    description: 'Query embeddings or turn docs into context.',
-    accent: '#ff9b6a',
-    modelId: null,
-  },
-  {
-    type: 'logic',
-    title: 'Branching Rule',
-    description: 'Split traffic with filters or guardrails.',
-    accent: '#b58dff',
-    modelId: null,
-  },
-  {
-    type: 'llm',
-    title: 'LLM Agent',
-    description: 'Let the agent call tools with guardrails.',
-    accent: '#3dd6c5',
-    modelId: modelOptions[0].id,
-  },
-];
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 
 const NODE_TYPES = {
@@ -599,25 +556,8 @@ export default function CanvasPage() {
             <p className="eyebrow">{lens.title}</p>
             <p className="muted">{lens.body}</p>
           </div>
-        </div>
-        <div className="header-actions">
-          <TutorialLauncher />
-          <button
-            className="btn primary compact"
-            onClick={() => setShowCreateModal(true)}
-            disabled={nodes.length === 0}
-            title={nodes.length === 0 ? 'Add nodes first' : 'Create agent from this workflow'}
-          >
-            💾 Save as Agent
-          </button>
-          <Link className="btn ghost compact" to="/home">
-            Dashboard
-          </Link>
-          <Link className="btn ghost compact" to="/builder">
-            Form Builder →
-          </Link>
-        </div>
-      </header>
+        ))}
+      </div>
 
       {/* Create Agent Modal */}
       {showCreateModal && (
@@ -679,8 +619,9 @@ export default function CanvasPage() {
                 {isSaving ? '⏳ Creating...' : '✅ Create Agent'}
               </button>
             </div>
-        ))}
-      </div>
+          </div>
+        </div>
+      )}
 
       <section className={`blueprint-shell ${isBoardExpanded ? 'is-expanded' : ''}`}>
         <aside className="node-palette">
