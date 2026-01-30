@@ -695,6 +695,27 @@ export default function BuilderPage() {
     setStatus('Draft reset.');
   };
 
+  const handlePublish = async (agentId) => {
+    const tags = prompt('Enter tags (comma-separated):', '');
+    if (!tags) return;
+
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/publish/${agentId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: tags.split(',').map(t => t.trim()) })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        alert('Agent published to marketplace!');
+        // Refresh agent list or update UI
+      }
+    } catch (error) {
+      console.error('Publish failed:', error);
+    }
+  };
+
   const headerContent = (
     <div className="page-heading">
       <p className="eyebrow">Design Studio</p>
@@ -1169,9 +1190,26 @@ export default function BuilderPage() {
           >
             Publish
           </button>
+          <button 
+            className="publish-btn"
+            onClick={() => handlePublish(selectedAgentId)}
+          >
+            Publish to Marketplace
+          </button>
         </div>
       </div>
       </div>
     </DashboardLayout>
   );
 }
+
+// Add this useEffect to handle import from URL
+useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const importAgentId = urlParams.get('import');
+  if (importAgentId && user) {
+    handleSelectAgent(importAgentId);
+    // Clear the URL param
+    navigate('/builder', { replace: true });
+  }
+}, [user]);
