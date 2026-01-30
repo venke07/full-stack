@@ -2,15 +2,16 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const NAV_LINKS = [
-  { label: 'Overview', helper: 'Agents', to: '/home' },
-  { label: 'Builder', helper: 'Design & tune', to: '/builder' },
-  { label: 'Flow Canvas', helper: 'Visual orchestration', to: '/canvas' },
-  { label: 'Templates', helper: 'Starter kits', to: '/templates' },
-  { label: 'Testing Lab', helper: 'A/B & QA', to: '/testing' },
-  { label: 'Chat', helper: 'Single agent', to: '/chat' },
-  { label: 'Multi-Agent', helper: 'Swarm chat', to: '/multi-chat' },
-  { label: 'Autonomous', helper: 'Task runner', to: '/autonomous' },
-  { label: 'Fusion Lab', helper: 'Experiments', to: '/fusion-lab' },
+  { label: 'Overview', helper: 'Agents', to: '/home', icon: '📊' },
+  { label: 'Builder', helper: 'Design & tune', to: '/builder', icon: '🛠️' },
+  { label: 'Flow Canvas', helper: 'Visual orchestration', to: '/canvas', icon: '🎨' },
+  { label: 'Templates', helper: 'Starter kits', to: '/templates', icon: '📦' },
+  { label: 'Testing Lab', helper: 'A/B & QA', to: '/testing', icon: '🧪' },
+  { label: 'Chat', helper: 'Single agent', to: '/chat', icon: '💬' },
+  { label: 'Multi-Agent', helper: 'Swarm chat', to: '/multi-chat', icon: '🤖' },
+  { label: 'Autonomous', helper: 'Task runner', to: '/autonomous', icon: '⚡' },
+  { label: 'Fusion Lab', helper: 'Blend agents', to: '/fusion-lab', icon: '⚗️' },
+  { label: 'Evolution Lab', helper: 'Refine iteratively', to: '/evolution-lab', icon: '🧬' },
 ];
 
 export default function DashboardLayout({ headerContent, actions, children }) {
@@ -33,8 +34,11 @@ export default function DashboardLayout({ headerContent, actions, children }) {
               to={item.to}
               className={({ isActive }) => `nav-link ${isActive ? 'is-active' : ''}`}
             >
-              <span className="nav-link-label">{item.label}</span>
-              <span className="nav-link-helper">{item.helper}</span>
+              <span className="nav-link-icon">{item.icon}</span>
+              <div className="nav-link-content">
+                <span className="nav-link-label">{item.label}</span>
+                <span className="nav-link-helper">{item.helper}</span>
+              </div>
             </NavLink>
           ))}
         </nav>

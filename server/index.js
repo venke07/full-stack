@@ -2069,3 +2069,148 @@ app.get('/api/conversations/search/:userId/:agentId', async (req, res) => {
   }
 });
 
+/**
+ * Evolve agent - Generate improved version based on feedback
+ */
+app.post('/api/evolve-agent', async (req, res) => {
+  try {
+    const { agentId, currentPrompt, description, improvements, generation } = req.body;
+
+    if (!currentPrompt || !improvements) {
+      return res.status(400).json({ error: 'currentPrompt and improvements are required' });
+    }
+
+    // Get API key from environment
+    const apiKey = process.env.OPENAI_API_KEY;
+    
+    // Function to generate mock evolution
+    const generateMockEvolution = () => {
+      const improvementSummary = improvements.substring(0, 60);
+      return {
+        system_prompt: `${currentPrompt}\n\n[EVOLVED v${generation}]\nImprovement applied: ${improvements}`,
+        description: `${description} (Enhanced with: ${improvementSummary}...)`,
+        sliders: {
+          formality: Math.max(0, Math.min(100, 45 + (generation * 3))),
+          creativity: Math.max(0, Math.min(100, 55 + (generation * 2))),
+        },
+        tools: {
+          web: true,
+          rfd: generation > 1,
+          deep: generation > 2,
+        },
+      };
+    };
+
+    // If no API key, use mock evolution
+    if (!apiKey) {
+      console.log('[EVOLVE_AGENT] No OpenAI key configured, using mock evolution');
+      return res.json(generateMockEvolution());
+    }
+
+    // Create evolution prompt
+    const evolutionPrompt = `You are an AI agent architect. Your task is to evolve and improve an AI agent's system prompt based on user feedback.
+
+Current System Prompt:
+${currentPrompt}
+
+Current Description:
+${description}
+
+Generation: ${generation}
+
+User's Desired Improvements:
+${improvements}
+
+Please provide:
+1. An improved system prompt that incorporates the requested improvements
+2. A refined description (1-2 sentences)
+3. Suggested slider values (formality: 0-100, creativity: 0-100)
+4. Recommended tools (as a JSON object with boolean values)
+
+Format your response as JSON with keys: system_prompt, description, sliders (object with formality and creativity), tools (object with web, rfd, deep boolean values)`;
+
+    console.log('[EVOLVE_AGENT] Calling OpenAI API...');
+    
+    try {
+      // Call OpenAI API
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert AI agent architect. Respond with valid JSON only, no markdown formatting.',
+            },
+            {
+              role: 'user',
+              content: evolutionPrompt,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: 1500,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        const errorMsg = errorData.error?.message || response.statusText;
+        console.warn('[EVOLVE_AGENT] OpenAI API error, falling back to mock:', errorMsg);
+        
+        // Fall back to mock evolution on any API error
+        return res.json(generateMockEvolution());
+      }
+
+      const data = await response.json();
+      const content = data.choices[0].message.content;
+
+      console.log('[EVOLVE_AGENT] OpenAI Response received');
+
+      // Parse the JSON response
+      let evolvedData;
+      try {
+        evolvedData = JSON.parse(content);
+      } catch (e) {
+        console.warn('[EVOLVE_AGENT] JSON parse failed, trying regex extraction');
+        // Try to extract JSON from the response
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          evolvedData = JSON.parse(jsonMatch[0]);
+        } else {
+          console.warn('[EVOLVE_AGENT] Could not parse JSON response, using mock evolution');
+          return res.json(generateMockEvolution());
+        }
+      }
+
+      // Validate and sanitize the response
+      const result = {
+        system_prompt: evolvedData.system_prompt || currentPrompt,
+        description: evolvedData.description || description,
+        sliders: {
+          formality: Math.max(0, Math.min(100, parseInt(evolvedData.sliders?.formality) || 50)),
+          creativity: Math.max(0, Math.min(100, parseInt(evolvedData.sliders?.creativity) || 50)),
+        },
+        tools: {
+          web: Boolean(evolvedData.tools?.web),
+          rfd: Boolean(evolvedData.tools?.rfd),
+          deep: Boolean(evolvedData.tools?.deep),
+        },
+      };
+
+      console.log('[EVOLVE_AGENT] Evolution successful');
+      res.json(result);
+    } catch (apiError) {
+      console.warn('[EVOLVE_AGENT] API call failed, using mock evolution:', apiError.message);
+      // Fall back to mock evolution on any network/fetch error
+      res.json(generateMockEvolution());
+    }
+  } catch (error) {
+    console.error('[EVOLVE_AGENT_ERROR]', error.message);
+    res.status(500).json({ error: error.message || 'Failed to evolve agent' });
+  }
+});
+

@@ -111,99 +111,29 @@ export default function ChatPage() {
     fetchAgents();
   }, [user?.id]);
 
-  // Initialize Web Speech API
+  // Initialize Web Speech API (disabled - custom integration in progress)
   useEffect(() => {
-    // Check if browser supports Speech Recognition
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (SpeechRecognition) {
-      const recognitionInstance = new SpeechRecognition();
-      recognitionInstance.continuous = false;
-      recognitionInstance.interimResults = false;
-      recognitionInstance.lang = 'en-US';
-      
-      recognitionInstance.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setChatInput(transcript);
-        setIsListening(false);
-      };
-      
-      recognitionInstance.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setStatus(`Voice error: ${event.error}`);
-        setTimeout(() => setStatus(''), 3000);
-        setIsListening(false);
-      };
-      
-      recognitionInstance.onend = () => {
-        setIsListening(false);
-      };
-      
-      setRecognition(recognitionInstance);
-      setVoiceSupported(true);
-    }
-    
-    // Check if browser supports Speech Synthesis
-    if (window.speechSynthesis) {
-      setSynthesis(window.speechSynthesis);
-    }
+    // Speech recognition disabled for custom integration
+    setVoiceSupported(true); // Keep button visible but non-functional
   }, []);
   
-  // Voice control functions
+  // Voice control functions (disabled for custom integration)
   const startListening = () => {
-    if (!recognition || isListening) return;
-    
-    try {
-      recognition.start();
-      setIsListening(true);
-      setStatus('🎤 Listening...');
-    } catch (err) {
-      console.error('Error starting recognition:', err);
-      setStatus('Could not start voice input');
-      setTimeout(() => setStatus(''), 3000);
-    }
+    setStatus('🎤 Voice feature coming soon - custom integration in progress');
+    setTimeout(() => setStatus(''), 3000);
   };
   
   const stopListening = () => {
-    if (recognition && isListening) {
-      recognition.stop();
-      setIsListening(false);
-      setStatus('');
-    }
+    setStatus('');
   };
   
   const speakText = (text) => {
-    if (!synthesis || !voiceEnabled || !text) return;
-    
-    // Cancel any ongoing speech
-    synthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-    
-    utterance.onstart = () => {
-      setIsPlaying(true);
-    };
-    
-    utterance.onend = () => {
-      setIsPlaying(false);
-    };
-    
-    utterance.onerror = (event) => {
-      console.error('Speech synthesis error:', event.error);
-      setIsPlaying(false);
-    };
-    
-    synthesis.speak(utterance);
+    // Speech synthesis disabled for custom integration
+    // Will be replaced with custom implementation
   };
   
   const stopSpeaking = () => {
-    if (synthesis) {
-      synthesis.cancel();
-      setIsPlaying(false);
-    }
+    setIsPlaying(false);
   };
 
   useEffect(() => {
@@ -899,7 +829,7 @@ export default function ChatPage() {
             <div className="stage-input">
               <input
                 type="text"
-                placeholder={isListening ? 'Listening...' : 'Type your message…'}
+                placeholder="Type your message…"
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -913,8 +843,8 @@ export default function ChatPage() {
                   className={`btn voice-btn ${isListening ? 'listening' : ''}`}
                   type="button"
                   onClick={isListening ? stopListening : startListening}
-                  disabled={isResponding}
-                  title={isListening ? 'Stop listening' : 'Click to speak'}
+                  disabled={true}
+                  title="Voice feature - custom integration in progress"
                 >
                   {isListening ? '⏹️' : '🎤'}
                 </button>
