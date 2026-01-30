@@ -1,3 +1,50 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabaseClient.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
+
+const DATA_TRANSFER_TYPE = 'application/canvas-node';
+const AGENT_ACCENTS = ['#5da9ff', '#3dd6c5', '#ff9b6a', '#b58dff', '#ffd166', '#f472b6'];
+
+const paletteBlocks = [
+  {
+    type: 'trigger',
+    title: 'Salesforce Trigger',
+    description: 'When a new lead updates their status.',
+    accent: 'var(--accent)',
+    modelId: null,
+  },
+  {
+    type: 'action',
+    title: 'Slack Notify',
+    description: 'Send approvals or alerts into any channel.',
+    accent: '#5da9ff',
+    modelId: null,
+  },
+  {
+    type: 'data',
+    title: 'Vector Search',
+    description: 'Query embeddings or turn docs into context.',
+    accent: '#ff9b6a',
+    modelId: null,
+  },
+  {
+    type: 'logic',
+    title: 'Branching Rule',
+    description: 'Split traffic with filters or guardrails.',
+    accent: '#b58dff',
+    modelId: null,
+  },
+  {
+    type: 'llm',
+    title: 'LLM Agent',
+    description: 'Let the agent call tools with guardrails.',
+    accent: '#3dd6c5',
+    modelId: modelOptions[0].id,
+  },
+];
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout.jsx';
@@ -552,6 +599,86 @@ export default function CanvasPage() {
             <p className="eyebrow">{lens.title}</p>
             <p className="muted">{lens.body}</p>
           </div>
+        </div>
+        <div className="header-actions">
+          <TutorialLauncher />
+          <button
+            className="btn primary compact"
+            onClick={() => setShowCreateModal(true)}
+            disabled={nodes.length === 0}
+            title={nodes.length === 0 ? 'Add nodes first' : 'Create agent from this workflow'}
+          >
+            💾 Save as Agent
+          </button>
+          <Link className="btn ghost compact" to="/home">
+            Dashboard
+          </Link>
+          <Link className="btn ghost compact" to="/builder">
+            Form Builder →
+          </Link>
+        </div>
+      </header>
+
+      {/* Create Agent Modal */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Create Agent from Workflow</h2>
+            <p className="muted small">Convert your workflow into a reusable AI agent</p>
+
+            <div className="form-group">
+              <label htmlFor="agent-name">Agent Name *</label>
+              <input
+                id="agent-name"
+                type="text"
+                placeholder="e.g., Lead Qualification Agent"
+                value={agentName}
+                onChange={(e) => setAgentName(e.target.value)}
+                disabled={isSaving}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="agent-desc">Description</label>
+              <textarea
+                id="agent-desc"
+                placeholder="What does this agent do?"
+                value={agentDescription}
+                onChange={(e) => setAgentDescription(e.target.value)}
+                disabled={isSaving}
+                rows="3"
+              />
+            </div>
+
+            <div className="modal-info">
+              <p className="muted small">
+                <strong>Workflow Summary:</strong>
+                <br />
+                {nodes.length} node{nodes.length !== 1 ? 's' : ''} • {connections.length} connection{connections.length !== 1 ? 's' : ''}
+              </p>
+              <p className="muted small">
+                <strong>Primary Model:</strong>
+                <br />
+                {getModelMeta((nodes.find((n) => n.type === 'llm' || n.type === 'agent')?.modelId) || modelOptions[0].id).label}
+              </p>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn ghost"
+                onClick={() => setShowCreateModal(false)}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                onClick={handleCreateAgentFromWorkflow}
+                disabled={isSaving || !agentName.trim()}
+              >
+                {isSaving ? '⏳ Creating...' : '✅ Create Agent'}
+              </button>
+            </div>
         ))}
       </div>
 

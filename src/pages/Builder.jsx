@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import PromptVersioning from '../components/PromptVersioning.jsx';
 import ABTesting from '../components/ABTesting.jsx';
 import ModelComparison from '../components/ModelComparison.jsx';
@@ -721,6 +722,42 @@ export default function BuilderPage() {
     </div>
   );
 
+  return (
+    <div className="app builder-page">
+      <header>
+        <div className="brand">
+          <div className="logo">AI</div>
+          <div>
+            <h1>Agent Builder</h1>
+            <div className="sub">Build and configure your AI agent</div>
+          </div>
+        </div>
+        <div className="header-actions">
+          <div className="header-meta">
+            <span className="chip">🔒 Autosave enabled</span>
+            <span className="chip">✨ Draft</span>
+          </div>
+          <TutorialLauncher />
+          <div className="account-pill">
+            <div>
+              <div className="pill-label">Account</div>
+              <b>{user?.email}</b>
+            </div>
+            <button className="btn ghost compact" type="button" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </div>
+          <Link className="btn ghost compact" to="/canvas">
+            Flow Canvas →
+          </Link>
+          <Link className="btn ghost compact" to="/chat">
+            Launch Chat →
+          </Link>
+          <Link className="btn ghost compact" to="/home">
+            ← Back to Home
+          </Link>
+        </div>
+      </header>
   const headerActions = (
     <div className="page-actions compact">
       <div className="chip-tray">

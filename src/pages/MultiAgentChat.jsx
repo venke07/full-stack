@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { supabase } from '../lib/supabaseClient.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 
@@ -743,6 +744,22 @@ export default function MultiAgentChat() {
               {selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''} active
             </p>
           </div>
+        </div>
+        <div className="chat-controls">
+          <TutorialLauncher />
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn ${mode === 'multi' ? 'active' : ''}`}
+              onClick={() => setMode('multi')}
+            >
+              Multi
+            </button>
+            <button
+              className={`mode-btn ${mode === 'single' ? 'active' : ''}`}
+              onClick={() => setMode('single')}
+            >
+              Single
+            </button>
           <div className="chat-controls">
             <div className="mode-toggle">
               <button

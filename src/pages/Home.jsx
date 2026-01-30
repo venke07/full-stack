@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 
 const templateAgents = [
   { name: 'Marketing Advisor', desc: 'Provides marketing strategy advice', tags: ['Web Search', 'Research'], status: 'Template' },
@@ -425,6 +426,91 @@ export default function HomePage() {
               </button>
             ))}
           </div>
+          <TutorialLauncher />
+          {/* Voice Chat Button */}
+          <button 
+            className="voice-chat-icon-btn"
+            onClick={() => navigate('/voice-chat')}
+            title="Voice Chat"
+            type="button"
+          >
+            🎤
+          </button>
+          {/* Multi-Agent Chat Button */}
+          <button 
+            className="multi-chat-icon-btn"
+            onClick={() => navigate('/multi-chat')}
+            title="Multi-Agent Chat"
+            type="button"
+          >
+            🤖💬
+          </button>
+          {/* Single Chat Button */}
+          <button 
+            className="chat-icon-btn"
+            onClick={() => navigate('/chat')}
+            title="Single Agent Chat"
+            type="button"
+          >
+            💬
+          </button>
+          <button className="signout-btn" type="button" onClick={signOut}>
+            Sign out
+          </button>
+          <button 
+            className="profile-btn"
+            onClick={() => navigate('/profile')}
+            title="View Profile"
+            type="button"
+          >
+            👤
+          </button>
+        </div>
+      </div>
+
+      <div className="dashboard-toolbar">
+        <div className="filters">
+          {FILTERS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={`filter-btn ${filter === option ? 'active-filter' : ''}`}
+              onClick={() => setFilter(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+        {filter !== 'Templates' && (
+          <select className="sort-select" value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+            <option value="recent">Recently Added</option>
+            <option value="az">A – Z</option>
+          </select>
+        )}
+      </div>
+
+      {banner?.text && <div className={`dashboard-status ${banner.type}`}>{banner.text}</div>}
+
+      <section className="dashboard-grid">
+        {isLoading ? (
+          <div className="dashboard-empty">Loading your agents…</div>
+        ) : displayAgents.length === 0 ? (
+          <div className="dashboard-empty">No agents found.</div>
+        ) : (
+          displayAgents.map((agent) => (
+            <div
+              key={agent.id || agent.name}
+              className={`dashboard-card ${filter === 'Templates' ? 'template-card' : ''}`}
+            >
+              <div className="card-header">
+                <span className="card-title">{agent.name}</span>
+                {filter === 'Templates' ? (
+                  <span className="status template-tag">Template</span>
+                ) : (
+                  <span className={`status ${agent.status === 'published' ? 'active' : 'draft'}`}>
+                    {agent.uiStatus}
+                  </span>
+                )}
 
           {filter !== 'Templates' && (
             <div className="control-grid">

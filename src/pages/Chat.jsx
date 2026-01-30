@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
+import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import ConversationHistory from '../components/ConversationHistory.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 
@@ -512,6 +513,24 @@ export default function ChatPage() {
     }
   };
 
+  return (
+    <div className="app chat-page">
+      <header>
+        <div className="brand">
+          <div className="logo">AI</div>
+          <div>
+            <h1>Chat Surface</h1>
+            <div className="sub">Test the agent experience before shipping.</div>
+          </div>
+        </div>
+        <div className="header-actions">
+          <TutorialLauncher />
+          <Link className="btn ghost compact" to="/builder">
+            ← Back to Builder
+          </Link>
+          <Link className="btn ghost compact" to="/home">
+            Dashboard
+          </Link>
   /**
    * Record test result to the A/B test database
    */
