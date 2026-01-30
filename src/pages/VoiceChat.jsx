@@ -8,6 +8,24 @@ import '../styles/VoiceChat.css';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+// Simple markdown formatter - converts markdown to clean text
+const formatMessage = (text) => {
+  if (!text) return '';
+  
+  return text
+    // Remove ** bold markers but keep content
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    // Remove * italic markers but keep content
+    .replace(/\*([^*]+)\*/g, '$1')
+    // Convert markdown lists to bullet points
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    // Convert numbered lists
+    .replace(/^\s*\d+\.\s+/gm, (match) => match.trim() + ' ')
+    // Clean up extra whitespace
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
 export default function VoiceChatPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -20,6 +38,12 @@ export default function VoiceChatPage() {
   const [status, setStatus] = useState('Ready to chat');
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [audioLevel, setAudioLevel] = useState(0);
+  
+  // Edit agent state
+  const [editingAgentId, setEditingAgentId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const recognitionRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -157,7 +181,11 @@ export default function VoiceChatPage() {
     setStatus('Processing...');
 
     // Add user message to conversation
-    setConversation((prev) => [...prev, { role: 'user', text: userMessage }]);
+    setConversation((prev) => [...prev, { 
+      role: 'user', 
+      text: userMessage,
+      timestamp: new Date()
+    }]);
 
     try {
       // Build system prompt
@@ -193,7 +221,12 @@ export default function VoiceChatPage() {
       const agentMessage = data.reply;
 
       // Add agent message to conversation
-      setConversation((prev) => [...prev, { role: 'agent', text: agentMessage }]);
+      setConversation((prev) => [...prev, { 
+        role: 'agent', 
+        text: agentMessage,
+        timestamp: new Date(),
+        agentName: selectedAgent?.name
+      }]);
       setStatus('Speaking...');
 
       // Speak the response
@@ -224,10 +257,85 @@ export default function VoiceChatPage() {
     window.speechSynthesis.speak(utterance);
   };
 
+  const stopSpeaking = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    setStatus('Ready to chat');
+  };
+
   const clearConversation = () => {
     setConversation([]);
     setTranscript('');
     setStatus('Conversation cleared');
+  };
+
+  const handleSelectAgent = (agent) => {
+    if (agent.id !== selectedAgent?.id) {
+      setSelectedAgent(agent);
+      setConversation([]);
+      setTranscript('');
+      setStatus('Ready to chat');
+    }
+  };
+
+  // Start editing an agent
+  const startEditingAgent = (e, agent) => {
+    e.stopPropagation();
+    setEditingAgentId(agent.id);
+    setEditName(agent.name || '');
+    setEditDescription(agent.description || '');
+  };
+
+  // Cancel editing
+  const cancelEditing = (e) => {
+    if (e) e.stopPropagation();
+    setEditingAgentId(null);
+    setEditName('');
+    setEditDescription('');
+  };
+
+  // Save agent changes
+  const saveAgentChanges = async (e) => {
+    e.stopPropagation();
+    if (!editName.trim()) return;
+    
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('agent_personas')
+        .update({ 
+          name: editName.trim(),
+          description: editDescription.trim()
+        })
+        .eq('id', editingAgentId);
+
+      if (error) throw error;
+
+      // Update local state
+      setAgents(prev => prev.map(a => 
+        a.id === editingAgentId 
+          ? { ...a, name: editName.trim(), description: editDescription.trim() }
+          : a
+      ));
+
+      // Update selected agent if it was edited
+      if (selectedAgent?.id === editingAgentId) {
+        setSelectedAgent(prev => ({ 
+          ...prev, 
+          name: editName.trim(), 
+          description: editDescription.trim() 
+        }));
+      }
+
+      setEditingAgentId(null);
+      setEditName('');
+      setEditDescription('');
+    } catch (error) {
+      console.error('Failed to update agent:', error);
+      setStatus('Failed to save changes');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (isLoadingAgents) {
@@ -235,10 +343,10 @@ export default function VoiceChatPage() {
       <div className="app voice-chat-page">
         <header>
           <div className="brand">
-            <div className="logo">🎤</div>
+            <div className="logo">�️</div>
             <div>
               <h1>Voice Chat</h1>
-              <div className="sub">Real-time conversation with AI agents</div>
+              <div className="sub">Real-time AI conversation</div>
             </div>
           </div>
           <div className="header-actions">
@@ -259,10 +367,10 @@ export default function VoiceChatPage() {
     <div className="app voice-chat-page">
       <header>
         <div className="brand">
-          <div className="logo">🎤</div>
+          <div className="logo">�️</div>
           <div>
             <h1>Voice Chat</h1>
-            <div className="sub">Real-time conversation with AI agents</div>
+            <div className="sub">Real-time AI conversation</div>
           </div>
         </div>
         <div className="header-actions">
@@ -285,18 +393,62 @@ export default function VoiceChatPage() {
               <p className="muted">No published agents found</p>
             ) : (
               agents.map((agent) => (
-                <button
-                  key={agent.id}
-                  className={`agent-option ${selectedAgent?.id === agent.id ? 'active' : ''}`}
-                  onClick={() => setSelectedAgent(agent)}
-                  disabled={isListening || isSpeaking}
-                >
-                  <div className="agent-pill">{agent.name?.slice(0, 2)?.toUpperCase() || 'AI'}</div>
-                  <div className="agent-info">
-                    <strong>{agent.name}</strong>
-                    <p className="muted">{agent.description}</p>
-                  </div>
-                </button>
+                <div key={agent.id} className="agent-option-wrapper">
+                  {editingAgentId === agent.id ? (
+                    <div className="agent-edit-form">
+                      <input
+                        type="text"
+                        className="agent-edit-input"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Agent name"
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        className="agent-edit-input small"
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        placeholder="Description"
+                      />
+                      <div className="agent-edit-actions">
+                        <button 
+                          className="edit-btn save" 
+                          onClick={saveAgentChanges}
+                          disabled={isSaving || !editName.trim()}
+                        >
+                          {isSaving ? '...' : '✓'}
+                        </button>
+                        <button 
+                          className="edit-btn cancel" 
+                          onClick={cancelEditing}
+                          disabled={isSaving}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className={`agent-option ${selectedAgent?.id === agent.id ? 'active' : ''}`}
+                      onClick={() => handleSelectAgent(agent)}
+                      disabled={isListening || isSpeaking}
+                    >
+                      <div className="agent-pill">{agent.name?.slice(0, 2)?.toUpperCase() || 'AI'}</div>
+                      <div className="agent-info">
+                        <strong>{agent.name}</strong>
+                        <p className="muted">{agent.description}</p>
+                      </div>
+                      <button
+                        className="agent-edit-btn"
+                        onClick={(e) => startEditingAgent(e, agent)}
+                        title="Edit agent"
+                      >
+                        ✏️
+                      </button>
+                    </button>
+                  )}
+                </div>
               ))
             )}
           </div>
@@ -319,13 +471,24 @@ export default function VoiceChatPage() {
           <div className="conversation-display">
             {conversation.length === 0 ? (
               <div className="conversation-empty">
+                <div className="empty-icon">💬</div>
                 <p>No messages yet</p>
-                <p className="muted">Click the microphone to start speaking</p>
+                <p className="hint">Click the microphone to start speaking</p>
               </div>
             ) : (
               conversation.map((msg, idx) => (
-                <div key={idx} className={`conversation-bubble ${msg.role}`}>
-                  {msg.text}
+                <div key={idx} className={`message-group ${msg.role === 'user' ? 'user' : ''}`}>
+                  {msg.role === 'agent' && (
+                    <span className="agent-badge">{msg.agentName || 'Agent'}</span>
+                  )}
+                  <div className={`conversation-bubble ${msg.role}`}>
+                    {formatMessage(msg.text)}
+                  </div>
+                  {msg.timestamp && (
+                    <span className="message-time">
+                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </div>
               ))
             )}
@@ -342,13 +505,25 @@ export default function VoiceChatPage() {
 
             {isListening && (
               <div className="audio-visualization">
+                <div className="voice-orb">
+                  <div className="orb-ring"></div>
+                  <div className="orb-ring"></div>
+                  <div className="orb-ring"></div>
+                  <div className="orb-core"></div>
+                </div>
+              </div>
+            )}
+
+            {isSpeaking && (
+              <div className="audio-visualization">
                 <div className="waveform-bars">
                   {[...Array(20)].map((_, i) => (
                     <div
                       key={i}
                       className="bar"
                       style={{
-                        height: `${Math.sin(i * 0.5 + Date.now() / 200) * audioLevel * 100 + 30}%`,
+                        height: `${Math.random() * 80 + 20}%`,
+                        animationDelay: `${i * 0.05}s`,
                       }}
                     />
                   ))}
@@ -358,7 +533,7 @@ export default function VoiceChatPage() {
 
             {transcript && (
               <div className="transcript-box">
-                <p className="transcript-label">Transcript:</p>
+                <p className="transcript-label">Transcript</p>
                 <p className="transcript-text">{transcript}</p>
               </div>
             )}
@@ -367,41 +542,55 @@ export default function VoiceChatPage() {
           {/* Controls */}
           <div className="voice-controls">
             <button
-              className={`btn control-btn ${isListening ? 'listening' : ''}`}
-              onClick={isListening ? stopListening : startListening}
-              disabled={!selectedAgent || isSpeaking}
+              className="control-btn clear"
+              onClick={clearConversation}
+              disabled={isListening || isSpeaking || conversation.length === 0}
             >
-              {isListening ? '⏹️ Stop' : '🎤 Start Listening'}
+              🗑️ Clear
             </button>
 
+            {isSpeaking ? (
+              <button
+                className="mic-button stop-speaking"
+                onClick={stopSpeaking}
+                title="Stop speaking"
+              >
+                ⏹️
+              </button>
+            ) : (
+              <button
+                className={`mic-button ${isListening ? 'listening' : ''}`}
+                onClick={isListening ? stopListening : startListening}
+                disabled={!selectedAgent}
+                title={isListening ? 'Stop listening' : 'Start listening'}
+              >
+                {isListening ? '⏹️' : '🎤'}
+              </button>
+            )}
+
             <button
-              className="btn primary control-btn"
+              className="control-btn send"
               onClick={handleSendMessage}
               disabled={!transcript.trim() || !selectedAgent || isSpeaking || isListening}
             >
-              Send Message
-            </button>
-
-            <button className="btn ghost control-btn" onClick={clearConversation} disabled={isListening || isSpeaking}>
-              Clear Chat
+              Send ➤
             </button>
           </div>
         </section>
 
         {/* Info Sidebar */}
         <aside className="voice-sidebar info-panel">
-          <h3>Info</h3>
+          <h3>Features</h3>
           <div className="info-card">
-            <p className="label">Supported Features:</p>
             <ul className="feature-list">
-              <li>🎙️ Real-time speech recognition</li>
-              <li>🔊 AI voice responses</li>
-              <li>💬 Full conversation history</li>
-              <li>🤖 Multi-agent support</li>
+              <li>Real-time speech recognition</li>
+              <li>Natural AI voice responses</li>
+              <li>Full conversation history</li>
+              <li>Multi-agent support</li>
             </ul>
           </div>
+          <h3>Tips</h3>
           <div className="info-card">
-            <p className="label">Tips:</p>
             <ul className="tips-list">
               <li>Speak clearly and naturally</li>
               <li>Wait for the response to finish</li>

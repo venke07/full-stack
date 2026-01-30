@@ -8,26 +8,35 @@ const TutorialLauncher = () => {
   const navigate = useNavigate();
   const { startTutorial } = useTutorial();
   const [showMenu, setShowMenu] = React.useState(false);
+  const [showModeModal, setShowModeModal] = React.useState(false);
+  const [selectedTutorialId, setSelectedTutorialId] = React.useState(null);
 
   const tutorials = getAllTutorials();
 
   const handleTutorialClick = (tutorialId) => {
-    const tutorial = getTutorial(tutorialId);
+    setSelectedTutorialId(tutorialId);
+    setShowMenu(false);
+    setShowModeModal(true);
+  };
+
+  const startWithMode = (voiceEnabled) => {
+    const tutorial = getTutorial(selectedTutorialId);
+    setShowModeModal(false);
     
     // If tutorial has a route, navigate to it first
     if (tutorial?.route) {
       navigate(tutorial.route);
-      // Give the page time to mount, then start the tutorial
+      // Give the page time to load, then start the tutorial
       setTimeout(() => {
-        startTutorial(tutorialId);
+        startTutorial(selectedTutorialId, voiceEnabled);
       }, 500);
     } else {
       // Start tutorial immediately if no route
-      startTutorial(tutorialId);
+      startTutorial(selectedTutorialId, voiceEnabled);
     }
-    
-    setShowMenu(false);
   };
+
+  const selectedTutorial = selectedTutorialId ? getTutorial(selectedTutorialId) : null;
 
   return (
     <div className="tutorial-launcher">
@@ -66,6 +75,59 @@ const TutorialLauncher = () => {
                 </div>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* this is to select the tutorial mode */}
+      {showModeModal && (
+        <div className="tutorial-mode-overlay" onClick={() => setShowModeModal(false)}>
+          <div className="tutorial-mode-modal" onClick={(e) => e.stopPropagation()}>
+            <button 
+              className="tutorial-mode-close"
+              onClick={() => setShowModeModal(false)}
+            >
+              ×
+            </button>
+            
+            <div className="tutorial-mode-header">
+              <h2>How would you like to learn?</h2>
+              {selectedTutorial && (
+                <p className="tutorial-mode-subtitle">
+                  {selectedTutorial.title}
+                </p>
+              )}
+            </div>
+
+            <div className="tutorial-mode-options">
+              <button 
+                className="tutorial-mode-option voice-option"
+                onClick={() => startWithMode(true)}
+              >
+                <div className="mode-icon">🔊</div>
+                <div className="mode-info">
+                  <h3>Voice-Guided</h3>
+                  <p>AI narrates each step aloud while you follow along visually</p>
+                </div>
+                <div className="mode-badge">Interactive</div>
+              </button>
+
+              <button 
+                className="tutorial-mode-option text-option"
+                onClick={() => startWithMode(false)}
+              >
+                <div className="mode-icon">📖</div>
+                <div className="mode-info">
+                  <h3>Text Only</h3>
+                  <p>Read through each step at your own pace quietly</p>
+                </div>
+                <div className="mode-badge">Classic</div>
+              </button>
+            </div>
+
+            <p className="tutorial-mode-hint">
+              💡 Voice-guided works best with speakers or headphones
+            </p>
           </div>
         </div>
       )}
