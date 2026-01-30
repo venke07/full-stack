@@ -2,16 +2,16 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const NAV_LINKS = [
-  { label: 'Overview', helper: 'Agents', to: '/home', icon: '📊' },
-  { label: 'Builder', helper: 'Design & tune', to: '/builder', icon: '🛠️' },
-  { label: 'Flow Canvas', helper: 'Visual orchestration', to: '/canvas', icon: '🎨' },
-  { label: 'Templates', helper: 'Starter kits', to: '/templates', icon: '📦' },
-  { label: 'Testing Lab', helper: 'A/B & QA', to: '/testing', icon: '🧪' },
-  { label: 'Chat', helper: 'Single agent', to: '/chat', icon: '💬' },
-  { label: 'Multi-Agent', helper: 'Swarm chat', to: '/multi-chat', icon: '🤖' },
-  { label: 'Autonomous', helper: 'Task runner', to: '/autonomous', icon: '⚡' },
-  { label: 'Fusion Lab', helper: 'Blend agents', to: '/fusion-lab', icon: '⚗️' },
-  { label: 'Evolution Lab', helper: 'Refine iteratively', to: '/evolution-lab', icon: '🧬' },
+  { label: 'Overview', helper: 'Agents', to: '/home', icon: 'OV' },
+  { label: 'Builder', helper: 'Design & tune', to: '/builder', icon: 'BL' },
+  { label: 'Flow Canvas', helper: 'Visual orchestration', to: '/canvas', icon: 'CV' },
+  { label: 'Templates', helper: 'Starter kits', to: '/templates', icon: 'TP' },
+  { label: 'Testing Lab', helper: 'A/B & QA', to: '/testing', icon: 'TS' },
+  { label: 'Chat', helper: 'Single agent', to: '/chat', icon: 'CH' },
+  { label: 'Multi-Agent', helper: 'Swarm chat', to: '/multi-chat', icon: 'MA' },
+  { label: 'Autonomous', helper: 'Task runner', to: '/autonomous', icon: 'AT' },
+  { label: 'Fusion Lab', helper: 'Blend agents', to: '/fusion-lab', icon: 'FL' },
+  { label: 'Evolution Lab', helper: 'Refine iteratively', to: '/evolution-lab', icon: 'EL' },
 ];
 
 export default function DashboardLayout({ headerContent, actions, children }) {

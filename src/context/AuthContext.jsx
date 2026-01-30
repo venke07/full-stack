@@ -13,9 +13,18 @@ const AuthContext = createContext({
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const disableAuthFlag =
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DISABLE_AUTH === 'true') ||
+    (typeof process !== 'undefined' && process.env?.VITE_DISABLE_AUTH === 'true');
+  const bypassAuth = disableAuthFlag || !supabase;
+  const fallbackSession = useMemo(
+    () => ({ user: { id: 'dev-preview-user', email: 'preview@local.dev' } }),
+    [],
+  );
 
   useEffect(() => {
-    if (!supabase) {
+    if (bypassAuth) {
+      setSession(fallbackSession);
       setLoading(false);
       return;
     }
@@ -42,9 +51,12 @@ export function AuthProvider({ children }) {
       ignore = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [bypassAuth, fallbackSession]);
 
   const handlerFactory = (fn) => async (...args) => {
+    if (bypassAuth) {
+      return { data: null, error: null };
+    }
     if (!supabase) {
       return { data: null, error: new Error('Supabase not configured. Add VITE_SUPABASE_ANON_KEY.') };
     }
@@ -63,10 +75,14 @@ export function AuthProvider({ children }) {
         supabase.auth.signUp({ email, password, options: { data: metadata } }),
       ),
       signOut: handlerFactory(async () => {
+        if (bypassAuth) {
+          setSession(fallbackSession);
+          return { data: null, error: null };
+        }
         await supabase.auth.signOut();
       }),
     }),
-    [session, loading],
+    [session, loading, bypassAuth, fallbackSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

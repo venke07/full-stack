@@ -22,28 +22,28 @@ const sliderDisplayNames = {
 const personalityPresets = [
   {
     name: 'Professional',
-    emoji: '🤖',
+    emoji: 'PR',
     formality: 85,
     creativity: 25,
     description: 'Formal, factual, business-focused',
   },
   {
     name: 'Friendly',
-    emoji: '😊',
+    emoji: 'FR',
     formality: 40,
     creativity: 60,
     description: 'Approachable, engaging, conversational',
   },
   {
     name: 'Creative',
-    emoji: '💡',
+    emoji: 'CR',
     formality: 30,
     creativity: 85,
     description: 'Imaginative, innovative, outside-the-box',
   },
   {
     name: 'Balanced',
-    emoji: '⚖️',
+    emoji: 'BL',
     formality: 50,
     creativity: 50,
     description: 'Neutral, versatile, adaptable',
@@ -53,7 +53,7 @@ const personalityPresets = [
 const systemPromptTemplates = {
   'customer-support': {
     name: 'Customer Support',
-    emoji: '🎧',
+    emoji: 'CS',
     prompt: `You are a professional customer support specialist. Your role is to:
 - Listen carefully to customer concerns with genuine empathy
 - Provide clear, step-by-step solutions
@@ -67,7 +67,7 @@ Focus on customer satisfaction and building long-term relationships.`,
   },
   'business-analyst': {
     name: 'Business Analyst',
-    emoji: '📊',
+    emoji: 'BA',
     prompt: `You are a strategic business analyst specializing in insights and reporting. Your expertise includes:
 - Financial analysis and performance metrics
 - Market research and competitive analysis
@@ -80,7 +80,7 @@ Always support recommendations with data and provide actionable insights.`,
   },
   'creative-writer': {
     name: 'Creative Writer',
-    emoji: '✍️',
+    emoji: 'CW',
     prompt: `You are a talented creative writer skilled in multiple formats. Your strengths include:
 - Engaging storytelling and narrative structure
 - Content creation (blogs, social media, marketing copy)
@@ -93,7 +93,7 @@ Ask about the target audience and goals before creating content.`,
   },
   'technical-expert': {
     name: 'Technical Expert',
-    emoji: '👨‍💻',
+    emoji: 'TE',
     prompt: `You are a highly skilled technical expert with deep knowledge across multiple domains. You provide:
 - Clear explanations of complex technical concepts
 - Code reviews and best practices
@@ -106,7 +106,7 @@ Always explain your reasoning and provide examples when helpful.`,
   },
   'research-analyst': {
     name: 'Research Analyst',
-    emoji: '🔍',
+    emoji: 'RA',
     prompt: `You are a thorough research analyst specializing in gathering and synthesizing information. Your approach includes:
 - Identifying credible sources and cross-referencing
 - Analyzing trends and patterns in data
@@ -119,7 +119,7 @@ Structure findings clearly with methodology and conclusions.`,
   },
   'educational-tutor': {
     name: 'Educational Tutor',
-    emoji: '👨‍🏫',
+    emoji: 'ET',
     prompt: `You are an effective educational tutor who makes learning engaging and accessible. Your teaching style includes:
 - Breaking down complex topics into digestible parts
 - Using relatable examples and analogies
@@ -131,25 +131,6 @@ Structure findings clearly with methodology and conclusions.`,
 
 Always be patient, supportive, and enthusiastic about learning.`,
   },
-};
-
-const sliderEmojis = {
-  formality: {
-    low: '😄',
-    mid: '😐',
-    high: '🎩',
-  },
-  creativity: {
-    low: '🔍',
-    mid: '💭',
-    high: '✨',
-  },
-};
-
-const getSliderEmoji = (type, value) => {
-  if (value < 34) return sliderEmojis[type].low;
-  if (value < 67) return sliderEmojis[type].mid;
-  return sliderEmojis[type].high;
 };
 
 const defaultChat = [
@@ -187,12 +168,12 @@ const initialForm = {
 };
 
 const fileIconLookup = [
-  { match: ['pdf', 'application/pdf'], icon: '📕' },
-  { match: ['doc', 'docx', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], icon: '📘' },
-  { match: ['ppt', 'pptx', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'], icon: '📙' },
-  { match: ['xls', 'xlsx', 'csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'], icon: '📊' },
-  { match: ['txt', 'md', 'text/plain', 'text/markdown'], icon: '📄' },
-  { match: ['json', 'application/json'], icon: '🧾' },
+  { match: ['pdf', 'application/pdf'], icon: 'PDF' },
+  { match: ['doc', 'docx', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], icon: 'DOC' },
+  { match: ['ppt', 'pptx', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'], icon: 'PPT' },
+  { match: ['xls', 'xlsx', 'csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv'], icon: 'XLS' },
+  { match: ['txt', 'md', 'text/plain', 'text/markdown'], icon: 'TXT' },
+  { match: ['json', 'application/json'], icon: 'JSON' },
 ];
 
 const resolveFileIcon = (name = '', contentType = '') => {
@@ -202,12 +183,12 @@ const resolveFileIcon = (name = '', contentType = '') => {
   const hit = fileIconLookup.find(({ match }) =>
     match.some((token) => token === ext || normalizedType.includes(token)),
   );
-  return hit?.icon || '🗂️';
+  return hit?.icon || 'FILE';
 };
 
 const truncateFileLabel = (label = '') => {
   if (!label) return 'Attachment';
-  return label.length > 30 ? `${label.slice(0, 27)}…` : label;
+  return label.length > 30 ? `${label.slice(0, 27)}...` : label;
 };
 
 function Switch({ active, onToggle, label }) {
@@ -286,29 +267,29 @@ export default function BuilderPage() {
 
     const guardrailLines = [];
     if (form.guardrails.factual) {
-      guardrailLines.push('• Stay factual and avoid hallucinated data.');
+      guardrailLines.push('- Stay factual and avoid hallucinated data.');
     }
     if (form.guardrails.opinions) {
-      guardrailLines.push('• Avoid personal opinions; remain objective.');
+      guardrailLines.push('- Avoid personal opinions; remain objective.');
     }
     if (guardrailLines.length > 0) {
       sections.push(['Guardrails:', ...guardrailLines].join('\n'));
     }
 
     const personalityLines = Object.entries(personalitySnapshot).map(([key, snapshot]) =>
-      `• ${sliderDisplayNames[key] || key}: ${snapshot.label} (${snapshot.value}/100)`,
+      `- ${sliderDisplayNames[key] || key}: ${snapshot.label} (${snapshot.value}/100)`,
     );
     sections.push(['Personality alignment:', ...personalityLines].join('\n'));
 
     const toolLines = [];
     if (form.tools.web) {
-      toolLines.push('• Web Search: consult the web for fresher facts when needed.');
+      toolLines.push('- Web Search: consult the web for fresher facts when needed.');
     }
     if (form.tools.rfd && form.files.length > 0) {
-      toolLines.push(`• Retrieve-from-Documents: ground answers in ${form.files.length} uploaded source(s). Reference them when relevant.`);
+      toolLines.push(`- Retrieve-from-Documents: ground answers in ${form.files.length} uploaded source(s). Reference them when relevant.`);
     }
     if (form.tools.deep) {
-      toolLines.push('• Deep Research: take multi-step reasoning when tasks are complex.');
+      toolLines.push('- Deep Research: take multi-step reasoning when tasks are complex.');
     }
     if (toolLines.length > 0) {
       sections.push(['Available tools:', ...toolLines].join('\n'));
@@ -545,7 +526,7 @@ export default function BuilderPage() {
       return;
     }
     setIsLoadingAgent(true);
-    setStatus('Loading agent…');
+    setStatus('Loading agent...');
     try {
       const selectFields = supportsChatHistory ? `${agentSelectBase}, chat_history` : agentSelectBase;
       const { data, error } = await supabase
@@ -558,7 +539,7 @@ export default function BuilderPage() {
       if (error) {
         if (supportsChatHistory && error.message?.toLowerCase().includes('chat_history')) {
           setSupportsChatHistory(false);
-          setStatus('Chat history column missing. Loading without transcript…');
+          setStatus('Chat history column missing. Loading without transcript...');
           const retry = await supabase
             .from('agent_personas')
             .select(agentSelectBase)
@@ -628,7 +609,7 @@ export default function BuilderPage() {
         {
           id: `agent-${timestamp}`,
           role: 'agent',
-          text: `⚠️ ${fallback}`,
+          text: `Warning: ${fallback}`,
         },
       ]);
     } finally {
@@ -673,7 +654,7 @@ export default function BuilderPage() {
       return;
     }
     setIsSaving(true);
-    setStatus('Saving…');
+    setStatus('Saving...');
     try {
       const insertWithConfig = (includeChatHistory) =>
         supabase
@@ -752,7 +733,7 @@ export default function BuilderPage() {
               className={`tab ${builderTab === 'config' ? 'active' : ''}`}
               onClick={() => setBuilderTab('config')}
             >
-              ⚙️ Configuration
+              Configuration
             </button>
             {selectedAgentId && (
               <>
@@ -760,19 +741,19 @@ export default function BuilderPage() {
                   className={`tab ${builderTab === 'versions' ? 'active' : ''}`}
                   onClick={() => setBuilderTab('versions')}
                 >
-                  📝 Prompt Versions
+                  Prompt Versions
                 </button>
                 <button
                   className={`tab ${builderTab === 'testing' ? 'active' : ''}`}
                   onClick={() => setBuilderTab('testing')}
                 >
-                  ⚔️ A/B Testing
+                  A/B Testing
                 </button>
                 <button
                   className={`tab ${builderTab === 'comparison' ? 'active' : ''}`}
                   onClick={() => setBuilderTab('comparison')}
                 >
-                  🏆 Model Comparison
+                  Model Comparison
                 </button>
               </>
             )}
@@ -831,7 +812,7 @@ export default function BuilderPage() {
                     marginBottom: '10px',
                   }}
                 >
-                  <option value="">💡 Choose a template...</option>
+                  <option value="">Choose a template...</option>
                   {Object.entries(systemPromptTemplates).map(([key, template]) => (
                     <option key={key} value={key}>
                       {template.emoji} {template.name}
@@ -917,12 +898,11 @@ export default function BuilderPage() {
 
               <div className="divider" style={{ margin: '20px 0' }} />
 
-              {/* Formality Slider with Emoji */}
+              {/* Formality Slider */}
               <div className="metric">
                 <b>Formality</b>
                 <span className="badge" id="formalityBadge">
-                  <span style={{ marginRight: '8px', fontSize: '16px' }}>{getSliderEmoji('formality', form.sliders.formality)}</span>
-                  {sliderBadge('formality')}
+                  {sliderBadge('formality')} ({form.sliders.formality}/100)
                 </span>
               </div>
               <input
@@ -934,16 +914,15 @@ export default function BuilderPage() {
                 value={form.sliders.formality}
                 onChange={(e) => updateForm('sliders.formality', Number(e.target.value))}
               />
-              <div className="help">😄 Casual ↔ 🎩 Professional</div>
+              <div className="help">Casual to Professional</div>
 
               <div className="spacer" />
 
-              {/* Creativity Slider with Emoji */}
+              {/* Creativity Slider */}
               <div className="metric">
                 <b>Creativity</b>
                 <span className="badge" id="creativityBadge">
-                  <span style={{ marginRight: '8px', fontSize: '16px' }}>{getSliderEmoji('creativity', form.sliders.creativity)}</span>
-                  {sliderBadge('creativity')}
+                  {sliderBadge('creativity')} ({form.sliders.creativity}/100)
                 </span>
               </div>
               <input
@@ -955,7 +934,7 @@ export default function BuilderPage() {
                 value={form.sliders.creativity}
                 onChange={(e) => updateForm('sliders.creativity', Number(e.target.value))}
               />
-              <div className="help">🔍 Factual ↔ ✨ Imaginative</div>
+              <div className="help">Factual to Imaginative</div>
 
               <div className="divider" />
               <h3>Tools</h3>
@@ -979,7 +958,7 @@ export default function BuilderPage() {
                 </div>
                 <div className="row file-chip-row">
                   <label className="chip ghost file-upload-trigger" htmlFor="fileUp">
-                    ⬆️ Add source
+                    Add source
                   </label>
                   <input id="fileUp" type="file" multiple hidden onChange={handleFileUpload} />
                   {form.files.length > 0 ? (
@@ -1021,7 +1000,7 @@ export default function BuilderPage() {
                   )}
                 </div>
                 <div className="help">Uploads are always enabled for this agent.</div>
-                {isUploadingFile && <div className="help">Uploading…</div>}
+                {isUploadingFile && <div className="help">Uploading...</div>}
               </div>
               
               <div className="tool">
@@ -1063,7 +1042,7 @@ export default function BuilderPage() {
                 <div className="help">Neural ID linked</div>
               </div>
               {isFetchingAgents ? (
-                <div className="help">Loading agents…</div>
+                <div className="help">Loading agents...</div>
               ) : myAgents.length === 0 ? (
                 <div className="help">No agents yet. Save one to see it here.</div>
               ) : (
@@ -1101,7 +1080,7 @@ export default function BuilderPage() {
                 currentPrompt={form.prompt}
                 onVersionSelect={(version) => {
                   updateForm('prompt', version.prompt_text);
-                  setStatus('✨ Switched to version: ' + version.version_name);
+                  setStatus('Switched to version: ' + version.version_name);
                 }}
               />
             </div>
@@ -1141,7 +1120,7 @@ export default function BuilderPage() {
             <input
               id="chatInput"
               type="text"
-              placeholder="Type here to chat with your agent…"
+              placeholder="Type here to chat with your agent..."
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => {
@@ -1156,7 +1135,7 @@ export default function BuilderPage() {
               onClick={handleChatSend}
               disabled={isResponding}
             >
-              {isResponding ? 'Thinking…' : 'Send'}
+              {isResponding ? 'Thinking...' : 'Send'}
             </button>
           </div>
         </section>

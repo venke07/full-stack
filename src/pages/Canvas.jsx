@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient.js';
-import { useAuth } from '../context/AuthContext.jsx';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
 import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
@@ -15,11 +13,11 @@ const NODE_TYPES = {
 };
 
 const NODE_LIBRARY = [
-  { type: 'persona', icon: '🧬', title: 'Persona block', copy: 'Inject tone, empathy, or task framing.' },
-  { type: 'gate', icon: '🛡️', title: 'Safety gate', copy: 'Filter risky content and branch requests.' },
-  { type: 'tool', icon: '🛠️', title: 'Tool call', copy: 'Represent a service, connector, or workflow.' },
-  { type: 'summary', icon: '📝', title: 'Synthesis block', copy: 'Summaries, scoring, or QA nodes.' },
-  { type: 'action', icon: '⚙️', title: 'Action step', copy: 'Generic processing, notes, or fallbacks.' },
+  { type: 'persona', icon: 'PR', title: 'Persona block', copy: 'Inject tone, empathy, or task framing.' },
+  { type: 'gate', icon: 'GT', title: 'Safety gate', copy: 'Filter risky content and branch requests.' },
+  { type: 'tool', icon: 'TL', title: 'Tool call', copy: 'Represent a service, connector, or workflow.' },
+  { type: 'summary', icon: 'SM', title: 'Synthesis block', copy: 'Summaries, scoring, or QA nodes.' },
+  { type: 'action', icon: 'AC', title: 'Action step', copy: 'Generic processing, notes, or fallbacks.' },
 ];
 
 const TAG_LIBRARY = ['safety', 'persona', 'data', 'handoff', 'tooling'];
@@ -179,6 +177,10 @@ export default function CanvasPage() {
   );
   const [selectedId, setSelectedId] = useState(null);
   const [isBoardExpanded, setBoardExpanded] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [agentName, setAgentName] = useState('');
+  const [agentDescription, setAgentDescription] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -490,7 +492,7 @@ export default function CanvasPage() {
 
   const handleSimulateFlow = () => {
     if (!nodes.length) {
-      recordActivity('Simulation skipped — add nodes first');
+      recordActivity('Simulation skipped - add nodes first');
       return;
     }
     const liveNodes = nodes.filter((node) => node.status === 'live');
@@ -521,6 +523,29 @@ export default function CanvasPage() {
     });
   }, [nodes]);
 
+  const handleCreateAgentFromWorkflow = useCallback(async () => {
+    if (!agentName.trim()) {
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      recordActivity(
+        `Drafted ${agentName.trim()} with ${nodes.length} node${nodes.length === 1 ? '' : 's'} and ${connections.length} connection${
+          connections.length === 1 ? '' : 's'
+        }`,
+      );
+      setAgentName('');
+      setAgentDescription('');
+      setShowCreateModal(false);
+    } catch (error) {
+      console.error('Failed to create agent from workflow', error);
+      recordActivity('Agent creation failed');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [agentName, connections.length, nodes.length, recordActivity]);
+
   const headerContent = (
     <div className="page-heading">
       <p className="eyebrow">Spatial builder</p>
@@ -533,6 +558,14 @@ export default function CanvasPage() {
 
   const headerActions = (
     <div className="page-actions compact">
+      <button
+        className="btn primary"
+        type="button"
+        onClick={() => setShowCreateModal(true)}
+        disabled={!nodes.length}
+      >
+        Create agent
+      </button>
       <button className="btn secondary" type="button" onClick={handleSimulateFlow} disabled={!nodes.length}>
         Simulate path
       </button>
@@ -594,7 +627,7 @@ export default function CanvasPage() {
               <p className="muted small">
                 <strong>Workflow Summary:</strong>
                 <br />
-                {nodes.length} node{nodes.length !== 1 ? 's' : ''} • {connections.length} connection{connections.length !== 1 ? 's' : ''}
+                {nodes.length} node{nodes.length !== 1 ? 's' : ''} | {connections.length} connection{connections.length !== 1 ? 's' : ''}
               </p>
               <p className="muted small">
                 <strong>Primary Model:</strong>
@@ -616,7 +649,7 @@ export default function CanvasPage() {
                 onClick={handleCreateAgentFromWorkflow}
                 disabled={isSaving || !agentName.trim()}
               >
-                {isSaving ? '⏳ Creating...' : '✅ Create Agent'}
+                {isSaving ? 'Creating...' : 'Create Agent'}
               </button>
             </div>
           </div>
@@ -657,7 +690,7 @@ export default function CanvasPage() {
             <div>
               <p className="eyebrow">Canvas overview</p>
               <p className="muted">
-                {nodes.length} block{nodes.length === 1 ? '' : 's'} · Live {liveCount} · Draft {nodes.length - liveCount}
+                {nodes.length} block{nodes.length === 1 ? '' : 's'} | Live {liveCount} | Draft {nodes.length - liveCount}
               </p>
             </div>
             <div className="toolbar-metrics">
