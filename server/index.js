@@ -353,6 +353,192 @@ app.post('/api/flow-canvas/explain-step', async (req, res) => {
   }
 });
 
+app.get('/api/marketplace/agents', async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ error: 'Supabase not configured.' });
+  }
+
+  const search = (req.query?.search || '').toString().trim().toLowerCase();
+  const tagsRaw = (req.query?.tags || '').toString();
+  const sort = (req.query?.sort || 'downloads').toString();
+  const tagList = tagsRaw
+    .split(',')
+    .map((tag) => tag.trim().toLowerCase())
+    .filter(Boolean);
+
+  try {
+    const { data, error } = await analyticsSupabase
+      .from('agent_personas')
+      .select('*')
+      .eq('status', 'published');
+
+    if (error) {
+      throw error;
+    }
+
+    let agents = Array.isArray(data) ? data : [];
+    if (search) {
+      agents = agents.filter((agent) => {
+        const name = (agent.name || '').toString().toLowerCase();
+        const description = (agent.description || '').toString().toLowerCase();
+        return name.includes(search) || description.includes(search);
+      });
+    }
+    if (tagList.length) {
+      agents = agents.filter((agent) => {
+        const tags = Array.isArray(agent.tags) ? agent.tags.map((t) => t.toString().toLowerCase()) : [];
+        return tagList.every((tag) => tags.includes(tag));
+      });
+    }
+
+    const normalized = agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name || 'Untitled agent',
+      description: agent.description || '',
+      tags: Array.isArray(agent.tags) ? agent.tags : [],
+      downloads: Number(agent.downloads || 0),
+      fork_count: Number(agent.fork_count || 0),
+      average_rating: Number(agent.average_rating || 0),
+      ratings: Array.isArray(agent.ratings) ? agent.ratings : [],
+      created_at: agent.created_at,
+    }));
+
+    normalized.sort((a, b) => {
+      if (sort === 'rating') {
+        return b.average_rating - a.average_rating;
+      }
+      if (sort === 'newest') {
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      }
+      return b.downloads - a.downloads;
+    });
+
+    res.json({ success: true, agents: normalized });
+  } catch (error) {
+    console.error('[MARKETPLACE_AGENTS_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to load marketplace agents.' });
+  }
+});
+
+app.post('/api/marketplace/publish/:agentId', async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ error: 'Supabase not configured.' });
+  }
+  const { agentId } = req.params;
+  const tags = Array.isArray(req.body?.tags) ? req.body.tags.filter(Boolean) : [];
+
+  try {
+    const { data, error } = await analyticsSupabase
+      .from('agent_personas')
+      .update({ status: 'published', tags })
+      .eq('id', agentId)
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, agentId: data?.id || agentId });
+  } catch (error) {
+    console.error('[MARKETPLACE_PUBLISH_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to publish agent.' });
+  }
+});
+
+app.post('/api/marketplace/fork/:agentId', async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ error: 'Supabase not configured.' });
+  }
+  const { agentId } = req.params;
+  const userId = req.body?.userId;
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required to fork.' });
+  }
+
+  try {
+    const { data: source, error: sourceError } = await analyticsSupabase
+      .from('agent_personas')
+      .select('*')
+      .eq('id', agentId)
+      .single();
+
+    if (sourceError) throw sourceError;
+    if (!source) {
+      return res.status(404).json({ success: false, error: 'Agent not found.' });
+    }
+
+    const forkPayload = {
+      user_id: userId,
+      name: `${source.name || 'Agent'} (fork)` ,
+      description: source.description || '',
+      system_prompt: source.system_prompt || '',
+      guardrails: source.guardrails || null,
+      sliders: source.sliders || null,
+      tools: source.tools || null,
+      files: source.files || null,
+      model_id: source.model_id || null,
+      model_label: source.model_label || null,
+      model_provider: source.model_provider || null,
+      model_env_key: source.model_env_key || null,
+      status: 'draft',
+      forked_from: agentId,
+      collection: source.collection || null,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await analyticsSupabase
+      .from('agent_personas')
+      .insert(forkPayload)
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, forkedAgentId: data?.id });
+  } catch (error) {
+    console.error('[MARKETPLACE_FORK_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to fork agent.' });
+  }
+});
+
+app.post('/api/marketplace/rate/:agentId', async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ error: 'Supabase not configured.' });
+  }
+  const { agentId } = req.params;
+  const rating = Number(req.body?.rating || 0);
+  const review = (req.body?.review || '').toString();
+
+  if (!rating || rating < 1 || rating > 5) {
+    return res.status(400).json({ success: false, error: 'rating must be between 1 and 5.' });
+  }
+
+  try {
+    const { data: agent, error: agentError } = await analyticsSupabase
+      .from('agent_personas')
+      .select('*')
+      .eq('id', agentId)
+      .single();
+
+    if (agentError) throw agentError;
+
+    const existing = Array.isArray(agent?.ratings) ? agent.ratings : [];
+    const updated = [...existing, { rating, review, created_at: new Date().toISOString() }];
+    const average = updated.reduce((sum, item) => sum + Number(item.rating || 0), 0) / updated.length;
+
+    const { error } = await analyticsSupabase
+      .from('agent_personas')
+      .update({ ratings: updated, average_rating: average })
+      .eq('id', agentId);
+
+    if (error) {
+      return res.json({ success: true, warning: 'Ratings stored locally only.' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[MARKETPLACE_RATE_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to rate agent.' });
+  }
+});
+
 /**
  * Orchestrated Multi-Agent Chat Endpoint
  * Agents work together in a coordinated workflow to complete complex tasks

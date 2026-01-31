@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -424,6 +425,9 @@ export default function CanvasPage() {
 
   return (
     <div className="lab-shell">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+        <Link className="btn ghost" to="/home">← Back to dashboard</Link>
+      </div>
       <header className="lab-head">
         <p className="lab-eyebrow">Flow Canvas · Prompt mode</p>
         <h1>Start from an empty canvas and let AI reveal the workflow.</h1>

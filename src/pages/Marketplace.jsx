@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../../config/supabaseClient';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import '../styles/Marketplace.css';
 
 export default function Marketplace() {
   const { user } = useAuth();
@@ -47,7 +48,7 @@ export default function Marketplace() {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/fork/${agentId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({ userId: user.id })
       });
 
       const data = await response.json();
@@ -69,11 +70,13 @@ export default function Marketplace() {
       });
 
       const data = await response.json();
-      if (data.success) {
-        loadMarketplaceAgents(); // Refresh ratings
+      if (!response.ok || !data.success) {
+        throw new Error(data?.error || 'Rating failed.');
       }
+      loadMarketplaceAgents();
     } catch (error) {
       console.error('Rating failed:', error);
+      throw error;
     }
   };
 
@@ -82,6 +85,7 @@ export default function Marketplace() {
   return (
     <div className="marketplace-page">
       <header>
+        <Link className="btn ghost" to="/home">← Back to dashboard</Link>
         <h1>Agent Marketplace</h1>
         <p>Discover and fork amazing AI agents built by the community</p>
       </header>
@@ -158,11 +162,21 @@ function RatingModal({ agentId, onRate }) {
   const [rating, setRating] = useState(5);
   const [review, setReview] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  const submitRating = () => {
-    onRate(rating, review);
-    setShowModal(false);
-    setReview('');
+  const submitRating = async () => {
+    setIsSubmitting(true);
+    setError('');
+    try {
+      await onRate(rating, review);
+      setShowModal(false);
+      setReview('');
+    } catch (err) {
+      setError(err.message || 'Unable to submit rating.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -176,14 +190,16 @@ function RatingModal({ agentId, onRate }) {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3>Rate this Agent</h3>
             <div className="rating-stars">
-              {[1,2,3,4,5].map(star => (
-                <span 
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
                   key={star}
+                  type="button"
                   onClick={() => setRating(star)}
                   className={star <= rating ? 'active' : ''}
+                  aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
                 >
-                  ⭐
-                </span>
+                  ★
+                </button>
               ))}
             </div>
             <textarea
@@ -191,9 +207,12 @@ function RatingModal({ agentId, onRate }) {
               value={review}
               onChange={(e) => setReview(e.target.value)}
             />
+            {error && <p className="rating-error">{error}</p>}
             <div className="modal-actions">
               <button onClick={() => setShowModal(false)}>Cancel</button>
-              <button onClick={submitRating}>Submit</button>
+              <button onClick={submitRating} disabled={isSubmitting}>
+                {isSubmitting ? 'Submitting…' : 'Submit'}
+              </button>
             </div>
           </div>
         </div>
