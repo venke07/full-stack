@@ -505,6 +505,11 @@ app.post('/api/marketplace/rate/:agentId', async (req, res) => {
   const { agentId } = req.params;
   const rating = Number(req.body?.rating || 0);
   const review = (req.body?.review || '').toString();
+  const userId = req.body?.userId;
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required to rate.' });
+  }
 
   if (!rating || rating < 1 || rating > 5) {
     return res.status(400).json({ success: false, error: 'rating must be between 1 and 5.' });
@@ -520,7 +525,13 @@ app.post('/api/marketplace/rate/:agentId', async (req, res) => {
     if (agentError) throw agentError;
 
     const existing = Array.isArray(agent?.ratings) ? agent.ratings : [];
-    const updated = [...existing, { rating, review, created_at: new Date().toISOString() }];
+    if (existing.some((entry) => entry?.user_id === userId)) {
+      return res.status(409).json({ success: false, error: 'You already reviewed this agent.' });
+    }
+    const updated = [
+      ...existing,
+      { rating, review, user_id: userId, created_at: new Date().toISOString() },
+    ];
     const average = updated.reduce((sum, item) => sum + Number(item.rating || 0), 0) / updated.length;
 
     const { error } = await analyticsSupabase

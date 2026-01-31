@@ -428,7 +428,7 @@ export default function CanvasPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
         <Link className="btn ghost" to="/home">← Back to dashboard</Link>
       </div>
-      <header className="lab-head">
+      <header className="lab-head" id="flowCanvasHeader">
         <p className="lab-eyebrow">Flow Canvas · Prompt mode</p>
         <h1>Start from an empty canvas and let AI reveal the workflow.</h1>
         <p className="lab-muted">
@@ -461,7 +461,7 @@ export default function CanvasPage() {
           )}
 
           {!isGenerating && workflow && workflow.steps?.length && (
-            <div className="lab-flow" aria-live="polite">
+            <div className="lab-flow" aria-live="polite" id="flowCanvasNodes">
               {workflow.steps.map((step, index) => (
                 <div key={step.id} className={`lab-segment ${workflow.palette}`}>
                   <article
@@ -493,7 +493,7 @@ export default function CanvasPage() {
           )}
         </div>
 
-        <aside className="lab-sidebar">
+        <aside className="lab-sidebar" id="flowCanvasSidebar">
           <div className="lab-card">
             <p className="lab-eyebrow">Prompt</p>
             <p className="lab-prompt-text">{workflow?.prompt ?? 'Awaiting your instructions'}</p>
@@ -650,7 +650,13 @@ export default function CanvasPage() {
             <p className="lab-eyebrow">Create agent</p>
             {workflow ? (
               <>
-                <button type="button" className="btn ghost" onClick={handleCreateAgentFromWorkflow} disabled={isCreatingAgent}>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  id="flowCanvasCreateAgent"
+                  onClick={handleCreateAgentFromWorkflow}
+                  disabled={isCreatingAgent}
+                >
                   {isCreatingAgent ? 'Creating…' : 'Create agent from workflow'}
                 </button>
                 {agentStatus && <small className="lab-meta">{agentStatus}</small>}
@@ -705,7 +711,7 @@ export default function CanvasPage() {
         </aside>
       </section>
 
-      <form className="lab-prompt" onSubmit={handleSubmit}>
+      <form className="lab-prompt" onSubmit={handleSubmit} id="flowCanvasPrompt">
         <div className="lab-input-wrapper">
           <label htmlFor="flowPrompt">AI prompt</label>
           <input

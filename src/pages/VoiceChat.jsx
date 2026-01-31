@@ -7,6 +7,7 @@ import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import '../styles/VoiceChat.css';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 // Simple markdown formatter - converts markdown to clean text
 const formatMessage = (text) => {
@@ -121,13 +122,10 @@ export default function VoiceChatPage() {
         console.error('Error loading agents:', error);
         setStatus('Failed to load agents');
       } else {
-        // Filter to only Gemini agents
-        const geminiAgents = (data || []).filter(a => 
-          a.model_id && a.model_id.startsWith('gemini')
-        );
-        setAgents(geminiAgents);
-        if (geminiAgents.length > 0) {
-          setSelectedAgent(geminiAgents[0]);
+        const loadedAgents = data || [];
+        setAgents(loadedAgents);
+        if (loadedAgents.length > 0) {
+          setSelectedAgent(loadedAgents[0]);
         }
       }
       setIsLoadingAgents(false);
@@ -207,19 +205,20 @@ export default function VoiceChatPage() {
         { role: 'user', content: userMessage },
       ];
 
-      const response = await fetch('/api/chat', {
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: selectedAgent.id,
-          modelId: selectedAgent.model_id || 'gemini-2.0-flash-exp',  // Use Gemini instead
+          modelId: selectedAgent.model_id || 'gemini-2.5-flash',
           messages,
           temperature: 0.7,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get response');
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Failed to get response');
       }
 
       const data = await response.json();

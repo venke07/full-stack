@@ -62,11 +62,14 @@ export default function Marketplace() {
   };
 
   const handleRate = async (agentId, rating, review) => {
+    if (!user) {
+      throw new Error('Please log in to rate agents.');
+    }
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/rate/${agentId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rating, review })
+        body: JSON.stringify({ rating, review, userId: user.id })
       });
 
       const data = await response.json();

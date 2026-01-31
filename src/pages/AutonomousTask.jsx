@@ -661,7 +661,7 @@ export default function AutonomousTask() {
         }
 
         .autonomous-task-page {
-          height: 100vh;
+          min-height: 100vh;
           display: flex;
           flex-direction: column;
           background: var(--bg);
@@ -714,11 +714,12 @@ export default function AutonomousTask() {
 
         .task-container {
           flex: 1;
-          overflow: auto;
-          padding: 24px;
-          max-width: 1200px;
+          overflow: visible;
+          padding: 32px 24px 40px;
+          max-width: 1280px;
           margin: 0 auto;
           width: 100%;
+          min-height: 520px;
         }
 
         /* Input Section */
@@ -726,6 +727,7 @@ export default function AutonomousTask() {
           display: flex;
           flex-direction: column;
           gap: 24px;
+          min-height: 520px;
         }
 
         .input-card {
@@ -934,6 +936,7 @@ export default function AutonomousTask() {
           display: flex;
           flex-direction: column;
           gap: 20px;
+          min-height: 520px;
         }
 
         .result-header-card {
