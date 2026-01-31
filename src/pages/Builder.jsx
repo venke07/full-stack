@@ -519,7 +519,16 @@ export default function BuilderPage() {
 
   const agentSelectBase =
     'id, name, description, system_prompt, guardrails, sliders, tools, files, model_id';
-
+    
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const importAgentId = urlParams.get('import');
+    if (importAgentId && user) {
+      handleSelectAgent(importAgentId);
+      // Clear the URL param
+      navigate('/builder', { replace: true });
+    }
+  }, [user]);
   const handleSelectAgent = async (agentId) => {
     if (!supabase || !user?.id) {
       setStatus('Sign in to load agents.');
@@ -1203,13 +1212,4 @@ export default function BuilderPage() {
   );
 }
 
-// Add this useEffect to handle import from URL
-useEffect(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const importAgentId = urlParams.get('import');
-  if (importAgentId && user) {
-    handleSelectAgent(importAgentId);
-    // Clear the URL param
-    navigate('/builder', { replace: true });
-  }
-}, [user]);
+
