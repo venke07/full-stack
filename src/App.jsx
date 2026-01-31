@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { TutorialProvider } from './context/TutorialContext.jsx';
 import RequireAuth from './components/RequireAuth.jsx';
 import GuidedTour from './components/GuidedTour.jsx';
+import CircleToAction from './components/CircleToAction.jsx';
 import HomePage from './pages/Home.jsx';
 import BuilderPage from './pages/Builder.jsx';
 import CanvasPage from './pages/Canvas.jsx';
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <GuidedTour />
+        <CircleToAction />
         </BrowserRouter>
       </TutorialProvider>
     </AuthProvider>

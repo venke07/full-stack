@@ -2065,7 +2065,11 @@ async function callOpenAICompatible({ apiKey, modelId, temperature, messages, ba
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(formatProviderError(baseUrl.includes('deepseek') ? 'DeepSeek' : 'OpenAI', errorText));
+    // Determine provider name from URL
+    let providerName = 'OpenAI';
+    if (baseUrl.includes('deepseek')) providerName = 'DeepSeek';
+    else if (baseUrl.includes('groq')) providerName = 'Groq';
+    throw new Error(formatProviderError(providerName, errorText));
   }
 
   const data = await response.json();
