@@ -18,6 +18,9 @@ import LoginPage from './pages/Login.jsx';
 import SignupPage from './pages/Signup.jsx';
 import ProfilePage from './pages/Profile.jsx';
 import ChangePasswordPage from './pages/ChangePassword.jsx';
+import Analytics from './pages/Analytics.jsx';
+import Marketplace from './pages/Marketplace';
+import ImportPage from './pages/ImportPage';  // New component below
 
 function LandingRedirect() {
   const { user, loading } = useAuth();
@@ -147,6 +150,9 @@ export default function App() {
               </RequireAuth>
             )}
           />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/import" element={<ImportPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <GuidedTour />

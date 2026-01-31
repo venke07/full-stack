@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 const NAV_LINKS = [
   { label: 'Overview', helper: 'Agents', to: '/home', icon: 'OV' },
   { label: 'Builder', helper: 'Design & tune', to: '/builder', icon: 'BL' },
+  { label: 'Marketplace', helper: 'Browse & share agents', to: '/marketplace', icon: 'MP' },  // Added Marketplace link
   { label: 'Flow Canvas', helper: 'Visual orchestration', to: '/canvas', icon: 'CV' },
   { label: 'Templates', helper: 'Starter kits', to: '/templates', icon: 'TP' },
   { label: 'Testing Lab', helper: 'A/B & QA', to: '/testing', icon: 'TS' },
@@ -12,6 +13,7 @@ const NAV_LINKS = [
   { label: 'Autonomous', helper: 'Task runner', to: '/autonomous', icon: 'AT' },
   { label: 'Fusion Lab', helper: 'Blend agents', to: '/fusion-lab', icon: 'FL' },
   { label: 'Evolution Lab', helper: 'Refine iteratively', to: '/evolution-lab', icon: 'EL' },
+  { label: 'Analytics', helper: 'Performance insights', to: '/analytics', icon: 'AN' },
 ];
 
 export default function DashboardLayout({ headerContent, actions, children }) {
