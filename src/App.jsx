@@ -21,6 +21,7 @@ import ChangePasswordPage from './pages/ChangePassword.jsx';
 import Analytics from './pages/Analytics.jsx';
 import Marketplace from './pages/Marketplace';
 import ImportPage from './pages/ImportPage';  // New component below
+import PublicAgent from './pages/PublicAgent.jsx';
 
 function LandingRedirect() {
   const { user, loading } = useAuth();
@@ -153,6 +154,7 @@ export default function App() {
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/import" element={<ImportPage />} />
+          <Route path="/public/agent" element={<PublicAgent />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <GuidedTour />

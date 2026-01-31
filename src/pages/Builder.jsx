@@ -9,6 +9,8 @@ import PromptVersioning from '../components/PromptVersioning.jsx';
 import ABTesting from '../components/ABTesting.jsx';
 import ModelComparison from '../components/ModelComparison.jsx';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
 const sliderLabels = {
   formality: ['Casual', 'Balanced', 'Professional'],
   creativity: ['Factual', 'Balanced', 'Imaginative'],
@@ -204,7 +206,7 @@ function Switch({ active, onToggle, label }) {
 }
 
 export default function BuilderPage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [chatInput, setChatInput] = useState('');
@@ -213,6 +215,7 @@ export default function BuilderPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
   const [myAgents, setMyAgents] = useState([]);
+  const [sharedAgents, setSharedAgents] = useState([]);
   const [isFetchingAgents, setIsFetchingAgents] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(() => {
     // Restore selected agent from sessionStorage on mount
@@ -222,6 +225,7 @@ export default function BuilderPage() {
   const [supportsChatHistory, setSupportsChatHistory] = useState(true);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [builderTab, setBuilderTab] = useState('config'); // 'config', 'versions', 'testing', 'comparison'
+  const [sharedContext, setSharedContext] = useState(null);
 
   const descCount = form.description.length;
 
@@ -236,6 +240,36 @@ export default function BuilderPage() {
     if (value < 67) return sliderLabels[key][1];
     return sliderLabels[key][2];
   };
+
+
+  const authHeaders = useMemo(() => {
+    if (!session?.access_token) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
+  }, [session?.access_token]);
+
+  const loadSharedAgents = useCallback(async () => {
+    if (!session?.access_token) {
+      setSharedAgents([]);
+      return [];
+    }
+    try {
+      const res = await fetch(`${API_URL}/api/agents/shared`, {
+        headers: {
+          ...authHeaders,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setSharedAgents([]);
+        return [];
+      }
+      setSharedAgents(data.agents || []);
+      return data.agents || [];
+    } catch (error) {
+      setSharedAgents([]);
+      return [];
+    }
+  }, [authHeaders, session?.access_token]);
 
   const personalitySnapshot = useMemo(
     () => ({
@@ -474,10 +508,12 @@ export default function BuilderPage() {
       setStatus(`Load agents failed: ${error.message}`);
       setMyAgents([]);
     } else {
+      const shared = await loadSharedAgents();
       setMyAgents(data ?? []);
+      setSharedAgents(shared ?? []);
     }
     setIsFetchingAgents(false);
-  }, [user?.id]);
+  }, [loadSharedAgents, user?.id]);
 
   useEffect(() => {
     loadAgentsForUser();
@@ -519,17 +555,94 @@ export default function BuilderPage() {
 
   const agentSelectBase =
     'id, name, description, system_prompt, guardrails, sliders, tools, files, model_id';
+
+  const fetchSharedAgent = async (agentId) => {
+    if (!session?.access_token) {
+      setStatus('Sign in to access shared agents.');
+      return null;
+    }
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agentId}`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setStatus(data.error || 'Unable to load shared agent.');
+        return null;
+      }
+      setSharedContext({
+        permission: data.permission,
+        ownerId: data.agent?.user_id,
+      });
+      return data.agent || null;
+    } catch (error) {
+      setStatus('Unable to load shared agent.');
+      return null;
+    }
+  };
     
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const importAgentId = urlParams.get('import');
-    if (importAgentId && user) {
-      handleSelectAgent(importAgentId);
-      // Clear the URL param
-      navigate('/builder', { replace: true });
-    }
-  }, [user]);
-  const handleSelectAgent = async (agentId) => {
+    const sharedAgentId = urlParams.get('agentId');
+    const isShared = urlParams.get('shared') === '1';
+    const shareToken = urlParams.get('shareToken');
+
+    const resolveShareToken = async (token) => {
+      if (!session?.access_token) {
+        setStatus('Sign in to accept shared agents.');
+        return null;
+      }
+      try {
+        const res = await fetch(`${API_URL}/api/agents/share-links/resolve`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setStatus(data.error || 'Unable to accept share link.');
+          return null;
+        }
+        return data.agentId || null;
+      } catch (error) {
+        setStatus('Unable to accept share link.');
+        return null;
+      }
+    };
+
+    const handleSharedFlow = async () => {
+      if (shareToken) {
+        const agentId = await resolveShareToken(shareToken);
+        if (agentId && user) {
+          await handleSelectAgent(agentId, { allowShared: true });
+        }
+        navigate('/builder', { replace: true });
+        return;
+      }
+
+      if (sharedAgentId && user) {
+        handleSelectAgent(sharedAgentId, { allowShared: isShared });
+        navigate('/builder', { replace: true });
+        return;
+      }
+
+      if (importAgentId && user) {
+        handleSelectAgent(importAgentId);
+        navigate('/builder', { replace: true });
+      }
+    };
+
+    handleSharedFlow();
+  }, [session?.access_token, user]);
+
+
+  const handleSelectAgent = async (agentId, { allowShared = false } = {}) => {
     if (!supabase || !user?.id) {
       setStatus('Sign in to load agents.');
       return;
@@ -557,16 +670,40 @@ export default function BuilderPage() {
             .single();
 
           if (retry.error) {
-            setStatus(`Load failed: ${retry.error.message}`);
+            if (allowShared) {
+              const shared = await fetchSharedAgent(agentId);
+              if (shared) {
+                hydrateFormFromAgent(shared);
+                setSelectedAgentId(agentId);
+                setStatus(`Loaded ${shared.name || 'shared agent'}.`);
+              } else {
+                setStatus(`Load failed: ${retry.error.message}`);
+              }
+            } else {
+              setStatus(`Load failed: ${retry.error.message}`);
+            }
           } else if (retry.data) {
+            setSharedContext(null);
             hydrateFormFromAgent(retry.data);
             setSelectedAgentId(agentId);
             setStatus(`Loaded ${retry.data.name || 'agent'}.`);
           }
         } else {
-          setStatus(`Load failed: ${error.message}`);
+          if (allowShared) {
+            const shared = await fetchSharedAgent(agentId);
+            if (shared) {
+              hydrateFormFromAgent(shared);
+              setSelectedAgentId(agentId);
+              setStatus(`Loaded ${shared.name || 'shared agent'}.`);
+            } else {
+              setStatus(`Load failed: ${error.message}`);
+            }
+          } else {
+            setStatus(`Load failed: ${error.message}`);
+          }
         }
       } else if (data) {
+        setSharedContext(null);
         hydrateFormFromAgent(data);
         setSelectedAgentId(agentId);
         setStatus(`Loaded ${data.name || 'agent'}.`);
@@ -653,6 +790,32 @@ export default function BuilderPage() {
     return payload;
   };
 
+  
+  const buildUpdatePayload = (statusValue, { includeChatHistory = supportsChatHistory } = {}) => {
+    const payload = {
+      status: statusValue,
+      name: form.name,
+      description: form.description,
+      system_prompt: form.prompt,
+      guardrails: form.guardrails,
+      sliders: form.sliders,
+      personality: personalitySnapshot,
+      tools: form.tools,
+      files: form.files,
+      model_id: selectedModel.id,
+      model_label: selectedModel.label,
+      model_provider: selectedModel.provider,
+      model_env_key: selectedModel.envKey,
+      chat_summary: chatSummary,
+    };
+
+    if (includeChatHistory) {
+      payload.chat_history = chatLog;
+    }
+
+    return payload;
+  };
+
   const handleSave = async (statusValue) => {
     if (!supabase) {
       setStatus('Missing Supabase credentials. Add VITE_SUPABASE_ANON_KEY in .env.');
@@ -662,32 +825,90 @@ export default function BuilderPage() {
       setStatus('Sign in before saving your agent.');
       return;
     }
+
+    const isShared = sharedContext && sharedContext.permission && sharedContext.permission !== 'owner';
+    const canEditShared = !isShared || sharedContext.permission === 'edit';
+
+    if (isShared && !canEditShared) {
+      setStatus('You only have view access to this shared agent.');
+      return;
+    }
+
     setIsSaving(true);
     setStatus('Saving...');
+
     try {
-      const insertWithConfig = (includeChatHistory) =>
-        supabase
-          .from('agent_personas')
-          .insert([payloadFromForm(statusValue, { includeChatHistory })])
-          .select()
-          .single();
+      if (selectedAgentId) {
+        if (isShared) {
+          const res = await fetch(`${API_URL}/api/agents/${selectedAgentId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session?.access_token}`,
+            },
+            body: JSON.stringify(buildUpdatePayload(statusValue)),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            setStatus(data.error || 'Failed to update shared agent.');
+          } else {
+            setStatus(`${statusValue === 'published' ? 'Published' : 'Draft saved'} successfully.`);
+            loadAgentsForUser();
+          }
+        } else {
+          const updateWithConfig = (includeChatHistory) =>
+            supabase
+              .from('agent_personas')
+              .update(buildUpdatePayload(statusValue, { includeChatHistory }))
+              .eq('id', selectedAgentId)
+              .eq('user_id', user.id)
+              .select()
+              .single();
 
-      let includeHistory = supportsChatHistory;
-      let { data, error } = await insertWithConfig(includeHistory);
+          let includeHistory = supportsChatHistory;
+          let { data, error } = await updateWithConfig(includeHistory);
 
-      if (error && includeHistory && error.message?.toLowerCase().includes('chat_history')) {
-        setSupportsChatHistory(false);
-        setStatus('Chat history column missing. Saved without transcript.');
-        ({ data, error } = await insertWithConfig(false));
-      }
+          if (error && includeHistory && error.message?.toLowerCase().includes('chat_history')) {
+            setSupportsChatHistory(false);
+            setStatus('Chat history column missing. Saved without transcript.');
+            ({ data, error } = await updateWithConfig(false));
+          }
 
-      if (error) {
-        setStatus(`Supabase error: ${error.message}`);
+          if (error) {
+            setStatus(`Supabase error: ${error.message}`);
+          } else {
+            setStatus(`${statusValue === 'published' ? 'Published' : 'Draft saved'} successfully.`);
+            loadAgentsForUser();
+            if (data?.id) {
+              setSelectedAgentId(data.id);
+            }
+          }
+        }
       } else {
-        setStatus(`${statusValue === 'published' ? 'Published' : 'Draft saved'} successfully.`);
-        loadAgentsForUser();
-        if (data?.id) {
-          setSelectedAgentId(data.id);
+        const insertWithConfig = (includeChatHistory) =>
+          supabase
+            .from('agent_personas')
+            .insert([payloadFromForm(statusValue, { includeChatHistory })])
+            .select()
+            .single();
+
+        let includeHistory = supportsChatHistory;
+        let { data, error } = await insertWithConfig(includeHistory);
+
+        if (error && includeHistory && error.message?.toLowerCase().includes('chat_history')) {
+          setSupportsChatHistory(false);
+          setStatus('Chat history column missing. Saved without transcript.');
+          ({ data, error } = await insertWithConfig(false));
+        }
+
+        if (error) {
+          setStatus(`Supabase error: ${error.message}`);
+        } else {
+          setStatus(`${statusValue === 'published' ? 'Published' : 'Draft saved'} successfully.`);
+          loadAgentsForUser();
+          if (data?.id) {
+            setSelectedAgentId(data.id);
+          }
         }
       }
     } catch (err) {
@@ -724,6 +945,9 @@ export default function BuilderPage() {
       console.error('Publish failed:', error);
     }
   };
+
+  const isSharedAgent = sharedContext && sharedContext.permission && sharedContext.permission !== 'owner';
+  const canEditAgent = !isSharedAgent || sharedContext.permission === 'edit';
 
   const headerContent = (
     <div className="page-heading">
@@ -1097,6 +1321,35 @@ export default function BuilderPage() {
                   ))}
                 </ul>
               )}
+
+              <div className="row-split" style={{ marginTop: '16px' }}>
+                <h3>Shared agents</h3>
+                <div className="help">Access granted</div>
+              </div>
+              {sharedAgents.length === 0 ? (
+                <div className="help">No shared agents yet.</div>
+              ) : (
+                <ul className="agent-list">
+                  {sharedAgents.map((agent) => (
+                    <li
+                      key={agent.id}
+                      className={selectedAgentId === agent.id ? 'active' : ''}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAgent(agent.id, { allowShared: true })}
+                        disabled={isLoadingAgent && selectedAgentId === agent.id}
+                      >
+                        <div>
+                          <b>{agent.name || 'Untitled agent'}</b>
+                          <div className="help">{agent.description || 'No description provided.'}</div>
+                        </div>
+                        <span className="chip ghost">{agent.shared_permission || 'view'}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </section>
             </>
@@ -1179,7 +1432,7 @@ export default function BuilderPage() {
             className="btn secondary"
             id="saveDraft"
             onClick={() => handleSave('draft')}
-            disabled={isSaving || !user}
+            disabled={isSaving || !user || !canEditAgent}
           >
             Save
           </button>
@@ -1195,13 +1448,14 @@ export default function BuilderPage() {
             className="btn primary"
             id="publish"
             onClick={() => handleSave('published')}
-            disabled={isSaving || !user}
+            disabled={isSaving || !user || !canEditAgent}
           >
             Publish
           </button>
           <button 
             className="publish-btn"
             onClick={() => handlePublish(selectedAgentId)}
+            disabled={!selectedAgentId || isSharedAgent}
           >
             Publish to Marketplace
           </button>

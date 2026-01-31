@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import multer from 'multer';
@@ -2306,6 +2307,266 @@ const parseRangeStart = (range) => {
 
 const safeNumber = (value) => (Number.isFinite(value) ? value : 0);
 
+const ACCESS_LEVELS = {
+  view: 1,
+  clone: 2,
+  edit: 3,
+  owner: 4,
+};
+
+const normalizePermission = (value) => {
+  const key = (value || '').toString().toLowerCase();
+  return ACCESS_LEVELS[key] ? key : null;
+};
+
+const hasPermission = (actual, required) => {
+  const actualKey = normalizePermission(actual) || 'view';
+  const requiredKey = normalizePermission(required) || 'view';
+  return ACCESS_LEVELS[actualKey] >= ACCESS_LEVELS[requiredKey];
+};
+
+const getAuthUser = async (req) => {
+  if (!analyticsSupabase) {
+    throw new Error('Supabase not configured.');
+  }
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    const error = new Error('Authorization token required.');
+    error.status = 401;
+    throw error;
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const { data, error } = await analyticsSupabase.auth.getUser(token);
+  if (error || !data?.user) {
+    const err = new Error('Invalid or expired token.');
+    err.status = 401;
+    throw err;
+  }
+  return data.user;
+};
+
+const guardAuth = (handler) => async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    req.authUser = user;
+    return handler(req, res);
+  } catch (error) {
+    const status = error.status || 500;
+    res.status(status).json({ success: false, error: error.message || 'Unauthorized.' });
+  }
+};
+
+const getAgentById = async (agentId) => {
+  const { data, error } = await analyticsSupabase
+    .from('agent_personas')
+    .select('*')
+    .eq('id', agentId)
+    .single();
+  if (error) {
+    const err = new Error(error.message || 'Agent not found.');
+    err.status = 404;
+    throw err;
+  }
+  return data;
+};
+
+const getShareRecord = async (agentId, userId) => {
+  const { data, error } = await analyticsSupabase
+    .from('agent_shares')
+    .select('*')
+    .eq('agent_id', agentId)
+    .eq('shared_with_user_id', userId)
+    .single();
+
+  if (error) {
+    return null;
+  }
+
+  return data;
+};
+
+const resolveAgentAccess = async (agentId, userId) => {
+  const agent = await getAgentById(agentId);
+  if (agent.user_id === userId) {
+    return { agent, permission: 'owner', share: null };
+  }
+
+  const share = await getShareRecord(agentId, userId);
+  if (!share) {
+    const err = new Error('Access denied.');
+    err.status = 403;
+    throw err;
+  }
+
+  return { agent, permission: share.permission || 'view', share };
+};
+
+
+const estimateTokensFromText = (text) => {
+  if (!text) return 0;
+  const normalized = text.toString().trim();
+  if (!normalized) return 0;
+  const wordCount = normalized.split(/\s+/).length;
+  const byWords = Math.round(wordCount * 1.3);
+  const byChars = Math.round(normalized.length / 4);
+  return Math.max(1, byWords, byChars);
+};
+
+const normalizeConversationMessages = (conversation) => {
+  if (!conversation) return [];
+  if (Array.isArray(conversation.messages)) return conversation.messages;
+  if (typeof conversation.messages === 'string') {
+    try {
+      const parsed = JSON.parse(conversation.messages);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      return [];
+    }
+  }
+  if (Array.isArray(conversation.conversation_messages)) {
+    return conversation.conversation_messages;
+  }
+  return [];
+};
+
+const normalizeMessageEntry = (message) => {
+  if (!message) return null;
+  const roleRaw = (message.role || '').toLowerCase();
+  const role = roleRaw === 'assistant' || roleRaw === 'agent' ? 'assistant' : 'user';
+  const content = (message.content ?? message.text ?? '').toString();
+  return { role, content };
+};
+
+const buildActivitySeriesFromConversations = (conversations = []) => {
+  const series = new Map();
+  let totalTokensEstimate = 0;
+  let totalResponses = 0;
+  let totalUserMessages = 0;
+
+  conversations.forEach((conversation) => {
+    const created = new Date(conversation.created_at);
+    if (Number.isNaN(created.getTime())) return;
+    const dateKey = created.toISOString().slice(0, 10);
+    const entry = series.get(dateKey) || {
+      date: dateKey,
+      conversations: 0,
+      messages: 0,
+      responses: 0,
+      tokens: 0,
+    };
+    entry.conversations += 1;
+
+    const messages = normalizeConversationMessages(conversation)
+      .map(normalizeMessageEntry)
+      .filter(Boolean);
+
+    if (messages.length) {
+      entry.messages += messages.length;
+      messages.forEach((msg) => {
+        const tokens = estimateTokensFromText(msg.content);
+        totalTokensEstimate += tokens;
+        entry.tokens += tokens;
+        if (msg.role === 'assistant') {
+          entry.responses += 1;
+          totalResponses += 1;
+        } else {
+          totalUserMessages += 1;
+        }
+      });
+    } else if (conversation.message_count) {
+      entry.messages += conversation.message_count;
+    }
+
+    series.set(dateKey, entry);
+  });
+
+  const activitySeries = Array.from(series.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    activitySeries,
+    totalTokensEstimate,
+    totalResponses,
+    totalUserMessages,
+  };
+};
+
+const buildActivitySeriesFromUsageEvents = (events = []) => {
+  const series = new Map();
+  let totalTokensEstimate = 0;
+  let totalResponses = 0;
+  let totalMessages = 0;
+
+  events.forEach((event) => {
+    const created = new Date(event.created_at);
+    if (Number.isNaN(created.getTime())) return;
+    const dateKey = created.toISOString().slice(0, 10);
+    const entry = series.get(dateKey) || {
+      date: dateKey,
+      conversations: 0,
+      messages: 0,
+      responses: 0,
+      tokens: 0,
+    };
+
+    const userTokens = safeNumber(event.user_tokens_estimate);
+    const assistantTokens = safeNumber(event.assistant_tokens_estimate);
+    const totalTokens = safeNumber(event.total_tokens_estimate) || userTokens + assistantTokens;
+
+    const messageCount = (event.user_message_length ? 1 : 0) + (event.assistant_message_length ? 1 : 0);
+    entry.responses += 1;
+    entry.messages += messageCount;
+    entry.tokens += totalTokens;
+    totalTokensEstimate += totalTokens;
+    totalResponses += 1;
+    totalMessages += messageCount;
+
+    series.set(dateKey, entry);
+  });
+
+  const activitySeries = Array.from(series.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    activitySeries,
+    totalTokensEstimate,
+    totalResponses,
+    totalMessages,
+  };
+};
+
+const isMissingUsageEventsTable = (error) => {
+  const message = error?.message || '';
+  return message.includes('usage_events') && message.includes('does not exist');
+};
+
+const fetchUsageEvents = async ({ userId, agentId, timeRange }) => {
+  if (!analyticsSupabase) {
+    return { events: [], error: new Error('Supabase not configured.') };
+  }
+
+  const rangeStart = parseRangeStart(timeRange);
+  let query = analyticsSupabase
+    .from('usage_events')
+    .select(
+      'created_at, agent_id, user_tokens_estimate, assistant_tokens_estimate, total_tokens_estimate, user_message_length, assistant_message_length',
+    )
+    .eq('user_id', userId);
+
+  if (agentId) {
+    query = query.eq('agent_id', agentId);
+  }
+  if (rangeStart) {
+    query = query.gte('created_at', rangeStart.toISOString());
+  }
+
+  const { data, error } = await query;
+
+  if (error && isMissingUsageEventsTable(error)) {
+    return { events: [], error: null };
+  }
+
+  return { events: data || [], error };
+};
+
 /**
  * Basic analytics aggregation from conversation history.
  */
@@ -2318,11 +2579,32 @@ async function buildAgentAnalytics({ userId, agentId, timeRange }) {
     : allConversations;
 
   const totalConversations = current.length;
-  const totalMessages = current.reduce((sum, conv) => {
+  let totalMessages = current.reduce((sum, conv) => {
     const count = conv.message_count || (Array.isArray(conv.messages) ? conv.messages.length : 0);
     return sum + count;
   }, 0);
-  const avgMessagesPerConvo = totalConversations ? totalMessages / totalConversations : 0;
+  let avgMessagesPerConvo = totalConversations ? totalMessages / totalConversations : 0;
+
+  const usageEventsResult = await fetchUsageEvents({ userId, agentId, timeRange });
+  let activitySeries = [];
+  let totalTokensEstimate = 0;
+  let totalResponses = 0;
+  let totalUserMessages = 0;
+
+  if (!usageEventsResult.error && usageEventsResult.events.length) {
+    const usageAgg = buildActivitySeriesFromUsageEvents(usageEventsResult.events);
+    activitySeries = usageAgg.activitySeries;
+    totalTokensEstimate = usageAgg.totalTokensEstimate;
+    totalMessages = Math.max(totalMessages, usageAgg.totalMessages || 0);
+    avgMessagesPerConvo = totalConversations ? totalMessages / totalConversations : 0;
+    totalResponses = usageAgg.totalResponses;
+  } else {
+    const convoAgg = buildActivitySeriesFromConversations(current);
+    activitySeries = convoAgg.activitySeries;
+    totalTokensEstimate = convoAgg.totalTokensEstimate;
+    totalResponses = convoAgg.totalResponses;
+    totalUserMessages = convoAgg.totalUserMessages;
+  }
 
   const hourCounts = {};
   const dayCounts = {};
@@ -2355,6 +2637,11 @@ async function buildAgentAnalytics({ userId, agentId, timeRange }) {
     const prevCount = previous.length || 0;
     conversationGrowth = prevCount ? ((totalConversations - prevCount) / prevCount) * 100 : totalConversations ? 100 : 0;
   }
+
+  const daysInRange = rangeStart
+    ? Math.max(1, Math.ceil((Date.now() - rangeStart.getTime()) / (24 * 3600 * 1000)))
+    : Math.max(1, activitySeries.length);
+  const usageFrequencyPerDay = totalConversations ? Number((totalConversations / daysInRange).toFixed(2)) : 0;
 
   let ratings = [];
   let testResults = [];
@@ -2416,6 +2703,11 @@ async function buildAgentAnalytics({ userId, agentId, timeRange }) {
     conversationGrowth: Math.round(conversationGrowth),
     totalMessages,
     avgMessagesPerConvo,
+    totalTokensEstimate,
+    totalResponses,
+    totalUserMessages,
+    usageFrequencyPerDay,
+    activitySeries,
     avgResponseTime,
     satisfactionRate,
     positiveRatings,
@@ -2432,6 +2724,143 @@ async function buildAgentAnalytics({ userId, agentId, timeRange }) {
     mostActiveDay,
     avgSessionLength: null,
     totalUsers: 1,
+  };
+}
+
+async function buildUsageSummary({ userId, timeRange }) {
+  if (!analyticsSupabase) {
+    throw new Error('Supabase not configured.');
+  }
+
+  const rangeStart = parseRangeStart(timeRange);
+  const agentQuery = analyticsSupabase
+    .from('agent_personas')
+    .select('id, name, status, created_at')
+    .eq('user_id', userId);
+
+  const conversationQuery = analyticsSupabase
+    .from('conversation_history')
+    .select('id, agent_id, created_at, messages, message_count')
+    .eq('user_id', userId);
+
+  if (rangeStart) {
+    conversationQuery.gte('created_at', rangeStart.toISOString());
+  }
+
+  const [agentRes, conversationRes] = await Promise.all([agentQuery, conversationQuery]);
+
+  if (agentRes.error) throw agentRes.error;
+  if (conversationRes.error) throw conversationRes.error;
+
+  const agents = agentRes.data || [];
+  const conversations = conversationRes.data || [];
+
+  const agentLookup = new Map(agents.map((agent) => [agent.id, agent]));
+  const perAgent = new Map();
+
+  const ensureAgent = (agentId) => {
+    if (!perAgent.has(agentId)) {
+      const agent = agentLookup.get(agentId);
+      perAgent.set(agentId, {
+        agentId,
+        name: agent?.name || 'Untitled agent',
+        status: agent?.status || 'unknown',
+        conversations: 0,
+        messages: 0,
+        tokens: 0,
+        lastActive: null,
+      });
+    }
+    return perAgent.get(agentId);
+  };
+
+  let totalConversations = 0;
+  let totalMessages = 0;
+  let totalTokensEstimate = 0;
+  let lastActive = null;
+
+  conversations.forEach((conversation) => {
+    if (!conversation.agent_id) return;
+    const entry = ensureAgent(conversation.agent_id);
+    entry.conversations += 1;
+    totalConversations += 1;
+
+    const createdAt = new Date(conversation.created_at);
+    if (!Number.isNaN(createdAt.getTime())) {
+      entry.lastActive = !entry.lastActive || createdAt > entry.lastActive ? createdAt : entry.lastActive;
+      lastActive = !lastActive || createdAt > lastActive ? createdAt : lastActive;
+    }
+
+    const messages = normalizeConversationMessages(conversation)
+      .map(normalizeMessageEntry)
+      .filter(Boolean);
+
+    if (messages.length) {
+      entry.messages += messages.length;
+      totalMessages += messages.length;
+      messages.forEach((msg) => {
+        const tokens = estimateTokensFromText(msg.content);
+        entry.tokens += tokens;
+        totalTokensEstimate += tokens;
+      });
+    } else if (conversation.message_count) {
+      entry.messages += conversation.message_count;
+      totalMessages += conversation.message_count;
+    }
+  });
+
+  const usageEventsResult = await fetchUsageEvents({ userId, timeRange });
+  let activitySeries = [];
+
+  if (!usageEventsResult.error && usageEventsResult.events.length) {
+    const usageAgg = buildActivitySeriesFromUsageEvents(usageEventsResult.events);
+    activitySeries = usageAgg.activitySeries;
+    totalTokensEstimate = usageAgg.totalTokensEstimate;
+
+    const tokensByAgent = new Map();
+    usageEventsResult.events.forEach((event) => {
+      if (!event.agent_id) return;
+      const tokens =
+        safeNumber(event.total_tokens_estimate)
+        || safeNumber(event.user_tokens_estimate) + safeNumber(event.assistant_tokens_estimate);
+      tokensByAgent.set(event.agent_id, (tokensByAgent.get(event.agent_id) || 0) + tokens);
+    });
+
+    tokensByAgent.forEach((tokens, agentId) => {
+      const entry = ensureAgent(agentId);
+      entry.tokens = tokens;
+    });
+  } else {
+    const convoAgg = buildActivitySeriesFromConversations(conversations);
+    activitySeries = convoAgg.activitySeries;
+  }
+
+  const daysInRange = rangeStart
+    ? Math.max(1, Math.ceil((Date.now() - rangeStart.getTime()) / (24 * 3600 * 1000)))
+    : Math.max(1, activitySeries.length);
+
+  const perAgentList = Array.from(perAgent.values()).map((entry) => ({
+    ...entry,
+    lastActive: entry.lastActive ? entry.lastActive.toISOString() : null,
+    usageFrequencyPerDay: entry.conversations ? Number((entry.conversations / daysInRange).toFixed(2)) : 0,
+  }));
+
+  const activeAgents = perAgentList.filter((entry) => entry.conversations > 0 || entry.tokens > 0).length;
+  const activeDays = activitySeries.length;
+  const avgConversationsPerDay = totalConversations ? Number((totalConversations / daysInRange).toFixed(2)) : 0;
+
+  return {
+    totals: {
+      totalConversations,
+      totalMessages,
+      totalTokensEstimate,
+      activeAgents,
+      activeDays,
+      avgConversationsPerDay,
+      lastActive: lastActive ? lastActive.toISOString() : null,
+    },
+    perAgent: perAgentList.sort((a, b) => b.conversations - a.conversations),
+    activitySeries,
   };
 }
 
@@ -2502,8 +2931,592 @@ app.post('/api/conversations/summarize', async (req, res) => {
 });
 
 /**
+ * Track usage analytics events (token estimates, response time)
+ */
+app.post('/api/analytics/usage-events', async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const {
+    userId,
+    agentId,
+    conversationId,
+    userMessage,
+    assistantMessage,
+    responseTimeMs,
+    metadata,
+  } = req.body || {};
+
+  if (!userId || !agentId) {
+    return res.status(400).json({ success: false, error: 'userId and agentId are required.' });
+  }
+
+  const userText = userMessage ? userMessage.toString() : '';
+  const assistantText = assistantMessage ? assistantMessage.toString() : '';
+
+  const userTokensEstimate = estimateTokensFromText(userText);
+  const assistantTokensEstimate = estimateTokensFromText(assistantText);
+  const totalTokensEstimate = userTokensEstimate + assistantTokensEstimate;
+
+  try {
+    const { data, error } = await analyticsSupabase
+      .from('usage_events')
+      .insert({
+        user_id: userId,
+        agent_id: agentId,
+        conversation_id: conversationId || null,
+        user_message_length: userText.length,
+        assistant_message_length: assistantText.length,
+        user_tokens_estimate: userTokensEstimate,
+        assistant_tokens_estimate: assistantTokensEstimate,
+        total_tokens_estimate: totalTokensEstimate,
+        response_time_ms: Number.isFinite(Number(responseTimeMs)) ? Math.round(Number(responseTimeMs)) : null,
+        metadata: metadata && typeof metadata === 'object' ? metadata : {},
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ success: true, eventId: data?.id });
+  } catch (error) {
+    console.error('[USAGE_EVENT_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to track usage event.' });
+  }
+});
+
+/**
+ * Usage summary across agents
+ */
+app.get('/api/analytics/usage-summary', async (req, res) => {
+  try {
+    const { userId, timeRange = '30d' } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const summary = await buildUsageSummary({ userId, timeRange });
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('[USAGE_SUMMARY_ERROR]', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to load usage summary.' });
+  }
+});
+
+/**
  * Agent analytics
  */
+
+
+/**
+ * Agent sharing + permissions
+ */
+app.get('/api/agents/shared', guardAuth(async (req, res) => {
+  const userId = req.authUser.id;
+
+  const { data: shareRows, error } = await analyticsSupabase
+    .from('agent_shares')
+    .select('id, agent_id, permission, owner_id, shared_with_email, created_at')
+    .eq('shared_with_user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load shared agents.' });
+  }
+
+  const agentIds = (shareRows || []).map((row) => row.agent_id).filter(Boolean);
+  let agents = [];
+  if (agentIds.length) {
+    const { data: agentRows, error: agentError } = await analyticsSupabase
+      .from('agent_personas')
+      .select('*')
+      .in('id', agentIds);
+
+    if (agentError) {
+      return res.status(500).json({ success: false, error: agentError.message || 'Failed to load shared agents.' });
+    }
+
+    agents = agentRows || [];
+  }
+
+  const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
+  const sharedAgents = (shareRows || [])
+    .map((share) => {
+      const agent = agentMap.get(share.agent_id);
+      if (!agent) return null;
+      return {
+        ...agent,
+        shared_permission: share.permission || 'view',
+        share_id: share.id,
+        shared_by: share.owner_id,
+        shared_with_email: share.shared_with_email || null,
+      };
+    })
+    .filter(Boolean);
+
+  res.json({ success: true, agents: sharedAgents });
+}));
+
+app.get('/api/agents/:agentId', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+
+  const access = await resolveAgentAccess(agentId, userId);
+  if (!hasPermission(access.permission, 'view')) {
+    return res.status(403).json({ success: false, error: 'Access denied.' });
+  }
+
+  res.json({ success: true, agent: access.agent, permission: access.permission });
+}));
+
+app.get('/api/agents/:agentId/shares', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can view shares.' });
+  }
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_shares')
+    .select('id, shared_with_user_id, shared_with_email, permission, created_at')
+    .eq('agent_id', agentId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load shares.' });
+  }
+
+  res.json({ success: true, shares: data || [] });
+}));
+
+
+app.get('/api/agents/:agentId/share-links', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can manage share links.' });
+  }
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_share_links')
+    .select('id, token, permission, is_public, expires_at, created_at')
+    .eq('agent_id', agentId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load share links.' });
+  }
+
+  res.json({ success: true, links: data || [] });
+}));
+
+app.post('/api/agents/:agentId/share-links', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+  const resolvedPermission = normalizePermission(req.body?.permission) || 'view';
+  const isPublic = !!req.body?.isPublic;
+  const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt) : null;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can create share links.' });
+  }
+
+  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+    return res.status(400).json({ success: false, error: 'Invalid expiresAt value.' });
+  }
+  if (isPublic && resolvedPermission === 'edit') {
+    return res.status(400).json({ success: false, error: 'Public links cannot grant edit access.' });
+  }
+
+  const token = crypto.randomUUID();
+  const { data, error } = await analyticsSupabase
+    .from('agent_share_links')
+    .insert({
+      agent_id: agentId,
+      owner_id: userId,
+      token,
+      permission: resolvedPermission,
+      is_public: isPublic,
+      expires_at: expiresAt ? expiresAt.toISOString() : null,
+    })
+    .select('id, token, permission, is_public, expires_at, created_at')
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to create share link.' });
+  }
+
+  res.json({ success: true, link: data });
+}));
+
+app.patch('/api/agents/:agentId/share-links/:linkId', guardAuth(async (req, res) => {
+  const { agentId, linkId } = req.params;
+  const userId = req.authUser.id;
+  const resolvedPermission = normalizePermission(req.body?.permission);
+  const isPublic = req.body?.isPublic;
+  const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt) : null;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can update share links.' });
+  }
+
+  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+    return res.status(400).json({ success: false, error: 'Invalid expiresAt value.' });
+  }
+
+  if (resolvedPermission && isPublic && resolvedPermission === 'edit') {
+    return res.status(400).json({ success: false, error: 'Public links cannot grant edit access.' });
+  }
+
+  const payload = {};
+  if (resolvedPermission) payload.permission = resolvedPermission;
+  if (isPublic !== undefined) payload.is_public = !!isPublic;
+  if (isPublic === true && !resolvedPermission) {
+    payload.permission = 'view';
+  }
+  if (expiresAt !== null) payload.expires_at = expiresAt.toISOString();
+
+  if (!Object.keys(payload).length) {
+    return res.status(400).json({ success: false, error: 'No updates provided.' });
+  }
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_share_links')
+    .update(payload)
+    .eq('id', linkId)
+    .eq('agent_id', agentId)
+    .select('id, token, permission, is_public, expires_at, created_at')
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update share link.' });
+  }
+
+  res.json({ success: true, link: data });
+}));
+
+app.delete('/api/agents/:agentId/share-links/:linkId', guardAuth(async (req, res) => {
+  const { agentId, linkId } = req.params;
+  const userId = req.authUser.id;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can revoke share links.' });
+  }
+
+  const { error } = await analyticsSupabase
+    .from('agent_share_links')
+    .delete()
+    .eq('id', linkId)
+    .eq('agent_id', agentId);
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to revoke share link.' });
+  }
+
+  res.json({ success: true });
+}));
+
+app.post('/api/agents/share-links/resolve', guardAuth(async (req, res) => {
+  const userId = req.authUser.id;
+  const token = (req.body?.token || '').toString().trim();
+
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'token is required.' });
+  }
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_share_links')
+    .select('id, agent_id, permission, owner_id, is_public, expires_at')
+    .eq('token', token)
+    .single();
+
+  if (error || !data) {
+    return res.status(404).json({ success: false, error: 'Share link not found.' });
+  }
+
+  if (data.expires_at) {
+    const expiry = new Date(data.expires_at);
+    if (!Number.isNaN(expiry.getTime()) && expiry < new Date()) {
+      return res.status(410).json({ success: false, error: 'Share link expired.' });
+    }
+  }
+
+  if (data.owner_id === userId) {
+    return res.json({ success: true, agentId: data.agent_id, permission: 'owner' });
+  }
+
+  const { data: shareRow, error: shareError } = await analyticsSupabase
+    .from('agent_shares')
+    .upsert({
+      agent_id: data.agent_id,
+      owner_id: data.owner_id,
+      shared_with_user_id: userId,
+      permission: data.permission || 'view',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'agent_id,shared_with_user_id' })
+    .select('permission')
+    .single();
+
+  if (shareError) {
+    return res.status(500).json({ success: false, error: shareError.message || 'Failed to accept share link.' });
+  }
+
+  res.json({ success: true, agentId: data.agent_id, permission: shareRow?.permission || data.permission });
+}));
+
+app.get('/api/public/agents/:token', async (req, res) => {
+  const token = (req.params?.token || '').toString().trim();
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'token is required.' });
+  }
+
+  if (!analyticsSupabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_share_links')
+    .select('agent_id, permission, is_public, expires_at, owner_id')
+    .eq('token', token)
+    .single();
+
+  if (error || !data) {
+    return res.status(404).json({ success: false, error: 'Public link not found.' });
+  }
+
+  if (!data.is_public) {
+    return res.status(403).json({ success: false, error: 'Link is not public.' });
+  }
+
+  if (data.expires_at) {
+    const expiry = new Date(data.expires_at);
+    if (!Number.isNaN(expiry.getTime()) && expiry < new Date()) {
+      return res.status(410).json({ success: false, error: 'Share link expired.' });
+    }
+  }
+
+  const { data: agent, error: agentError } = await analyticsSupabase
+    .from('agent_personas')
+    .select('id, name, description, model_label, model_provider, tools, guardrails, created_at')
+    .eq('id', data.agent_id)
+    .single();
+
+  if (agentError || !agent) {
+    return res.status(404).json({ success: false, error: 'Agent not found.' });
+  }
+
+  res.json({
+    success: true,
+    agent,
+    permission: data.permission === 'edit' ? 'view' : (data.permission || 'view'),
+  });
+});
+
+app.post('/api/agents/:agentId/share', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+  const { sharedWithUserId, sharedWithEmail, permission } = req.body || {};
+  const resolvedPermission = normalizePermission(permission) || 'view';
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can share agents.' });
+  }
+
+  let targetUserId = sharedWithUserId;
+  let targetEmail = sharedWithEmail;
+
+  if (!targetUserId && targetEmail) {
+    const adminResult = await analyticsSupabase.auth.admin.getUserByEmail(targetEmail);
+    if (adminResult?.data?.user?.id) {
+      targetUserId = adminResult.data.user.id;
+    } else {
+      return res.status(404).json({ success: false, error: 'User not found for that email.' });
+    }
+  }
+
+  if (!targetUserId) {
+    return res.status(400).json({ success: false, error: 'sharedWithUserId or sharedWithEmail is required.' });
+  }
+
+  if (targetUserId === userId) {
+    return res.status(400).json({ success: false, error: 'Cannot share with yourself.' });
+  }
+
+  const payload = {
+    agent_id: agentId,
+    owner_id: userId,
+    shared_with_user_id: targetUserId,
+    shared_with_email: targetEmail || null,
+    permission: resolvedPermission,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_shares')
+    .upsert(payload, { onConflict: 'agent_id,shared_with_user_id' })
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to share agent.' });
+  }
+
+  res.json({ success: true, share: data });
+}));
+
+app.patch('/api/agents/:agentId/shares/:shareId', guardAuth(async (req, res) => {
+  const { agentId, shareId } = req.params;
+  const userId = req.authUser.id;
+  const resolvedPermission = normalizePermission(req.body?.permission);
+
+  if (!resolvedPermission) {
+    return res.status(400).json({ success: false, error: 'Valid permission is required.' });
+  }
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can update shares.' });
+  }
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_shares')
+    .update({ permission: resolvedPermission, updated_at: new Date().toISOString() })
+    .eq('id', shareId)
+    .eq('agent_id', agentId)
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update share.' });
+  }
+
+  res.json({ success: true, share: data });
+}));
+
+app.delete('/api/agents/:agentId/shares/:shareId', guardAuth(async (req, res) => {
+  const { agentId, shareId } = req.params;
+  const userId = req.authUser.id;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can revoke shares.' });
+  }
+
+  const { error } = await analyticsSupabase
+    .from('agent_shares')
+    .delete()
+    .eq('id', shareId)
+    .eq('agent_id', agentId);
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to revoke share.' });
+  }
+
+  res.json({ success: true });
+}));
+
+app.post('/api/agents/:agentId/clone', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+
+  const access = await resolveAgentAccess(agentId, userId);
+  if (!hasPermission(access.permission, 'clone')) {
+    return res.status(403).json({ success: false, error: 'Clone permission required.' });
+  }
+
+  const agent = access.agent;
+  const clonePayload = {
+    user_id: userId,
+    name: `${agent.name || 'Agent'} (Clone)`,
+    description: agent.description || '',
+    system_prompt: agent.system_prompt || '',
+    guardrails: agent.guardrails || null,
+    sliders: agent.sliders || null,
+    tools: agent.tools || null,
+    files: agent.files || null,
+    model_id: agent.model_id || null,
+    model_label: agent.model_label || null,
+    model_provider: agent.model_provider || null,
+    model_env_key: agent.model_env_key || null,
+    status: 'draft',
+    collection: agent.collection || null,
+    created_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_personas')
+    .insert(clonePayload)
+    .select('id')
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to clone agent.' });
+  }
+
+  res.json({ success: true, agentId: data?.id });
+}));
+
+app.patch('/api/agents/:agentId', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+
+  const access = await resolveAgentAccess(agentId, userId);
+  if (!hasPermission(access.permission, 'edit')) {
+    return res.status(403).json({ success: false, error: 'Edit permission required.' });
+  }
+
+  const updates = req.body || {};
+  const allowedFields = [
+    'name',
+    'description',
+    'system_prompt',
+    'guardrails',
+    'sliders',
+    'tools',
+    'files',
+    'model_id',
+    'model_label',
+    'model_provider',
+    'model_env_key',
+    'status',
+    'chat_history',
+    'chat_summary',
+  ];
+
+  const payload = allowedFields.reduce((acc, key) => {
+    if (updates[key] !== undefined) {
+      acc[key] = updates[key];
+    }
+    return acc;
+  }, {});
+  payload.updated_at = new Date().toISOString();
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_personas')
+    .update(payload)
+    .eq('id', agentId)
+    .select('*')
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update agent.' });
+  }
+
+  res.json({ success: true, agent: data });
+}));
+
 app.get('/api/agents/:agentId/analytics', async (req, res) => {
   try {
     const { agentId } = req.params;

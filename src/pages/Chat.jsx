@@ -54,7 +54,7 @@ const normalizeHistory = (agent) => {
 };
 
 export default function ChatPage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -72,6 +72,14 @@ export default function ChatPage() {
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [showSummarizer, setShowSummarizer] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareInput, setShareInput] = useState('');
+  const [sharePermission, setSharePermission] = useState('view');
+  const [shareLinkPermission, setShareLinkPermission] = useState('view');
+  const [shareLinkIsPublic, setShareLinkIsPublic] = useState(false);
+  const [shareLinkExpiresAt, setShareLinkExpiresAt] = useState('');
+  const [shareSubmitting, setShareSubmitting] = useState(false);
+  const [shareLinkToken, setShareLinkToken] = useState('');
   
   // Voice Chat States
   const [isListening, setIsListening] = useState(false);
@@ -531,6 +539,13 @@ export default function ChatPage() {
       if (activeTestSession && currentVersionId) {
         recordTestResult(trimmed, agentResponse, responseTimeMs, agentMessageId);
       }
+
+      // Track usage analytics (token estimate + response activity)
+      trackUsageEvent({
+        userMessage: trimmed,
+        assistantMessage: agentResponse,
+        responseTimeMs,
+      });
     } catch (error) {
       const errorText = `⚠️ ${error?.message || 'Provider error.'}`;
       setChatLog((prev) => [
@@ -539,6 +554,139 @@ export default function ChatPage() {
       ]);
     } finally {
       setIsResponding(false);
+    }
+  };
+
+  const authHeaders = useMemo(() => {
+    if (!session?.access_token) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
+  }, [session?.access_token]);
+
+  const openShareModal = () => {
+    if (!selectedAgent) {
+      setStatus('Select an agent to share.');
+      return;
+    }
+    setShareModalOpen(true);
+    setShareInput('');
+    setSharePermission('view');
+    setShareLinkPermission('view');
+    setShareLinkIsPublic(false);
+    setShareLinkExpiresAt('');
+    setShareLinkToken('');
+  };
+
+  const handleShareAgent = async () => {
+    if (!selectedAgent || !session?.access_token) {
+      setStatus('Sign in to share agents.');
+      return;
+    }
+    const trimmed = shareInput.trim();
+    if (!trimmed) {
+      setStatus('Enter a user ID or email to share.');
+      return;
+    }
+    setShareSubmitting(true);
+    try {
+      const payload = trimmed.includes('@')
+        ? { sharedWithEmail: trimmed, permission: sharePermission }
+        : { sharedWithUserId: trimmed, permission: sharePermission };
+      const res = await fetch(`${API_URL}/api/agents/${selectedAgent.id}/share`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setStatus(data.error || 'Failed to share agent.');
+      } else {
+        setStatus('Agent shared.');
+        setShareInput('');
+      }
+    } catch (error) {
+      setStatus('Failed to share agent.');
+    } finally {
+      setShareSubmitting(false);
+      setTimeout(() => setStatus(''), 3000);
+    }
+  };
+
+  const handleCreateShareLink = async () => {
+    if (!selectedAgent || !session?.access_token) {
+      setStatus('Sign in to create share links.');
+      return;
+    }
+    if (shareLinkIsPublic && shareLinkPermission === 'edit') {
+      setStatus('Public links cannot grant edit access.');
+      return;
+    }
+    setShareSubmitting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${selectedAgent.id}/share-links`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          permission: shareLinkPermission,
+          isPublic: shareLinkIsPublic,
+          expiresAt: shareLinkExpiresAt || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setStatus(data.error || 'Failed to create share link.');
+      } else {
+        setShareLinkToken(data.link?.token || '');
+        setStatus('Share link created.');
+      }
+    } catch (error) {
+      setStatus('Failed to create share link.');
+    } finally {
+      setShareSubmitting(false);
+      setTimeout(() => setStatus(''), 3000);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    if (!shareLinkToken) return;
+    const path = shareLinkIsPublic ? `/public/agent?token=${shareLinkToken}` : `/builder?shareToken=${shareLinkToken}`;
+    const url = `${window.location.origin}${path}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setStatus('Share link copied.');
+      setTimeout(() => setStatus(''), 2500);
+    }).catch(() => {
+      setStatus('Failed to copy link.');
+      setTimeout(() => setStatus(''), 2500);
+    });
+  };
+
+  const trackUsageEvent = async ({ userMessage, assistantMessage, responseTimeMs }) => {
+    if (!user?.id || !selectedAgent?.id) return;
+
+    try {
+      await fetch(`${API_URL}/api/analytics/usage-events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          agentId: selectedAgent.id,
+          conversationId: currentConversationId,
+          userMessage,
+          assistantMessage,
+          responseTimeMs,
+          metadata: {
+            modelId: selectedAgent.model_id,
+            from: 'chat',
+          },
+        }),
+      });
+    } catch (error) {
+      console.warn('Usage tracking failed:', error);
     }
   };
 
@@ -783,6 +931,9 @@ export default function ChatPage() {
       <Link className="btn secondary" to="/builder">
         Back to builder
       </Link>
+      <button className="btn secondary" type="button" onClick={openShareModal} disabled={!selectedAgent}>
+        Share agent
+      </button>
       <Link className="btn secondary" to="/home">
         Back to overview
       </Link>
@@ -1073,6 +1224,103 @@ export default function ChatPage() {
           isOpen={showSummarizer}
           onClose={() => setShowSummarizer(false)}
         />
+
+        {shareModalOpen && (
+          <div className="modal-overlay" onClick={() => setShareModalOpen(false)}>
+            <div className="modal-content share-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Share {selectedAgent?.name || 'agent'}</h2>
+                <button
+                  className="modal-close"
+                  type="button"
+                  aria-label="Close share modal"
+                  onClick={() => setShareModalOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="share-options">
+                  <div className="share-panel">
+                    <h3>Public link</h3>
+                    <p className="muted">Generate a link for public viewing or cloning.</p>
+                    <label className="share-public-toggle">
+                      <input
+                        type="checkbox"
+                        checked={shareLinkIsPublic}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setShareLinkIsPublic(checked);
+                          if (checked && shareLinkPermission === 'edit') {
+                            setShareLinkPermission('view');
+                          }
+                        }}
+                      />
+                      Enable public view
+                    </label>
+                    <div className="input-group">
+                      <select
+                        value={shareLinkPermission}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setShareLinkPermission(next);
+                          if (next === 'edit') {
+                            setShareLinkIsPublic(false);
+                          }
+                        }}
+                      >
+                        <option value="view">View only</option>
+                        <option value="clone">Clone only</option>
+                        <option value="edit">Edit access</option>
+                      </select>
+                      <input
+                        type="date"
+                        value={shareLinkExpiresAt}
+                        onChange={(event) => setShareLinkExpiresAt(event.target.value)}
+                      />
+                      <button type="button" className="btn secondary" onClick={handleCreateShareLink} disabled={shareSubmitting}>
+                        Create link
+                      </button>
+                    </div>
+                    {shareLinkToken && (
+                      <div className="share-link-output">
+                        <span className="muted">Link ready</span>
+                        <button type="button" className="btn ghost compact" onClick={handleCopyShareLink}>
+                          Copy link
+                        </button>
+                      </div>
+                    )}
+                    {shareLinkIsPublic && (
+                      <span className="muted" style={{ fontSize: '12px' }}>
+                        Public links support view/clone only. Picking edit turns public off.
+                      </span>
+                    )}
+                  </div>
+                  <div className="share-panel">
+                    <h3>Share with Aether user</h3>
+                    <p className="muted">Grant view, clone, or edit access.</p>
+                    <div className="input-group">
+                      <input
+                        type="text"
+                        placeholder="user-id or email@domain.com"
+                        value={shareInput}
+                        onChange={(event) => setShareInput(event.target.value)}
+                      />
+                      <select value={sharePermission} onChange={(event) => setSharePermission(event.target.value)}>
+                        <option value="view">View only</option>
+                        <option value="clone">Clone only</option>
+                        <option value="edit">Edit access</option>
+                      </select>
+                      <button type="button" className="btn primary" onClick={handleShareAgent} disabled={shareSubmitting}>
+                        Share
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );
