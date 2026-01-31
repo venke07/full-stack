@@ -176,9 +176,9 @@ class AgentManager {
 
           step.status = 'failed';
 
-          // Use fallback: return last good output or error message
-          console.warn(`Agent ${agent.name} failed:`, error.message);
-          currentInput = `Previous agent failed. Continuing with: ${currentInput}`;
+          // Don't update input, just log the error and continue
+          console.error(`Agent ${agent.name} failed:`, error.message);
+          // Keep current input as-is for next agent
         }
       }
 
@@ -353,6 +353,7 @@ class AgentManager {
 
       // Step 4: Execute agents in order
       let currentInput = userTask;
+      let lastError = null;
 
       for (let i = 0; i < executionPlan.executionPlan.length; i++) {
         const step = executionPlan.executionPlan[i];
@@ -406,6 +407,7 @@ class AgentManager {
 
           // Use this output as input for next agent
           currentInput = output;
+          lastError = null;
 
           contextMemory.addHistoryEntry(sessionId, {
             step: step.step,
@@ -414,6 +416,7 @@ class AgentManager {
             outputLength: output.length,
           });
         } catch (error) {
+          lastError = error;
           contextMemory.addHistoryEntry(sessionId, {
             step: step.step,
             agent: step.agentName,
@@ -421,9 +424,16 @@ class AgentManager {
             error: error.message,
           });
 
-          console.warn(`Agent ${step.agentName} failed:`, error.message);
-          currentInput = `Previous agent failed. Continuing with: ${currentInput}`;
+          console.error(`Agent ${step.agentName} failed:`, error.message, error.stack);
+          // Continue to next agent with current input if available
+          // Don't prepend the error message
         }
+      }
+
+      // If all agents failed, throw the last error
+      if (results.intermediateSteps.length === 0 && lastError) {
+        console.error('[AUTONOMOUS_TASK] All agents failed. Last error:', lastError.message);
+        throw new Error(`All agents failed: ${lastError.message}. Please check API keys and model configuration.`);
       }
 
       // Final result
