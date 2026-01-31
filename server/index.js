@@ -1629,8 +1629,28 @@ Format your response as JSON:
 // Register knowledge base routes
 app.use('/api/knowledge', knowledgeRoutes);
 
-app.listen(PORT, () => {
-  console.log(`Agent Builder API running on http://localhost:${PORT}`);
+// ============================================
+// PRODUCTION: Serve static frontend files
+// ============================================
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve static files from the dist folder (built frontend)
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// Handle client-side routing - serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  // Only serve index.html for non-API routes
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, '../dist/index.html'));
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Agent Builder API running on port ${PORT}`);
 });
 
 /**
