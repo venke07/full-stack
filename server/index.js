@@ -188,6 +188,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+
 /**
  * Get Available Tools for Agents
  */
@@ -251,6 +252,96 @@ app.post('/api/tools/process-response', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to process response',
+    });
+  }
+});
+
+/**
+ * Flow Canvas prompt-to-workflow endpoint
+ */
+app.post('/api/flow-canvas/generate', async (req, res) => {
+  const { prompt, maxNodes = 6 } = req.body || {};
+  const userPrompt = typeof prompt === 'string' ? prompt.trim() : '';
+
+  if (!userPrompt) {
+    return res.status(400).json({ success: false, error: 'Prompt is required.' });
+  }
+
+  const safeMax = Number.isFinite(Number(maxNodes))
+    ? Math.min(Math.max(Math.floor(Number(maxNodes)), 3), 10)
+    : 6;
+
+  try {
+    const result = await generateFlowCanvasWorkflow(userPrompt, safeMax);
+    res.json({
+      success: true,
+      workflow: result.workflow,
+      source: result.source,
+      warning: result.warning || null,
+    });
+  } catch (error) {
+    console.error('[FLOW_CANVAS_ROUTE_ERROR]', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to build workflow from prompt.',
+    });
+  }
+});
+
+app.post('/api/flow-canvas/replace-step', async (req, res) => {
+  const { prompt, stepIndex, workflow } = req.body || {};
+  const instruction = typeof prompt === 'string' ? prompt.trim() : '';
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  const index = Number(stepIndex);
+
+  if (!instruction) {
+    return res.status(400).json({ error: 'Replacement prompt is required.' });
+  }
+  if (!Number.isInteger(index) || index < 0 || index >= steps.length) {
+    return res.status(400).json({ error: 'stepIndex is out of range.' });
+  }
+
+  try {
+    const stepPlan = await attemptFlowCanvasStep(instruction, workflow, index);
+    const normalized = normalizeFlowNode(stepPlan, index, steps.length);
+    res.json({ success: true, step: normalized });
+  } catch (error) {
+    console.error('[FLOW_CANVAS_REPLACE_STEP_ERROR]', error);
+    res.status(500).json({ error: error.message || 'Unable to replace step.' });
+  }
+});
+
+app.post('/api/flow-canvas/explain', async (req, res) => {
+  const { workflow } = req.body || {};
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+
+  if (!steps.length) {
+    return res.status(400).json({ error: 'workflow with steps is required.' });
+  }
+
+  try {
+    const explanation = await attemptFlowCanvasExplain(workflow);
+    res.json({ success: true, explanation });
+  } catch (error) {
+    console.warn('[FLOW_CANVAS_EXPLAIN_FALLBACK]', error?.message || error);
+    res.json({ success: true, explanation: buildFlowExplanation(workflow) });
+  }
+});
+
+app.post('/api/flow-canvas/explain-step', async (req, res) => {
+  const { step, index = 0, workflow } = req.body || {};
+  if (!step || !step.title) {
+    return res.status(400).json({ error: 'step is required.' });
+  }
+
+  try {
+    const explanation = await attemptFlowCanvasExplainStep(step, index, workflow);
+    res.json({ success: true, explanation });
+  } catch (error) {
+    console.warn('[FLOW_CANVAS_EXPLAIN_STEP_FALLBACK]', error?.message || error);
+    res.json({
+      success: true,
+      explanation: `Step ${index + 1} (${step.kind || 'step'}) focuses on ${step.title}. ${step.detail || ''}`,
     });
   }
 });
@@ -2213,4 +2304,621 @@ Format your response as JSON with keys: system_prompt, description, sliders (obj
     res.status(500).json({ error: error.message || 'Failed to evolve agent' });
   }
 });
+
+async function generateFlowCanvasWorkflow(prompt, maxNodes = 6) {
+  try {
+    const modelPlan = await attemptFlowCanvasModel(prompt, maxNodes);
+    return {
+      workflow: normalizeModelPlan(modelPlan, prompt, maxNodes),
+      source: 'model',
+    };
+  } catch (error) {
+    console.warn('[FLOW_CANVAS_MODEL_FALLBACK]', error.message || error);
+    return {
+      workflow: buildFallbackFlowPlan(prompt, maxNodes),
+      source: 'fallback',
+      warning: error.message || 'Model unavailable. Using heuristic workflow.',
+    };
+  }
+}
+
+async function attemptFlowCanvasModel(prompt, maxNodes = 6) {
+  const messages = [
+    {
+      role: 'system',
+      content: FLOW_CANVAS_SYSTEM_PROMPT,
+    },
+    {
+      role: 'user',
+      content: `User instructions:\n${prompt}\n\nGenerate between 3 and ${maxNodes} ordered nodes. Return JSON only.`,
+    },
+  ];
+
+  const priority = FLOW_CANVAS_MODEL_PRIORITY;
+  let lastError;
+
+  for (const modelId of priority) {
+    const handlerConfig = MODEL_HANDLERS[modelId];
+    if (!handlerConfig) {
+      continue;
+    }
+
+    const apiKey = process.env[handlerConfig.envKey];
+    if (!apiKey) {
+      continue;
+    }
+
+    try {
+      const response = await handlerConfig.handler({
+        modelId,
+        apiKey,
+        temperature: 0.2,
+        messages,
+        baseUrl: handlerConfig.baseUrl,
+      });
+      const text = (response?.reply || response || '').toString().trim();
+      return extractFlowCanvasJson(text);
+    } catch (error) {
+      lastError = error;
+      const message = error?.message?.toLowerCase?.() || '';
+      const quotaIssue = message.includes('quota') || message.includes('rate limit') || message.includes('429');
+      if (!quotaIssue) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('No model available for Flow Canvas generation.');
+}
+
+async function attemptFlowCanvasStep(prompt, workflow, stepIndex) {
+  const stepLines = Array.isArray(workflow?.steps)
+    ? workflow.steps.map((step, index) => `${index + 1}. ${step.title} (${step.kind}) - ${step.detail}`)
+    : [];
+  const messages = [
+    { role: 'system', content: FLOW_CANVAS_STEP_PROMPT },
+    {
+      role: 'user',
+      content: `Current workflow steps:\n${stepLines.join('\n') || 'No steps available.'}\n\nReplace step ${
+        stepIndex + 1
+      } with: ${prompt}\nReturn JSON only.`,
+    },
+  ];
+
+  let lastError;
+  for (const modelId of FLOW_CANVAS_MODEL_PRIORITY) {
+    const handlerConfig = MODEL_HANDLERS[modelId];
+    if (!handlerConfig) continue;
+    const apiKey = process.env[handlerConfig.envKey];
+    if (!apiKey) continue;
+
+    try {
+      const response = await handlerConfig.handler({
+        modelId,
+        apiKey,
+        temperature: 0.3,
+        messages,
+        baseUrl: handlerConfig.baseUrl,
+      });
+      const text = (response?.reply || response || '').toString().trim();
+      return extractFlowCanvasJson(text);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('No model available to replace step.');
+}
+
+async function attemptFlowCanvasExplain(workflow) {
+  const stepLines = Array.isArray(workflow?.steps)
+    ? workflow.steps.map((step, index) => `${index + 1}. ${step.title} (${step.kind}) - ${step.detail}`)
+    : [];
+  const messages = [
+    { role: 'system', content: FLOW_CANVAS_EXPLAIN_PROMPT },
+    {
+      role: 'user',
+      content: `Prompt: ${workflow.prompt || 'N/A'}\nIntent: ${workflow.intentLabel || 'General'}\n\nSteps:\n${
+        stepLines.join('\n') || 'No steps available.'
+      }`,
+    },
+  ];
+
+  let lastError;
+  for (const modelId of FLOW_CANVAS_MODEL_PRIORITY) {
+    const handlerConfig = MODEL_HANDLERS[modelId];
+    if (!handlerConfig) continue;
+    const apiKey = process.env[handlerConfig.envKey];
+    if (!apiKey) continue;
+
+    try {
+      const response = await handlerConfig.handler({
+        modelId,
+        apiKey,
+        temperature: 0.2,
+        messages,
+        baseUrl: handlerConfig.baseUrl,
+      });
+      const text = (response?.reply || response || '').toString().trim();
+      if (text) {
+        return text;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('No model available to explain flow.');
+}
+
+async function attemptFlowCanvasExplainStep(step, index, workflow) {
+  const flowIntent = workflow?.intentLabel || 'General';
+  const messages = [
+    { role: 'system', content: FLOW_CANVAS_EXPLAIN_STEP_PROMPT },
+    {
+      role: 'user',
+      content: `Flow intent: ${flowIntent}\nStep ${index + 1}: ${step.title} (${step.kind || 'step'})\nDetails: ${
+        step.detail || 'No detail'
+      }`,
+    },
+  ];
+
+  let lastError;
+  for (const modelId of FLOW_CANVAS_MODEL_PRIORITY) {
+    const handlerConfig = MODEL_HANDLERS[modelId];
+    if (!handlerConfig) continue;
+    const apiKey = process.env[handlerConfig.envKey];
+    if (!apiKey) continue;
+
+    try {
+      const response = await handlerConfig.handler({
+        modelId,
+        apiKey,
+        temperature: 0.2,
+        messages,
+        baseUrl: handlerConfig.baseUrl,
+      });
+      const text = (response?.reply || response || '').toString().trim();
+      if (text) {
+        return text;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('No model available to explain node.');
+}
+
+function buildFlowExplanation(workflow) {
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps.length) {
+    return 'This flow has no steps yet.';
+  }
+  const titles = steps.map((step, index) => `Step ${index + 1}: ${step.title}`).join('. ');
+  return `This workflow starts with ${steps[0].title}, routes through ${steps.length} total steps, and ends with ${
+    steps[steps.length - 1].title
+  }. ${titles}.`;
+}
+
+function extractFlowCanvasJson(rawText = '') {
+  if (!rawText.trim()) {
+    throw new Error('Model returned an empty response.');
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch (error) {
+    const match = rawText.match(/\{[\s\S]*\}/);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    throw new Error('Model response did not include valid JSON.');
+  }
+}
+
+function normalizeModelPlan(plan, prompt, maxNodes = 6) {
+  if (!plan || typeof plan !== 'object') {
+    throw new Error('Model response missing plan payload.');
+  }
+
+  const normalizedSteps = Array.isArray(plan.steps)
+    ? plan.steps
+        .filter(Boolean)
+        .map((step, index, arr) => normalizeFlowNode(step, index, arr.length))
+    : [];
+
+  if (!normalizedSteps.length) {
+    throw new Error('Model response did not include steps.');
+  }
+
+  const keywords = normalizeKeywords(plan.keywords, prompt);
+  const paletteInfo = inferPaletteDetails(prompt, plan.palette, plan.intentLabel);
+  const summary = Array.isArray(plan.summary) && plan.summary.length
+    ? plan.summary.slice(0, 6).map((line) => line.toString().trim()).filter(Boolean)
+    : buildSummaryFromSteps(prompt, normalizedSteps, paletteInfo.intentLabel, keywords);
+
+  const withGuards = ensureEssentialNodes([...normalizedSteps], prompt);
+  const limited = enforceStepBounds(withGuards, maxNodes);
+
+  return finalizeWorkflowResponse({
+    prompt,
+    steps: limited,
+    keywords,
+    intentLabel: paletteInfo.intentLabel,
+    palette: paletteInfo.palette,
+    summary,
+    segmentReference: normalizedSteps,
+  });
+}
+
+function buildFallbackFlowPlan(prompt, maxNodes = 6) {
+  const segments = parseSegments(prompt);
+  const baseSegments = segments.length ? segments : [prompt || 'Listen for operator instructions and act.'];
+  const trimmedSegments = baseSegments.slice(0, Math.max(maxNodes - 1, 3));
+  const baseNodes = trimmedSegments.map((segment, index, arr) =>
+    buildFlowNode(inferKind(segment, index, arr.length), segment, index),
+  );
+  const withGuards = ensureEssentialNodes(baseNodes, prompt);
+  const limited = enforceStepBounds(withGuards, maxNodes);
+  const keywords = normalizeKeywords(null, prompt);
+  const paletteInfo = inferPaletteDetails(prompt);
+  const summary = buildSummaryFromSegments(prompt, trimmedSegments, keywords, paletteInfo.intentLabel);
+
+  return finalizeWorkflowResponse({
+    prompt,
+    steps: limited,
+    keywords,
+    intentLabel: paletteInfo.intentLabel,
+    palette: paletteInfo.palette,
+    summary,
+    segmentReference: trimmedSegments,
+  });
+}
+
+function finalizeWorkflowResponse({
+  prompt,
+  steps,
+  keywords,
+  intentLabel,
+  palette,
+  summary,
+  segmentReference,
+}) {
+  return {
+    prompt,
+    palette,
+    intentLabel,
+    summary,
+    steps,
+    keywords,
+    segmentCount: Array.isArray(segmentReference) ? segmentReference.length : steps.length,
+    generatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+function normalizeFlowNode(step = {}, index = 0, total = 1) {
+  const segmentText = [step.detail, step.description, step.summary, step.title]
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .find((value) => value.length) || 'Process this instruction intelligently.';
+  const inferredKind = inferKind(segmentText, index, total);
+  const normalizedKind = normalizeKind(step.kind, inferredKind);
+  const config = FLOW_KIND_CONFIG[normalizedKind];
+
+  return {
+    id: step.id || makeNodeId(normalizedKind, index),
+    icon: step.icon || config.icon,
+    title: truncateText(step.title || step.name || config.fallbackTitle, 80),
+    detail: truncateText(step.detail || step.description || segmentText, 220),
+    meta: step.meta || config.meta,
+    kind: normalizedKind,
+  };
+}
+
+function ensureEssentialNodes(steps = [], prompt = '') {
+  const hasTrigger = steps.some((step) => step.kind === 'trigger');
+  const hasAgent = steps.some((step) => step.kind === 'agent');
+  const hasNotify = steps.some((step) => step.kind === 'notify');
+
+  if (!hasTrigger) {
+    steps.unshift(buildFlowNode('trigger', `Kick off when ${truncateText(prompt, 80)}`, steps.length));
+  }
+  if (!hasAgent) {
+    steps.splice(1, 0, buildFlowNode('agent', 'Plan the workflow, pick tools, and enforce guardrails.', steps.length + 1));
+  }
+  if (!hasNotify) {
+    steps.push(buildFlowNode('notify', 'Publish the outcome to stakeholders and log telemetry.', steps.length + 2));
+  }
+
+  return steps;
+}
+
+function enforceStepBounds(steps = [], maxNodes = 6) {
+  const limit = Math.max(3, maxNodes);
+  while (steps.length > limit) {
+    const removableTool = steps.findIndex((step, index) => step.kind === 'tool' && index > 0 && index < steps.length - 1);
+    if (removableTool > -1) {
+      steps.splice(removableTool, 1);
+      continue;
+    }
+    const removableAgent = steps.findIndex((step, index) => step.kind === 'agent' && index > 1 && index < steps.length - 1);
+    if (removableAgent > -1) {
+      steps.splice(removableAgent, 1);
+      continue;
+    }
+    steps.pop();
+  }
+  return steps;
+}
+
+function buildFlowNode(kind, segment, seed) {
+  const normalizedKind = normalizeKind(kind, typeof kind === 'string' ? kind : 'agent');
+  const config = FLOW_KIND_CONFIG[normalizedKind];
+  return {
+    id: makeNodeId(normalizedKind, seed),
+    icon: config.icon,
+    title: truncateText(toTitleCase(segment).slice(0, 80) || config.fallbackTitle, 80),
+    detail: truncateText(segment, 220),
+    meta: config.meta,
+    kind: normalizedKind,
+  };
+}
+
+function normalizeKeywords(rawKeywords, prompt) {
+  const bucket = [];
+
+  if (Array.isArray(rawKeywords)) {
+    for (const entry of rawKeywords) {
+      if (typeof entry === 'string') {
+        const label = entry.trim();
+        if (label) {
+          bucket.push({ id: slugifyLabel(label), label });
+        }
+        continue;
+      }
+      if (entry && typeof entry === 'object' && entry.label) {
+        bucket.push({
+          id: entry.id || slugifyLabel(entry.label),
+          label: entry.label,
+          reason: entry.reason || entry.context || '',
+        });
+      }
+    }
+  }
+
+  const inferred = detectKeywords(prompt).map((entry) => ({ id: entry.id, label: entry.label }));
+  const combined = [...bucket, ...inferred];
+
+  const seen = new Set();
+  return combined.filter((item) => {
+    const key = (item.label || '').toLowerCase();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildSummaryFromSteps(prompt, steps, intentLabel, keywords) {
+  const lines = steps.slice(0, 3).map((step, index) => `Step ${index + 1}: ${step.title} (${step.kind}).`);
+  if (steps.length > 3) {
+    lines.push(`+${steps.length - 3} more routed nodes auto-generated.`);
+  }
+  lines.push(`Intent detected: ${intentLabel}.`);
+  lines.push(
+    keywords.length
+      ? `Channels/tools spotted: ${keywords.map((keyword) => keyword.label).join(', ')}.`
+      : 'No explicit tools mentioned, default stack selected.',
+  );
+  lines.push(`Prompt focus: "${truncateText(prompt, 90)}"`);
+  return lines;
+}
+
+function buildSummaryFromSegments(prompt, segments, keywords, intentLabel) {
+  if (!segments.length) {
+    return SUMMARY_FALLBACK;
+  }
+
+  const lines = segments.slice(0, 3).map((segment, index) => `Step ${index + 1}: ${segment}`);
+  if (segments.length > 3) {
+    lines.push(`+${segments.length - 3} more auto-generated actions derived from your prompt.`);
+  }
+  lines.push(`Intent detected: ${intentLabel}.`);
+  lines.push(
+    keywords.length
+      ? `Channels/tools spotted: ${keywords.map((keyword) => keyword.label).join(', ')}.`
+      : 'No explicit tools mentioned, default stack selected.',
+  );
+  lines.push(`Prompt focus: "${truncateText(prompt, 90)}"`);
+  return lines;
+}
+
+function inferPaletteDetails(prompt, paletteHint, intentHint) {
+  const normalized = (paletteHint || '').toString().toLowerCase();
+  const intent = (intentHint || '').toString().trim();
+  const paletteRuleFromHint = FLOW_PALETTE_RULES.find((rule) => rule.palette === normalized);
+  if (paletteRuleFromHint) {
+    return {
+      palette: paletteRuleFromHint.palette,
+      intentLabel: intent || paletteRuleFromHint.intent,
+    };
+  }
+
+  const lowerPrompt = prompt.toLowerCase();
+  const matchedRule = FLOW_PALETTE_RULES.find((rule) => rule.keywords.some((keyword) => lowerPrompt.includes(keyword)));
+  if (matchedRule) {
+    return {
+      palette: matchedRule.palette,
+      intentLabel: intent || matchedRule.intent,
+    };
+  }
+
+  return {
+    palette: 'slate',
+    intentLabel: intent || 'General automation',
+  };
+}
+
+function detectKeywords(prompt = '') {
+  const lower = prompt.toLowerCase();
+  return FLOW_KEYWORD_DICTIONARY.filter((entry) =>
+    entry.tokens.some((token) => lower.includes(token)),
+  );
+}
+
+function parseSegments(prompt = '') {
+  return prompt
+    .replace(/[\n\r]+/g, ' ')
+    .split(/(?:\band then\b|\bthen\b|->|=>|\.|,|;|\band\b)/gi)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 2);
+}
+
+function inferKind(segment = '', index = 0, total = 1) {
+  const lower = segment.toLowerCase();
+  if (FLOW_TRIGGER_WORDS.some((word) => lower.startsWith(word) || lower.includes(` ${word}`)) || (index === 0 && total > 1)) {
+    return 'trigger';
+  }
+  if (FLOW_OUTPUT_WORDS.some((word) => lower.includes(word)) || index === total - 1) {
+    return 'notify';
+  }
+  if (FLOW_TOOL_WORDS.some((word) => lower.includes(word))) {
+    return 'tool';
+  }
+  if (FLOW_AGENT_WORDS.some((word) => lower.includes(word))) {
+    return 'agent';
+  }
+  return total <= 2 ? 'agent' : 'tool';
+}
+
+function normalizeKind(candidate, fallbackKind) {
+  const normalized = (candidate || '').toString().toLowerCase();
+  if (FLOW_KIND_CONFIG[normalized]) {
+    return normalized;
+  }
+  const fallbackNormalized = (fallbackKind || '').toString().toLowerCase();
+  if (FLOW_KIND_CONFIG[fallbackNormalized]) {
+    return fallbackNormalized;
+  }
+  return 'agent';
+}
+
+function toTitleCase(text = '') {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function truncateText(value = '', limit = 120) {
+  if (!value) {
+    return '';
+  }
+  return value.length > limit ? `${value.slice(0, limit).trim()}…` : value;
+}
+
+function makeNodeId(kind, seed) {
+  return `${kind}-${seed}-${Math.random().toString(16).slice(2)}`;
+}
+
+function slugifyLabel(label = '') {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'keyword';
+}
+
+const FLOW_TRIGGER_WORDS = ['when', 'whenever', 'if', 'upon', 'every', 'on ', 'after', 'once'];
+const FLOW_AGENT_WORDS = ['analyze', 'plan', 'decide', 'triage', 'score', 'reason', 'diagnose', 'assess', 'brainstorm', 'research'];
+const FLOW_TOOL_WORDS = ['call', 'run', 'execute', 'query', 'fetch', 'sync', 'api', 'request', 'webhook', 'lookup'];
+const FLOW_OUTPUT_WORDS = ['send', 'notify', 'email', 'post', 'publish', 'share', 'update', 'broadcast', 'alert'];
+
+const FLOW_KEYWORD_DICTIONARY = [
+  { id: 'slack', label: 'Slack', tokens: ['slack', '#'] },
+  { id: 'notion', label: 'Notion', tokens: ['notion'] },
+  { id: 'pagerduty', label: 'PagerDuty', tokens: ['pagerduty', 'pd ', 'pager duty'] },
+  { id: 'stripe', label: 'Stripe', tokens: ['stripe', 'payment', 'invoice', 'refund', 'charge'] },
+  { id: 'email', label: 'Email', tokens: ['email', 'gmail', 'outlook'] },
+  { id: 'statuspage', label: 'Statuspage', tokens: ['statuspage', 'status page'] },
+  { id: 'jira', label: 'Jira', tokens: ['jira'] },
+  { id: 'zendesk', label: 'Zendesk', tokens: ['zendesk', 'ticket'] },
+  { id: 'github', label: 'GitHub', tokens: ['github', 'pull request', 'repo'] },
+  { id: 'linear', label: 'Linear', tokens: ['linear', 'issue'] },
+  { id: 'crm', label: 'CRM', tokens: ['hubspot', 'salesforce', 'crm'] },
+];
+
+const FLOW_PALETTE_RULES = [
+  { palette: 'amber', keywords: ['refund', 'invoice', 'billing', 'payment', 'finance'], intent: 'Finance operations' },
+  { palette: 'violet', keywords: ['incident', 'pagerduty', 'outage', 'uptime', 'statuspage', 'alert'], intent: 'Incident response' },
+  { palette: 'teal', keywords: ['growth', 'newsletter', 'campaign', 'marketing', 'leads', 'email'], intent: 'Growth automation' },
+  { palette: 'emerald', keywords: ['support', 'ticket', 'zendesk', 'customer', 'csat'], intent: 'Customer support' },
+  { palette: 'rose', keywords: ['security', 'compliance', 'auth', 'risk'], intent: 'Security orchestration' },
+  { palette: 'slate', keywords: [], intent: 'General automation' },
+];
+
+const FLOW_KIND_CONFIG = {
+  trigger: { icon: '⚡', meta: 'Trigger', fallbackTitle: 'Signal Capture' },
+  agent: { icon: '🤖', meta: 'Reasoner', fallbackTitle: 'Reasoning Agent' },
+  tool: { icon: '🛠️', meta: 'Tool Chain', fallbackTitle: 'Tool Invocation' },
+  notify: { icon: '📣', meta: 'Broadcast', fallbackTitle: 'Output & Telemetry' },
+};
+
+const SUMMARY_FALLBACK = [
+  'Example: "Handle refunds over $500 and ping finance."',
+  'Canvas stays empty until you generate nodes.',
+  'AI wires triggers -> agents -> tools instantly.',
+];
+
+const FLOW_CANVAS_MODEL_PRIORITY = ['gemini-2.5-flash', 'gpt-4o-mini', 'llama-3.3-70b-versatile', 'deepseek-chat'];
+
+const FLOW_CANVAS_SYSTEM_PROMPT = `You are a workflow architect who designs multi-node automations for operations teams.
+
+Output ONLY valid JSON with the following shape:
+{
+  "intentLabel": "short label",
+  "palette": "amber|violet|teal|emerald|rose|slate",
+  "summary": ["sentence", ... up to 5],
+  "keywords": [{"label": "Slack", "reason": "for updates"}],
+  "steps": [
+    {
+      "kind": "trigger|agent|tool|notify",
+      "title": "3-6 words",
+      "detail": "specific one-sentence description",
+      "meta": "Trigger" (etc),
+      "icon": "emoji"
+    }
+  ]
+}
+
+Rules:
+- Always include at least one trigger, one reasoning agent, and one notify/output node.
+- Keep 3-7 steps total. Maintain logical order from left to right.
+- Favor concrete tool descriptions when the user names systems.
+- Never wrap the JSON in markdown fences.`;
+
+const FLOW_CANVAS_STEP_PROMPT = `You are a workflow editor. Replace a single step in an automation flow.
+
+Output ONLY valid JSON for a single step with the shape:
+{
+  "kind": "trigger|agent|tool|notify",
+  "title": "3-6 words",
+  "detail": "specific one-sentence description",
+  "meta": "Trigger" (etc),
+  "icon": "emoji"
+}
+
+Rules:
+- Return only one step object, no arrays.
+- Keep wording concise.
+- Prefer tool/agent steps when the instruction mentions systems or actions.
+- Never wrap the JSON in markdown fences.`;
+
+const FLOW_CANVAS_EXPLAIN_PROMPT = `You explain a workflow to a product manager in 3-5 short sentences.
+Mention how the flow starts, the key reasoning/tool steps, and how it ends. Keep it concise.`;
+
+const FLOW_CANVAS_EXPLAIN_STEP_PROMPT = `You explain a single workflow node in 2-3 short sentences.
+Describe what the step does, why it exists, and any tools/systems it touches. Keep it concise.`;
 

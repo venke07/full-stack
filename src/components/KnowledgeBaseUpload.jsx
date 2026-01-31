@@ -195,7 +195,7 @@ export default function KnowledgeBaseUpload({ agentId, onUploadComplete }) {
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         .knowledge-base-upload {
           margin-top: 20px;
         }

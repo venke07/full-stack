@@ -1,889 +1,728 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { getModelMeta, modelOptions } from '../lib/modelOptions.js';
-import TutorialLauncher from '../components/TutorialLauncher.jsx';
-import DashboardLayout from '../components/DashboardLayout.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabaseClient.js';
 
-const NODE_TYPES = {
-  persona: { label: 'Persona', accent: '#6aa8ff', description: 'Voice, tone, and framing blocks.' },
-  gate: { label: 'Gate', accent: '#ff7b7b', description: 'Safety, routing, or decision checks.' },
-  tool: { label: 'Tool', accent: '#f5a524', description: 'APIs, connectors, or scripted steps.' },
-  summary: { label: 'Summary', accent: '#c084fc', description: 'Synthesis, scoring, or coaching output.' },
-  action: { label: 'Action', accent: '#7af0d5', description: 'Generic processing or fallback stage.' },
-};
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-const NODE_LIBRARY = [
-  { type: 'persona', icon: 'PR', title: 'Persona block', copy: 'Inject tone, empathy, or task framing.' },
-  { type: 'gate', icon: 'GT', title: 'Safety gate', copy: 'Filter risky content and branch requests.' },
-  { type: 'tool', icon: 'TL', title: 'Tool call', copy: 'Represent a service, connector, or workflow.' },
-  { type: 'summary', icon: 'SM', title: 'Synthesis block', copy: 'Summaries, scoring, or QA nodes.' },
-  { type: 'action', icon: 'AC', title: 'Action step', copy: 'Generic processing, notes, or fallbacks.' },
+const summaryFallback = [
+  'Example: "Handle refunds over $500 and ping finance."',
+  'Canvas stays empty until you generate nodes.',
+  'AI wires triggers → agents → tools instantly.',
 ];
 
-const TAG_LIBRARY = ['safety', 'persona', 'data', 'handoff', 'tooling'];
-
-const HERO_CARDS = [
-  { title: 'Spatial thinking', body: 'Drop blocks on a map so intent, tools, and safety live side by side.' },
-  { title: 'Drag interactions', body: 'Reorder, duplicate, and branch nodes just by pulling them into place.' },
-  { title: 'Trace ready', body: 'Connect the dots visually before shipping the agent playbook.' },
-];
-
-const STORAGE_KEYS = {
-  nodes: 'flowCanvas.nodes',
-  activity: 'flowCanvas.activity',
+const COST_MAP = {
+  trigger: 0.0000,
+  agent: 0.0040,
+  tool: 0.0010,
+  notify: 0.0005,
+  decision: 0.0002,
+  loop: 0.0020,
+  transform: 0.0005,
+  api: 0.0012,
+  output: 0.0003,
 };
 
-const NODE_SIZE = { width: 240, height: 150 };
-
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-const snapValue = (value, step = 20) => Math.round(value / step) * step;
-const stampOrder = (list = []) => list.map((node, index) => ({ ...node, order: index + 1 }));
-
-const generateId = () =>
-  (typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `node-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-
-const normalizeNode = (node = {}) => ({
-  id: node.id ?? generateId(),
-  title: node.title?.trim() || 'Untitled block',
-  detail: node.detail ?? 'Describe what happens inside this block.',
-  type: NODE_TYPES[node.type] ? node.type : 'action',
-  status: node.status === 'draft' ? 'draft' : 'live',
-  tags: Array.isArray(node.tags) ? node.tags : [],
-  owner: node.owner ?? 'Playbook team',
-  position: {
-    x: Number.isFinite(node.position?.x) ? node.position.x : 60,
-    y: Number.isFinite(node.position?.y) ? node.position.y : 60,
-  },
-  updatedAt: node.updatedAt ?? new Date().toISOString(),
-  order: Number.isFinite(node.order) ? node.order : 0,
-});
-
-const normalizeActivity = (entry = {}) => ({
-  id: entry.id ?? generateId(),
-  text: entry.text ?? 'Canvas updated',
-  timestamp: entry.timestamp ?? new Date().toISOString(),
-});
-
-const normalizeCollection = (value, normalizer, fallback) => {
-  if (!Array.isArray(value) || !value.length) {
-    return fallback;
-  }
-  return value.map((item) => normalizer(item));
+const LATENCY_MAP = {
+  trigger: 50,
+  agent: 1200,
+  tool: 600,
+  notify: 300,
+  decision: 180,
+  loop: 900,
+  transform: 240,
+  api: 800,
+  output: 200,
 };
 
-const loadStored = (key, fallback, normalizer) => {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    return normalizer ? normalizer(parsed) : parsed;
-  } catch {
-    return fallback;
-  }
-};
+const formatCurrency = (value) => `$${value.toFixed(3)}`;
+const formatMs = (value) => `${Math.round(value)}ms`;
 
-const DEFAULT_NODES = stampOrder([
-  normalizeNode({
-    title: 'Listen for intent',
-    detail: 'Capture the utterance, detect the job-to-be-done, and hydrate context slots.',
-    type: 'persona',
-    tags: ['persona'],
-    position: { x: 70, y: 80 },
-  }),
-  normalizeNode({
-    title: 'Safety sweep',
-    detail: 'Block self-harm, hate, or policy violations. Log rationale for escalations.',
-    type: 'gate',
-    tags: ['safety'],
-    position: { x: 360, y: 60 },
-  }),
-  normalizeNode({
-    title: 'Tool selector',
-    detail: 'Choose search, memory, or code execution depending on the detected intent.',
-    type: 'tool',
-    tags: ['tooling', 'data'],
-    position: { x: 660, y: 110 },
-  }),
-  normalizeNode({
-    title: 'Compose reply',
-    detail: 'Synthesize findings, cite sources, and propose next actions or handoff.',
-    type: 'summary',
-    tags: ['handoff'],
-    position: { x: 360, y: 320 },
-  }),
-]);
+const generateFlowId = () =>
+  (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `flow-${Date.now()}`);
 
-const formatRelativeTime = (isoString) => {
-  if (!isoString) {
-    return 'just now';
-  }
-  const delta = Date.now() - new Date(isoString).getTime();
-  if (!Number.isFinite(delta) || delta < 0) {
-    return 'just now';
-  }
-  const minutes = Math.floor(delta / 60000);
-  if (minutes < 1) {
-    return 'just now';
-  }
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-};
-
-const computeDropPoint = (count, boardElement) => {
-  const column = count % 3;
-  const row = Math.floor(count / 3);
-  const fallbackWidth = boardElement?.clientWidth ?? 960;
-  const fallbackHeight = boardElement?.clientHeight ?? 640;
-  const baseX = 60 + column * (NODE_SIZE.width + 80);
-  const baseY = 60 + row * (NODE_SIZE.height + 60);
-  const maxX = Math.max(20, fallbackWidth - NODE_SIZE.width - 20);
-  const maxY = Math.max(20, fallbackHeight - NODE_SIZE.height - 20);
+const estimateCostLatency = (steps = []) => {
+  const totals = steps.reduce(
+    (acc, step) => {
+      const kind = step.kind || 'tool';
+      acc.cost += COST_MAP[kind] ?? 0.0004;
+      acc.latency += LATENCY_MAP[kind] ?? 300;
+      return acc;
+    },
+    { cost: 0, latency: 0 },
+  );
   return {
-    x: clamp(baseX, 20, maxX),
-    y: clamp(baseY, 20, maxY),
+    cost: formatCurrency(totals.cost),
+    latency: formatMs(totals.latency),
   };
+};
+
+const simulateStepOutput = (step, payload, index) => {
+  const kind = step.kind || 'tool';
+  switch (kind) {
+    case 'trigger':
+      return { event: 'triggered', input: payload };
+    case 'agent':
+      return { decision: `Planned action for ${step.title}`, summary: step.detail };
+    case 'tool':
+      return { toolResult: `Executed ${step.title}`, status: 'ok' };
+    case 'notify':
+      return { notification: `Sent update: ${step.title}` };
+    case 'decision':
+      return { branch: 'true', reason: 'Condition satisfied' };
+    case 'loop':
+      return { iteration: 1, note: 'Loop executed once (simulated)' };
+    case 'transform':
+      return { transformed: true, note: step.detail };
+    case 'api':
+      return { status: 200, endpoint: step.detail || 'API call' };
+    case 'output':
+      return { output: `Delivered result from ${step.title}` };
+    default:
+      return { status: 'ok', detail: step.detail, step: index + 1 };
+  }
 };
 
 export default function CanvasPage() {
-  const boardRef = useRef(null);
-  const dragRef = useRef({ id: null, offsetX: 0, offsetY: 0 });
-  const nodesRef = useRef(DEFAULT_NODES);
-
-  const [nodes, setNodes] = useState(() =>
-    stampOrder(
-      loadStored(
-        STORAGE_KEYS.nodes,
-        DEFAULT_NODES,
-        (value) => normalizeCollection(value, normalizeNode, DEFAULT_NODES),
-      ),
-    ),
-  );
-  const [activity, setActivity] = useState(() =>
-    loadStored(STORAGE_KEYS.activity, [], (value) => normalizeCollection(value, normalizeActivity, [])),
-  );
-  const [selectedId, setSelectedId] = useState(null);
-  const [isBoardExpanded, setBoardExpanded] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [agentName, setAgentName] = useState('');
-  const [agentDescription, setAgentDescription] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [workflow, setWorkflow] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [generationMeta, setGenerationMeta] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [replaceIndex, setReplaceIndex] = useState(0);
+  const [replacePrompt, setReplacePrompt] = useState('');
+  const [replaceError, setReplaceError] = useState('');
+  const [isReplacing, setIsReplacing] = useState(false);
+  const [explanation, setExplanation] = useState('');
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [simulationInput, setSimulationInput] = useState('{"sample": "payload"}');
+  const [simulationOutputs, setSimulationOutputs] = useState([]);
+  const [simulationError, setSimulationError] = useState('');
+  const [selectedStep, setSelectedStep] = useState(null);
+  const [stepExplanation, setStepExplanation] = useState('');
+  const [isExplainingStep, setIsExplainingStep] = useState(false);
+  const [dragIndex, setDragIndex] = useState(null);
+  const [savedFlows, setSavedFlows] = useState([]);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+  const [savedError, setSavedError] = useState('');
+  const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [agentStatus, setAgentStatus] = useState('');
+  const [agentError, setAgentError] = useState('');
 
-  useEffect(() => {
-    nodesRef.current = nodes;
-  }, [nodes]);
+  const metrics = useMemo(() => {
+    if (!workflow) return null;
+    const stepsCount = workflow.steps?.length ?? 0;
+    return [
+      { label: 'Nodes generated', value: stepsCount },
+      { label: 'Segments parsed', value: workflow.segmentCount ?? stepsCount },
+      { label: 'Keywords detected', value: workflow.keywords?.length ?? 0 },
+    ];
+  }, [workflow]);
 
-  useEffect(() => {
-    if (nodes.length && !selectedId) {
-      setSelectedId(nodes[0].id);
+  const estimates = useMemo(() => {
+    if (!workflow?.steps?.length) return null;
+    return estimateCostLatency(workflow.steps);
+  }, [workflow]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (isGenerating) return;
+
+    const text = prompt.trim();
+    if (!text) {
+      setError('Describe what you want the workflow to do first.');
       return;
     }
-    if (!nodes.length) {
-      setSelectedId(null);
-    }
-  }, [nodes, selectedId]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(STORAGE_KEYS.nodes, JSON.stringify(nodes));
-  }, [nodes]);
+    setError('');
+    setGenerationMeta(null);
+    setIsGenerating(true);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(STORAGE_KEYS.activity, JSON.stringify(activity));
-  }, [activity]);
-
-  const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedId) ?? null, [nodes, selectedId]);
-  const selectedNodeOrder = useMemo(() => {
-    if (!selectedNode) {
-      return 0;
-    }
-    if (Number.isFinite(selectedNode.order) && selectedNode.order > 0) {
-      return selectedNode.order;
-    }
-    const fallbackIndex = nodes.findIndex((node) => node.id === selectedNode.id);
-    return fallbackIndex >= 0 ? fallbackIndex + 1 : 0;
-  }, [nodes, selectedNode]);
-  const liveCount = useMemo(() => nodes.filter((node) => node.status === 'live').length, [nodes]);
-
-  const recordActivity = useCallback((text) => {
-    setActivity((prev) => [normalizeActivity({ text }), ...prev].slice(0, 12));
-  }, []);
-
-  const handlePointerMove = useCallback((event) => {
-    const { id, offsetX, offsetY } = dragRef.current;
-    if (!id) {
-      return;
-    }
-    const board = boardRef.current;
-    if (!board) {
-      return;
-    }
-    const rect = board.getBoundingClientRect();
-    const maxX = Math.max(0, rect.width - NODE_SIZE.width);
-    const maxY = Math.max(0, rect.height - NODE_SIZE.height);
-    const nextX = clamp(event.clientX - rect.left - offsetX, 0, maxX);
-    const nextY = clamp(event.clientY - rect.top - offsetY, 0, maxY);
-    setNodes((prev) =>
-      prev.map((node) =>
-        node.id === id ? { ...node, position: { x: nextX, y: nextY }, updatedAt: new Date().toISOString() } : node,
-      ),
-    );
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    if (!dragRef.current.id) {
-      return;
-    }
-    dragRef.current = { id: null, offsetX: 0, offsetY: 0 };
-    document.removeEventListener('mousemove', handlePointerMove);
-    document.removeEventListener('mouseup', handlePointerUp);
-  }, [handlePointerMove]);
-
-  const beginDrag = useCallback(
-    (event, nodeId) => {
-      if (event.button !== 0) {
-        return;
-      }
-      const board = boardRef.current;
-      if (!board) {
-        return;
-      }
-      const node = nodesRef.current.find((item) => item.id === nodeId);
-      if (!node) {
-        return;
-      }
-      const rect = board.getBoundingClientRect();
-      dragRef.current = {
-        id: nodeId,
-        offsetX: event.clientX - (rect.left + node.position.x),
-        offsetY: event.clientY - (rect.top + node.position.y),
-      };
-      document.addEventListener('mousemove', handlePointerMove);
-      document.addEventListener('mouseup', handlePointerUp);
-    },
-    [handlePointerMove, handlePointerUp],
-  );
-
-  useEffect(() => () => handlePointerUp(), [handlePointerUp]);
-
-  const handleNodePointerDown = (event, nodeId) => {
-    setSelectedId(nodeId);
-    const target = event.target;
-    if (target instanceof Element && target.closest('button')) {
-      return;
-    }
-    beginDrag(event, nodeId);
-  };
-
-  const handleBoardMouseDown = (event) => {
-    const target = event.target;
-    if (target instanceof Element && target.closest('.blueprint-node')) {
-      return;
-    }
-    setSelectedId(null);
-  };
-
-  const handleUpdateNode = (nodeId, patch, activityLabel) => {
-    setNodes((prev) =>
-      prev.map((node) => (node.id === nodeId ? { ...node, ...patch, updatedAt: new Date().toISOString() } : node)),
-    );
-    if (activityLabel) {
-      recordActivity(activityLabel);
-    }
-  };
-
-  const handleToggleTag = (nodeId, tag) => {
-    setNodes((prev) =>
-      prev.map((node) => {
-        if (node.id !== nodeId) {
-          return node;
-        }
-        const hasTag = node.tags.includes(tag);
-        return {
-          ...node,
-          tags: hasTag ? node.tags.filter((item) => item !== tag) : [...node.tags, tag],
-          updatedAt: new Date().toISOString(),
-        };
-      }),
-    );
-  };
-
-  const handleAddNode = (type) => {
-    const template = NODE_TYPES[type] ?? NODE_TYPES.action;
-    const position = computeDropPoint(nodes.length, boardRef.current);
-    const newNode = normalizeNode({
-      title: `${template.label} ${nodes.length + 1}`,
-      detail: template.description,
-      type,
-      status: 'draft',
-      position,
-    });
-    setNodes((prev) => stampOrder([...prev, newNode]));
-    setSelectedId(newNode.id);
-    recordActivity(`Added ${template.label}`);
-  };
-
-  const handleDuplicateNode = (nodeId) => {
-    const source = nodes.find((node) => node.id === nodeId);
-    if (!source) {
-      return;
-    }
-    const board = boardRef.current;
-    const maxX = Math.max(20, (board?.clientWidth ?? 960) - NODE_SIZE.width - 20);
-    const maxY = Math.max(20, (board?.clientHeight ?? 640) - NODE_SIZE.height - 20);
-    const duplicate = normalizeNode({
-      ...source,
-      id: undefined,
-      title: `${source.title} copy`,
-      position: {
-        x: clamp(source.position.x + 40, 20, maxX),
-        y: clamp(source.position.y + 40, 20, maxY),
-      },
-    });
-    setNodes((prev) => {
-      const idx = prev.findIndex((node) => node.id === nodeId);
-      const next = [...prev];
-      next.splice(idx + 1, 0, duplicate);
-      return stampOrder(next);
-    });
-    setSelectedId(duplicate.id);
-    recordActivity(`Duplicated ${source.title}`);
-  };
-
-  const handleDeleteNode = (nodeId) => {
-    const removed = nodes.find((node) => node.id === nodeId);
-    setNodes((prev) => stampOrder(prev.filter((node) => node.id !== nodeId)));
-    if (removed) {
-      recordActivity(`Removed ${removed.title}`);
-    }
-    if (selectedId === nodeId) {
-      setSelectedId(null);
-    }
-  };
-
-  const handleClearBoard = () => {
-    if (!nodes.length) {
-      return;
-    }
-    if (typeof window !== 'undefined' && !window.confirm('Clear every block from this canvas?')) {
-      return;
-    }
-    setNodes([]);
-    setSelectedId(null);
-    recordActivity('Cleared blueprint');
-  };
-
-  const handleAutoLayout = () => {
-    if (!nodes.length) {
-      return;
-    }
-    setNodes((prev) =>
-      prev.map((node, index) => ({
-        ...node,
-        position: computeDropPoint(index, boardRef.current),
-        updatedAt: new Date().toISOString(),
-      })),
-    );
-    recordActivity('Auto-arranged canvas');
-  };
-
-  const handleSnapToGrid = () => {
-    if (!nodes.length) {
-      return;
-    }
-    setNodes((prev) =>
-      prev.map((node) => ({
-        ...node,
-        position: {
-          x: snapValue(node.position.x),
-          y: snapValue(node.position.y),
-        },
-        updatedAt: new Date().toISOString(),
-      })),
-    );
-    recordActivity('Snapped nodes to grid');
-  };
-
-  const handleShiftHierarchy = useCallback(
-    (nodeId, delta) => {
-      if (!delta || nodesRef.current.length < 2) {
-        return;
-      }
-      let movedTitle = null;
-      const directionLabel = delta < 0 ? 'up' : 'down';
-      setNodes((prev) => {
-        const index = prev.findIndex((node) => node.id === nodeId);
-        if (index < 0) {
-          return prev;
-        }
-        const targetIndex = clamp(index + delta, 0, prev.length - 1);
-        if (targetIndex === index) {
-          return prev;
-        }
-        const next = [...prev];
-        const [item] = next.splice(index, 1);
-        next.splice(targetIndex, 0, item);
-        movedTitle = item.title;
-        const stamped = stampOrder(next);
-        return stamped.map((node) =>
-          node.id === item.id ? { ...node, updatedAt: new Date().toISOString() } : node,
-        );
-      });
-      if (movedTitle) {
-        recordActivity(`Moved ${movedTitle} ${directionLabel}`);
-      }
-    },
-    [recordActivity],
-  );
-
-  const handleSetHierarchy = useCallback(
-    (nodeId, rawPosition) => {
-      if (rawPosition === '' || rawPosition === null || rawPosition === undefined) {
-        return;
-      }
-      const numericPosition = Number(rawPosition);
-      if (!Number.isFinite(numericPosition)) {
-        return;
-      }
-      const total = nodesRef.current?.length ?? 0;
-      if (total <= 1) {
-        return;
-      }
-      const desiredIndex = clamp(Math.round(numericPosition) - 1, 0, total - 1);
-      let movedTitle = null;
-      setNodes((prev) => {
-        const index = prev.findIndex((node) => node.id === nodeId);
-        if (index < 0 || index === desiredIndex) {
-          return prev;
-        }
-        const next = [...prev];
-        const [item] = next.splice(index, 1);
-        next.splice(desiredIndex, 0, item);
-        movedTitle = item.title;
-        const stamped = stampOrder(next);
-        return stamped.map((node) =>
-          node.id === item.id ? { ...node, updatedAt: new Date().toISOString() } : node,
-        );
-      });
-      if (movedTitle) {
-        recordActivity(`Set ${movedTitle} to step ${desiredIndex + 1}`);
-      }
-    },
-    [recordActivity],
-  );
-
-  const handleSimulateFlow = () => {
-    if (!nodes.length) {
-      recordActivity('Simulation skipped - add nodes first');
-      return;
-    }
-    const liveNodes = nodes.filter((node) => node.status === 'live');
-    const summary = liveNodes.length
-      ? `Simulation: ${liveNodes.length} live node${liveNodes.length === 1 ? '' : 's'} fired`
-      : 'Simulation: draft-only path (no live nodes)';
-    recordActivity(summary);
-  };
-
-  const connections = useMemo(() => {
-    if (nodes.length < 2) {
-      return [];
-    }
-    return nodes.slice(1).map((node, index) => {
-      const from = nodes[index];
-      return {
-        id: `${from.id}-${node.id}`,
-        start: {
-          x: from.position.x + NODE_SIZE.width / 2,
-          y: from.position.y + NODE_SIZE.height / 2,
-        },
-        end: {
-          x: node.position.x + NODE_SIZE.width / 2,
-          y: node.position.y + NODE_SIZE.height / 2,
-        },
-        status: node.status,
-      };
-    });
-  }, [nodes]);
-
-  const handleCreateAgentFromWorkflow = useCallback(async () => {
-    if (!agentName.trim()) {
-      return;
-    }
-    setIsSaving(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      recordActivity(
-        `Drafted ${agentName.trim()} with ${nodes.length} node${nodes.length === 1 ? '' : 's'} and ${connections.length} connection${
-          connections.length === 1 ? '' : 's'
-        }`,
-      );
-      setAgentName('');
-      setAgentDescription('');
-      setShowCreateModal(false);
-    } catch (error) {
-      console.error('Failed to create agent from workflow', error);
-      recordActivity('Agent creation failed');
+      const response = await fetch(`${API_URL}/api/flow-canvas/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.workflow) {
+        throw new Error(data?.error || 'Flow generation failed. Try again.');
+      }
+      setWorkflow({
+        ...data.workflow,
+        flowId: data.workflow?.flowId || generateFlowId(),
+      });
+      setGenerationMeta({
+        source: data.source || 'model',
+        warning: data.warning || '',
+      });
+      setPrompt('');
+    } catch (err) {
+      setError(err.message || 'Unable to generate workflow. Try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const loadSavedFlows = async () => {
+    setIsLoadingSaved(true);
+    setSavedError('');
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const userId = authData?.user?.id;
+      if (!userId) {
+        setSavedFlows([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('flow_canvas_versions')
+        .select('flow_id, version, prompt, created_at, workflow')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+      setSavedFlows(data || []);
+    } catch (err) {
+      setSavedError(err.message || 'Unable to load saved flows.');
+    } finally {
+      setIsLoadingSaved(false);
+    }
+  };
+
+  const handleSaveWorkflow = async () => {
+    if (!workflow) return;
+    setIsSaving(true);
+    setSaveError('');
+    setSaveStatus('');
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) {
+        throw authError;
+      }
+      const userId = authData?.user?.id;
+      if (!userId) {
+        throw new Error('Sign in to save workflows.');
+      }
+
+      const flowId = workflow.flowId || generateFlowId();
+      const { data: existing, error: existingError } = await supabase
+        .from('flow_canvas_versions')
+        .select('version')
+        .eq('user_id', userId)
+        .eq('flow_id', flowId)
+        .order('version', { ascending: false })
+        .limit(1);
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      const nextVersion = existing?.[0]?.version ? existing[0].version + 1 : 1;
+      const payload = {
+        user_id: userId,
+        flow_id: flowId,
+        version: nextVersion,
+        prompt: workflow.prompt || '',
+        summary: workflow.summary || [],
+        workflow,
+        created_at: new Date().toISOString(),
+      };
+
+      const { error: insertError } = await supabase.from('flow_canvas_versions').insert(payload);
+      if (insertError) {
+        throw insertError;
+      }
+      setWorkflow((prev) => (prev ? { ...prev, flowId } : prev));
+      setSaveStatus(`Saved v${nextVersion}`);
+      await loadSavedFlows();
+    } catch (err) {
+      setSaveError(err.message || 'Unable to save workflow.');
     } finally {
       setIsSaving(false);
     }
-  }, [agentName, connections.length, nodes.length, recordActivity]);
+  };
 
-  const headerContent = (
-    <div className="page-heading">
-      <p className="eyebrow">Spatial builder</p>
-      <h1>Agent Flow Canvas</h1>
-      <p className="dashboard-sub">
-        Drop numbered blocks on a map, drag paths into place, and narrate how the agent behaves.
-      </p>
-    </div>
-  );
+  useEffect(() => {
+    loadSavedFlows();
+  }, []);
 
-  const headerActions = (
-    <div className="page-actions compact">
-      <button
-        className="btn primary"
-        type="button"
-        onClick={() => setShowCreateModal(true)}
-        disabled={!nodes.length}
-      >
-        Create agent
-      </button>
-      <button className="btn secondary" type="button" onClick={handleSimulateFlow} disabled={!nodes.length}>
-        Simulate path
-      </button>
-      <button className="btn ghost" type="button" onClick={handleAutoLayout} disabled={!nodes.length}>
-        Auto layout
-      </button>
-      <button className="btn ghost" type="button" onClick={() => setBoardExpanded((prev) => !prev)}>
-        {isBoardExpanded ? 'Shrink map' : 'Enlarge map'}
-      </button>
-      <Link className="btn ghost" to="/builder">
-        Builder
-      </Link>
-    </div>
-  );
+  const handleCreateAgentFromWorkflow = async () => {
+    if (!workflow?.steps?.length) return;
+    setIsCreatingAgent(true);
+    setAgentError('');
+    setAgentStatus('');
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const userId = authData?.user?.id;
+      if (!userId) throw new Error('Sign in to create agents.');
+
+      const agentName = workflow.title || workflow.intentLabel || 'Workflow Agent';
+      const agentDesc = (workflow.summary || []).join(' ');
+      const stepsText = workflow.steps
+        .map((step, index) => `${index + 1}. ${step.title} (${step.kind}) - ${step.detail}`)
+        .join('\n');
+      const agentPrompt = `You are an automation agent. Execute this workflow:\n${stepsText}\n\nRules:\n- Follow steps in order.\n- Use tools when specified.\n- Provide a short final summary.`;
+
+      const payload = {
+        user_id: userId,
+        name: agentName,
+        description: agentDesc,
+        system_prompt: agentPrompt,
+        status: 'draft',
+        tools: { web: false, rfd: false, deep: false },
+        sliders: { formality: 45, creativity: 35 },
+        model_id: 'gemini-2.5-flash',
+        model_label: 'Gemini 2.5 Flash',
+        model_provider: 'gemini',
+        created_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase.from('agent_personas').insert(payload).select('id').single();
+      if (error) throw error;
+      setAgentStatus(`Agent created: ${data?.id || 'unknown id'}`);
+    } catch (err) {
+      setAgentError(err.message || 'Unable to create agent.');
+    } finally {
+      setIsCreatingAgent(false);
+    }
+  };
+
+  const handleReplaceStep = async () => {
+    if (!workflow?.steps?.length) return;
+    if (!replacePrompt.trim()) {
+      setReplaceError('Add a short instruction for the replacement step.');
+      return;
+    }
+    setReplaceError('');
+    setIsReplacing(true);
+    try {
+      const response = await fetch(`${API_URL}/api/flow-canvas/replace-step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: replacePrompt.trim(),
+          stepIndex: replaceIndex,
+          workflow,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.step) {
+        throw new Error(data?.error || 'Unable to replace step.');
+      }
+      setWorkflow((prev) => {
+        if (!prev) return prev;
+        const updated = [...prev.steps];
+        updated[replaceIndex] = { ...updated[replaceIndex], ...data.step, id: updated[replaceIndex].id || data.step.id };
+        return { ...prev, steps: updated };
+      });
+      setReplacePrompt('');
+    } catch (err) {
+      setReplaceError(err.message || 'Replacement failed.');
+    } finally {
+      setIsReplacing(false);
+    }
+  };
+
+  const handleExplainFlow = async () => {
+    if (!workflow?.steps?.length) return;
+    setIsExplaining(true);
+    try {
+      const response = await fetch(`${API_URL}/api/flow-canvas/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflow }),
+      });
+      const contentType = response.headers.get('content-type') || '';
+      const rawText = await response.text();
+      const data = contentType.includes('application/json') ? JSON.parse(rawText) : null;
+      if (!response.ok || !data?.explanation) {
+        throw new Error(data?.error || 'Explanation failed. Check the server is running.');
+      }
+      setExplanation(data.explanation);
+    } catch (err) {
+      setExplanation(err.message || 'Unable to explain flow.');
+    } finally {
+      setIsExplaining(false);
+    }
+  };
+
+  const handleSimulate = () => {
+    if (!workflow?.steps?.length) return;
+    setSimulationError('');
+    try {
+      const parsed = simulationInput.trim() ? JSON.parse(simulationInput) : {};
+      const outputs = workflow.steps.map((step, index) => ({
+        stepId: step.id,
+        title: step.title,
+        output: simulateStepOutput(step, parsed, index),
+      }));
+      setSimulationOutputs(outputs);
+    } catch (err) {
+      setSimulationError('Simulation payload must be valid JSON.');
+    }
+  };
+
+  const handleExplainStep = async (step, index) => {
+    if (!step) return;
+    setSelectedStep({ ...step, index });
+    setStepExplanation('');
+    setIsExplainingStep(true);
+    try {
+      const response = await fetch(`${API_URL}/api/flow-canvas/explain-step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step, index, workflow }),
+      });
+      const contentType = response.headers.get('content-type') || '';
+      const rawText = await response.text();
+      const data = contentType.includes('application/json') ? JSON.parse(rawText) : null;
+      if (!response.ok || !data?.explanation) {
+        throw new Error(data?.error || rawText || 'Unable to explain node.');
+      }
+      setStepExplanation(data.explanation);
+    } catch (err) {
+      const fallback = `Step ${index + 1} (${step.kind || 'step'}) verifies: ${step.title}. ${step.detail || ''}`;
+      setStepExplanation(err.message ? `${err.message}\n${fallback}` : fallback);
+    } finally {
+      setIsExplainingStep(false);
+    }
+  };
+
+  const handleDragStart = (index) => {
+    setDragIndex(index);
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+  };
+
+  const handleDrop = (index) => {
+    if (dragIndex === null || !workflow?.steps?.length) {
+      return;
+    }
+    setWorkflow((prev) => {
+      if (!prev) return prev;
+      const updated = [...prev.steps];
+      const [moved] = updated.splice(dragIndex, 1);
+      updated.splice(index, 0, moved);
+      return { ...prev, steps: updated };
+    });
+    setDragIndex(null);
+  };
+
+  const sourceLabel =
+    generationMeta?.source === 'model'
+      ? 'LLM-generated'
+      : generationMeta?.source === 'fallback'
+        ? 'Heuristic fallback'
+        : null;
 
   return (
-    <DashboardLayout headerContent={headerContent} actions={headerActions}>
-      <div className="canvas-lenses">
-        {HERO_CARDS.map((lens) => (
-          <div key={lens.title} className="lens-card">
-            <p className="eyebrow">{lens.title}</p>
-            <p className="muted">{lens.body}</p>
-          </div>
-        ))}
-      </div>
+    <div className="lab-shell">
+      <header className="lab-head">
+        <p className="lab-eyebrow">Flow Canvas · Prompt mode</p>
+        <h1>Start from an empty canvas and let AI reveal the workflow.</h1>
+        <p className="lab-muted">
+          Describe the ops outcome and the canvas fabricates every node, connector, and telemetry panel the moment you
+          hit generate. Drag nodes to reorder, click a node to inspect it.
+        </p>
+      </header>
 
-      {/* Create Agent Modal */}
-      {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Create Agent from Workflow</h2>
-            <p className="muted small">Convert your workflow into a reusable AI agent</p>
-
-            <div className="form-group">
-              <label htmlFor="agent-name">Agent Name *</label>
-              <input
-                id="agent-name"
-                type="text"
-                placeholder="e.g., Lead Qualification Agent"
-                value={agentName}
-                onChange={(e) => setAgentName(e.target.value)}
-                disabled={isSaving}
-              />
+      <section className="lab-panel">
+        <div className="lab-board">
+          <div className="lab-grid" aria-hidden="true" />
+          {isGenerating && (
+            <div className="lab-empty is-generating" aria-live="assertive">
+              <span className="lab-spinner" />
+              <p>Generating nodes…</p>
+              <small>Auto-routing triggers, agents, and tool steps.</small>
             </div>
+          )}
 
-            <div className="form-group">
-              <label htmlFor="agent-desc">Description</label>
-              <textarea
-                id="agent-desc"
-                placeholder="What does this agent do?"
-                value={agentDescription}
-                onChange={(e) => setAgentDescription(e.target.value)}
-                disabled={isSaving}
-                rows="3"
-              />
+          {!isGenerating && !workflow && (
+            <div className="lab-empty" aria-live="polite">
+              <p>Blank space, ready for instructions.</p>
+              <small>Try prompts like "auto-handle refunds and alert finance."</small>
+              <ul>
+                <li>We parse your ask into trigger → reasoning → tools.</li>
+                <li>Nodes appear with connectors already balanced.</li>
+                <li>You can re-prompt to regenerate anytime.</li>
+              </ul>
             </div>
+          )}
 
-            <div className="modal-info">
-              <p className="muted small">
-                <strong>Workflow Summary:</strong>
-                <br />
-                {nodes.length} node{nodes.length !== 1 ? 's' : ''} | {connections.length} connection{connections.length !== 1 ? 's' : ''}
-              </p>
-              <p className="muted small">
-                <strong>Primary Model:</strong>
-                <br />
-                {getModelMeta((nodes.find((n) => n.type === 'llm' || n.type === 'agent')?.modelId) || modelOptions[0].id).label}
-              </p>
-            </div>
-
-            <div className="modal-actions">
-              <button
-                className="btn ghost"
-                onClick={() => setShowCreateModal(false)}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn primary"
-                onClick={handleCreateAgentFromWorkflow}
-                disabled={isSaving || !agentName.trim()}
-              >
-                {isSaving ? 'Creating...' : 'Create Agent'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <section className={`blueprint-shell ${isBoardExpanded ? 'is-expanded' : ''}`}>
-        <aside className="node-palette">
-          <div className="palette-head">
-            <p className="eyebrow">Block library</p>
-            <p className="muted">Drag-to-place or tap to spawn</p>
-          </div>
-          <div className="palette-list">
-            {NODE_LIBRARY.map((item) => (
-              <button key={item.type} type="button" className="palette-item" onClick={() => handleAddNode(item.type)}>
-                <span className="palette-icon" aria-hidden="true">
-                  {item.icon}
-                </span>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p className="muted">{item.copy}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div className="palette-footer">
-            <button className="btn ghost mini" type="button" onClick={handleClearBoard} disabled={!nodes.length}>
-              Clear canvas
-            </button>
-            <button className="btn ghost mini" type="button" onClick={handleSnapToGrid} disabled={!nodes.length}>
-              Snap to grid
-            </button>
-          </div>
-        </aside>
-
-        <div className="blueprint-board-wrapper">
-          <div className="blueprint-toolbar">
-            <div>
-              <p className="eyebrow">Canvas overview</p>
-              <p className="muted">
-                {nodes.length} block{nodes.length === 1 ? '' : 's'} | Live {liveCount} | Draft {nodes.length - liveCount}
-              </p>
-            </div>
-            <div className="toolbar-metrics">
-              <span>Persona {nodes.filter((node) => node.type === 'persona').length}</span>
-              <span>Gates {nodes.filter((node) => node.type === 'gate').length}</span>
-              <span>Tools {nodes.filter((node) => node.type === 'tool').length}</span>
-            </div>
-            <div className="toolbar-actions">
-              <button className="btn ghost mini" type="button" onClick={handleSimulateFlow} disabled={!nodes.length}>
-                Simulate
-              </button>
-              <button className="btn ghost mini" type="button" onClick={handleAutoLayout} disabled={!nodes.length}>
-                Layout
-              </button>
-            </div>
-          </div>
-
-          <div className="blueprint-board" ref={boardRef} onMouseDown={handleBoardMouseDown}>
-            <div className="board-grid" aria-hidden="true" />
-            <svg className="connection-layer" width="100%" height="100%">
-              {connections.map((connection) => {
-                const { start, end, id, status } = connection;
-                const deltaX = (end.x - start.x) * 0.5;
-                const deltaY = (end.y - start.y) * 0.5;
-                const path = `M ${start.x} ${start.y} C ${start.x + deltaX} ${start.y}, ${end.x - deltaX} ${end.y}, ${end.x} ${end.y}`;
-                return <path key={id} d={path} className={`connection-line ${status}`} />;
-              })}
-            </svg>
-            {nodes.length === 0 && (
-              <div className="board-empty">
-                <p>No blocks yet</p>
-                <p className="muted">Use the library to spawn nodes, then drag them into place.</p>
-              </div>
-            )}
-            {nodes.map((node, index) => {
-              const accent = NODE_TYPES[node.type]?.accent ?? NODE_TYPES.action.accent;
-              const orderLabel = node.order || index + 1;
-              return (
-                <article
-                  key={node.id}
-                  className={`blueprint-node ${node.type} ${selectedId === node.id ? 'selected' : ''}`}
-                  style={{ transform: `translate(${node.position.x}px, ${node.position.y}px)`, '--node-accent': accent }}
-                  onMouseDown={(event) => handleNodePointerDown(event, node.id)}
-                  onDoubleClick={() => handleDuplicateNode(node.id)}
-                >
-                  <header className="node-handle">
-                    <div className="node-meta">
-                      <span className="node-index">#{orderLabel}</span>
-                      <span className="node-role">{NODE_TYPES[node.type]?.label}</span>
-                    </div>
-                    <div className="node-drag-handle" />
-                  </header>
-                  <h3 className="node-title" title={node.title}>
-                    {node.title}
-                  </h3>
-                  <p className="node-body">{node.detail}</p>
-                  <footer className="node-actions">
-                    <span className={`node-status ${node.status}`}>{node.status}</span>
-                    <div className="node-action-buttons">
-                      <button
-                        type="button"
-                        className="pill soft"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDuplicateNode(node.id);
-                        }}
-                      >
-                        Duplicate
-                      </button>
-                      <button
-                        type="button"
-                        className="pill alert"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDeleteNode(node.id);
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </footer>
-                </article>
-              );
-            })}
-          </div>
-        </div>
-
-        <aside className="node-inspector">
-          <div className="inspector-section">
-            <p className="eyebrow">Selected node</p>
-            {selectedNode ? (
-              <>
-                <span className="meta-label">Block title</span>
-                <input value={selectedNode.title} onChange={(event) => handleUpdateNode(selectedNode.id, { title: event.target.value })} />
-                <span className="meta-label">Description</span>
-                <textarea
-                  rows={4}
-                  value={selectedNode.detail}
-                  onChange={(event) => handleUpdateNode(selectedNode.id, { detail: event.target.value })}
-                  placeholder="Describe what the agent must do here."
-                />
-                <span className="meta-label">Owner</span>
-                <input value={selectedNode.owner} onChange={(event) => handleUpdateNode(selectedNode.id, { owner: event.target.value })} />
-                <span className="meta-label">Hierarchy</span>
-                <div className="hierarchy-row">
-                  <div className="hierarchy-input">
-                    <span>#</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={nodes.length}
-                      value={selectedNodeOrder}
-                      onChange={(event) => handleSetHierarchy(selectedNode.id, event.target.value)}
-                    />
-                    <span className="hierarchy-total">of {nodes.length}</span>
-                  </div>
-                  <div className="hierarchy-bumpers">
-                    <button
-                      type="button"
-                      className="pill soft"
-                      onClick={() => handleShiftHierarchy(selectedNode.id, -1)}
-                      disabled={selectedNodeOrder <= 1}
-                    >
-                      Move up
-                    </button>
-                    <button
-                      type="button"
-                      className="pill soft"
-                      onClick={() => handleShiftHierarchy(selectedNode.id, 1)}
-                      disabled={selectedNodeOrder >= nodes.length}
-                    >
-                      Move down
-                    </button>
-                  </div>
-                </div>
-                <div className="inspector-row">
-                  <button
-                    type="button"
-                    className={`status-pill ${selectedNode.status}`}
-                    onClick={() =>
-                      handleUpdateNode(
-                        selectedNode.id,
-                        { status: selectedNode.status === 'live' ? 'draft' : 'live' },
-                        'Toggled node status',
-                      )
-                    }
+          {!isGenerating && workflow && workflow.steps?.length && (
+            <div className="lab-flow" aria-live="polite">
+              {workflow.steps.map((step, index) => (
+                <div key={step.id} className={`lab-segment ${workflow.palette}`}>
+                  <article
+                    className="lab-node"
+                    role="button"
+                    tabIndex={0}
+                    draggable
+                    onClick={() => handleExplainStep(step, index)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        handleExplainStep(step, index);
+                      }
+                    }}
+                    onDragStart={() => handleDragStart(index)}
+                    onDragOver={handleDragOver}
+                    onDrop={() => handleDrop(index)}
                   >
-                    {selectedNode.status === 'live' ? 'Mark draft' : 'Mark live'}
-                  </button>
-                  <button type="button" className="pill" onClick={handleSnapToGrid} disabled={!nodes.length}>
-                    Snap grid
-                  </button>
+                    <div className="lab-node-icon" aria-hidden="true">{step.icon}</div>
+                    <div>
+                      <h4>{step.title}</h4>
+                      <p>{step.detail}</p>
+                    </div>
+                    <span className="lab-chip">{step.meta}</span>
+                  </article>
+                  {index < workflow.steps.length - 1 && <div className="lab-link" />}
                 </div>
-                <span className="meta-label">Tags</span>
-                <div className="tag-row">
-                  {TAG_LIBRARY.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      className={`tag-chip ${selectedNode.tags.includes(tag) ? 'active' : ''}`}
-                      onClick={() => handleToggleTag(selectedNode.id, tag)}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-                <p className="timestamp">Updated {formatRelativeTime(selectedNode.updatedAt)}</p>
-              </>
-            ) : (
-              <p className="muted">Tap a block to edit its metadata.</p>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <aside className="lab-sidebar">
+          <div className="lab-card">
+            <p className="lab-eyebrow">Prompt</p>
+            <p className="lab-prompt-text">{workflow?.prompt ?? 'Awaiting your instructions'}</p>
+            <span className="lab-meta">
+              {workflow
+                ? `Intent: ${workflow.intentLabel} · Generated ${workflow.generatedAt}${sourceLabel ? ` · ${sourceLabel}` : ''}`
+                : 'Mention tools or systems you want to involve.'}
+            </span>
+            {generationMeta?.warning && <small className="lab-warning">{generationMeta.warning}</small>}
+            {estimates && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                <span className="lab-chip">Est. cost {estimates.cost}</span>
+                <span className="lab-chip">Est. latency {estimates.latency}</span>
+              </div>
             )}
           </div>
 
-          <div className="inspector-section">
-            <div className="inspector-head">
-              <div>
-                <p className="eyebrow">Activity</p>
-                <h3>Canvas log</h3>
-              </div>
-            </div>
-            <ul className="activity-log">
-              {activity.length === 0 && <li className="muted">Interactions will show up here.</li>}
-              {activity.map((entry) => (
-                <li key={entry.id}>
-                  <strong>{entry.text}</strong>
-                  <span className="timestamp">{formatRelativeTime(entry.timestamp)}</span>
-                </li>
+          <div className="lab-card">
+            <p className="lab-eyebrow">Summary</p>
+            <ul>
+              {(workflow?.summary ?? summaryFallback).map((line) => (
+                <li key={line}>{line}</li>
               ))}
             </ul>
           </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Selected node</p>
+            {selectedStep ? (
+              <>
+                <p className="lab-prompt-text">
+                  Step {selectedStep.index + 1}: {selectedStep.title}
+                </p>
+                <p className="lab-muted">{selectedStep.detail}</p>
+                <button type="button" className="btn ghost" onClick={() => handleExplainStep(selectedStep, selectedStep.index)} disabled={isExplainingStep}>
+                  {isExplainingStep ? 'Explaining…' : 'Explain node'}
+                </button>
+                {stepExplanation && <p className="lab-muted" style={{ marginTop: '10px' }}>{stepExplanation}</p>}
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => {
+                    if (!selectedStep) return;
+                    const agentDraft = {
+                      name: `${selectedStep.title} Agent`,
+                      role: selectedStep.meta || selectedStep.kind,
+                      goal: selectedStep.detail,
+                      tools: [],
+                    };
+                    setExplanation(`Agent draft created: ${JSON.stringify(agentDraft, null, 2)}`);
+                  }}
+                >
+                  Draft agent from node
+                </button>
+              </>
+            ) : (
+              <p className="lab-muted">Click a node to inspect and explain it.</p>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Explain this flow</p>
+            {workflow ? (
+              <>
+                <button type="button" className="btn ghost" onClick={handleExplainFlow} disabled={isExplaining}>
+                  {isExplaining ? 'Explaining…' : 'Generate explanation'}
+                </button>
+                {explanation && <p className="lab-muted" style={{ marginTop: '10px' }}>{explanation}</p>}
+              </>
+            ) : (
+              <p className="lab-muted">Generate a workflow to explain it.</p>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Replace a node</p>
+            {workflow?.steps?.length ? (
+              <>
+                <label className="lab-meta" htmlFor="replaceStep">Step</label>
+                <select
+                  id="replaceStep"
+                  value={replaceIndex}
+                  onChange={(event) => setReplaceIndex(Number(event.target.value))}
+                >
+                  {workflow.steps.map((step, index) => (
+                    <option key={step.id} value={index}>
+                      {index + 1}. {step.title}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={replacePrompt}
+                  onChange={(event) => setReplacePrompt(event.target.value)}
+                  placeholder="Replace with…"
+                />
+                {replaceError && <small className="lab-error">{replaceError}</small>}
+                <button type="button" className="btn ghost" onClick={handleReplaceStep} disabled={isReplacing}>
+                  {isReplacing ? 'Replacing…' : 'Replace step'}
+                </button>
+              </>
+            ) : (
+              <p className="lab-muted">Generate a workflow before replacing nodes.</p>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Simulate run</p>
+            {workflow?.steps?.length ? (
+              <>
+                <textarea
+                  rows={4}
+                  value={simulationInput}
+                  onChange={(event) => setSimulationInput(event.target.value)}
+                  placeholder='{"sample":"payload"}'
+                />
+                {simulationError && <small className="lab-error">{simulationError}</small>}
+                <button type="button" className="btn ghost" onClick={handleSimulate}>
+                  Simulate
+                </button>
+                {simulationOutputs.length > 0 && (
+                  <div style={{ marginTop: '10px', display: 'grid', gap: '8px' }}>
+                    {simulationOutputs.map((entry) => (
+                      <div key={entry.stepId} className="lab-card" style={{ padding: '10px' }}>
+                        <strong>{entry.title}</strong>
+                        <pre style={{ marginTop: '6px', fontSize: '12px', whiteSpace: 'pre-wrap' }}>
+                          {JSON.stringify(entry.output, null, 2)}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="lab-muted">Generate a workflow to simulate it.</p>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Save version</p>
+            {workflow ? (
+              <>
+                <button type="button" className="btn ghost" onClick={handleSaveWorkflow} disabled={isSaving}>
+                  {isSaving ? 'Saving…' : 'Save to Supabase'}
+                </button>
+                {saveStatus && <small className="lab-meta">{saveStatus}</small>}
+                {saveError && <small className="lab-error">{saveError}</small>}
+              </>
+            ) : (
+              <p className="lab-muted">Generate a workflow to save it.</p>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Create agent</p>
+            {workflow ? (
+              <>
+                <button type="button" className="btn ghost" onClick={handleCreateAgentFromWorkflow} disabled={isCreatingAgent}>
+                  {isCreatingAgent ? 'Creating…' : 'Create agent from workflow'}
+                </button>
+                {agentStatus && <small className="lab-meta">{agentStatus}</small>}
+                {agentError && <small className="lab-error">{agentError}</small>}
+              </>
+            ) : (
+              <p className="lab-muted">Generate a workflow to build an agent.</p>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Saved versions</p>
+            {isLoadingSaved && <p className="lab-muted">Loading saved flows…</p>}
+            {savedError && <small className="lab-error">{savedError}</small>}
+            {!isLoadingSaved && !savedFlows.length && (
+              <p className="lab-muted">No saved flows yet.</p>
+            )}
+            {!isLoadingSaved && savedFlows.length > 0 && (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {savedFlows.map((item, index) => (
+                  <button
+                    key={`${item.flow_id}-${item.version}-${index}`}
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => {
+                      if (!item.workflow) return;
+                      setWorkflow(item.workflow);
+                    }}
+                  >
+                    v{item.version} · {item.prompt?.slice(0, 36) || 'Untitled'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="lab-card">
+            <p className="lab-eyebrow">Stats</p>
+            {metrics ? (
+              <div className="lab-metrics">
+                {metrics.map((metric) => (
+                  <article key={metric.label}>
+                    <strong>{metric.value}</strong>
+                    <span>{metric.label}</span>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="lab-muted">Metrics unlock after the first generation.</p>
+            )}
+          </div>
         </aside>
       </section>
-    </DashboardLayout>
+
+      <form className="lab-prompt" onSubmit={handleSubmit}>
+        <div className="lab-input-wrapper">
+          <label htmlFor="flowPrompt">AI prompt</label>
+          <input
+            id="flowPrompt"
+            value={prompt}
+            onChange={(event) => {
+              setPrompt(event.target.value);
+              if (error) {
+                setError('');
+              }
+            }}
+            placeholder="Example: If PagerDuty fires, draft comms + update Statuspage."
+            aria-invalid={Boolean(error)}
+          />
+          {error && <small className="lab-error">{error}</small>}
+        </div>
+        <button type="submit" disabled={isGenerating}>
+          {isGenerating ? 'Generating…' : 'Generate nodes'}
+        </button>
+      </form>
+    </div>
   );
 }
 

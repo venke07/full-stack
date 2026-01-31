@@ -3803,6 +3803,416 @@ select {
   border-color: transparent;
 }
 
+/* Prompt-first flow lab */
+.lab-shell {
+  min-height: 100vh;
+  padding: 36px clamp(16px, 4vw, 56px) 56px;
+  background: radial-gradient(circle at top left, rgba(94, 132, 255, 0.18), transparent 45%),
+    #03060d;
+  color: #f6f8ff;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+}
+
+.lab-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 780px;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  text-align: center;
+  align-items: center;
+}
+
+.lab-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.lab-muted {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.lab-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px;
+  align-items: flex-start;
+  width: min(1200px, 100%);
+  margin: 0 auto;
+}
+
+.lab-board {
+  position: relative;
+  min-height: 440px;
+  border-radius: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #040812;
+  padding: 56px clamp(18px, 4vw, 60px);
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.lab-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 0);
+  background-size: 32px 32px;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.lab-empty {
+  position: relative;
+  z-index: 1;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  padding: 42px 32px;
+  text-align: center;
+  margin: 0 auto;
+  max-width: 460px;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lab-empty ul {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.lab-empty.is-generating {
+  border-style: solid;
+  background: rgba(7, 12, 24, 0.9);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+.lab-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #7bffe4;
+  margin: 0 auto 14px;
+  animation: lab-spin 0.8s linear infinite;
+}
+
+@keyframes lab-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lab-flow {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  align-items: center;
+}
+
+.lab-segment {
+  --node-border: rgba(255, 255, 255, 0.08);
+  --node-glow: rgba(0, 0, 0, 0.45);
+  --chip-bg: rgba(255, 255, 255, 0.08);
+  --chip-text: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.lab-segment.amber {
+  --node-border: rgba(255, 191, 118, 0.7);
+  --node-glow: rgba(255, 191, 118, 0.3);
+  --chip-bg: rgba(255, 191, 118, 0.2);
+  --chip-text: rgba(255, 191, 118, 0.95);
+}
+
+.lab-segment.violet {
+  --node-border: rgba(167, 147, 255, 0.8);
+  --node-glow: rgba(167, 147, 255, 0.35);
+  --chip-bg: rgba(167, 147, 255, 0.2);
+  --chip-text: rgba(224, 216, 255, 0.95);
+}
+
+.lab-segment.teal {
+  --node-border: rgba(118, 255, 224, 0.7);
+  --node-glow: rgba(118, 255, 224, 0.3);
+  --chip-bg: rgba(118, 255, 224, 0.18);
+  --chip-text: rgba(118, 255, 224, 0.95);
+}
+
+.lab-segment.slate {
+  --node-border: rgba(148, 163, 184, 0.5);
+  --node-glow: rgba(15, 23, 42, 0.65);
+  --chip-bg: rgba(148, 163, 184, 0.18);
+  --chip-text: rgba(226, 232, 240, 0.9);
+}
+
+.lab-segment.emerald {
+  --node-border: rgba(74, 222, 128, 0.7);
+  --node-glow: rgba(16, 185, 129, 0.3);
+  --chip-bg: rgba(74, 222, 128, 0.18);
+  --chip-text: rgba(236, 253, 245, 0.95);
+}
+
+.lab-segment.rose {
+  --node-border: rgba(251, 113, 133, 0.75);
+  --node-glow: rgba(244, 114, 182, 0.35);
+  --chip-bg: rgba(251, 113, 133, 0.2);
+  --chip-text: rgba(255, 228, 235, 0.95);
+}
+
+.lab-node {
+  width: min(230px, 90vw);
+  min-height: 150px;
+  border-radius: 28px;
+  border: 1px solid var(--node-border);
+  background: rgba(6, 10, 22, 0.92);
+  box-shadow: 0 20px 50px var(--node-glow);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lab-node-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.lab-node h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.lab-node p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.4;
+}
+
+.lab-chip {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--chip-text);
+}
+
+.lab-link {
+  width: 70px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  position: relative;
+}
+
+.lab-link::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(255, 255, 255, 0.5);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.5);
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+.lab-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lab-card {
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(6, 10, 20, 0.92);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lab-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.lab-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.lab-metrics article {
+  flex: 1 1 90px;
+  min-width: 90px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+  text-align: center;
+}
+
+.lab-metrics strong {
+  display: block;
+  font-size: 1.4rem;
+}
+
+.lab-metrics span {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.lab-meta {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.lab-prompt-text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.lab-prompt {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  background: rgba(4, 8, 18, 0.85);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 22px 26px;
+  width: min(1200px, 100%);
+  margin: 24px auto 32px;
+  position: sticky;
+  bottom: 20px;
+  z-index: 10;
+  backdrop-filter: blur(10px);
+}
+
+.lab-input-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lab-input-wrapper label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.lab-input-wrapper input {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 14px 18px;
+  color: inherit;
+  font-size: 0.95rem;
+}
+
+.lab-prompt button {
+  border: none;
+  border-radius: 18px;
+  padding: 14px 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #79ffc6, #5b8dff);
+  color: #02060f;
+  min-width: 180px;
+}
+
+.lab-prompt button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lab-error {
+  color: #ff9e9e;
+  font-size: 0.8rem;
+}
+
+.lab-warning {
+  color: #ffd89c;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 1100px) {
+  .lab-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .lab-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .lab-card {
+    flex: 1 1 280px;
+  }
+}
+
+@media (max-width: 720px) {
+  .lab-shell {
+    padding: 28px 18px 40px;
+  }
+
+  .lab-board {
+    padding: 32px 18px;
+  }
+
+  .lab-flow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lab-link {
+    width: 40px;
+  }
+
+  .lab-prompt button {
+    width: 100%;
+  }
+}
+
 .chatbar {
   display: flex;
   gap: 10px;

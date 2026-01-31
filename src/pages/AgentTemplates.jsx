@@ -186,7 +186,7 @@ export default function AgentTemplates() {
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         .templates-controls {
           margin: 30px 0;
           display: flex;
