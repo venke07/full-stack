@@ -1,0 +1,37 @@
+# render.yaml
+# Render Blueprint - Automatically deploys your full-stack app
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Combined Frontend + Backend Service
+  - type: web
+    name: agent-builder
+    runtime: node
+    region: singapore  # Change to your preferred region
+    plan: free         # Free tier - upgradable
+    
+    # Build settings
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    
+    # Health check
+    healthCheckPath: /api/health
+    
+    # Environment variables (set these in Render dashboard)
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GEMINI_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

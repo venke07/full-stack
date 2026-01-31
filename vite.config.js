@@ -8,4 +8,8 @@ export default defineConfig({
       '/api': 'http://localhost:4000',
     },
   },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+  },
 });
