@@ -1642,6 +1642,9 @@ const __dirname = path.dirname(__filename);
 // Serve static files from the dist folder (built frontend)
 app.use(express.static(path.join(__dirname, '../dist')));
 
+// Serve login folder static files
+app.use('/login', express.static(path.join(__dirname, '../login')));
+
 // Handle client-side routing - serve index.html for all non-API routes
 app.get('*', (req, res) => {
   // Only serve index.html for non-API routes
