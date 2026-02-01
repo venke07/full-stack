@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { supabase } from '../../config/supabaseClient';
+import { useAuth } from '../context/AuthContext.jsx';
 import { useNavigate, Link } from 'react-router-dom';
 import '../styles/Marketplace.css';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export default function Marketplace() {
   const { user } = useAuth();
@@ -25,7 +26,7 @@ export default function Marketplace() {
         sort: sortBy
       });
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/agents?${params}`);
+      const response = await fetch(`${API_URL}/api/marketplace/agents?${params}`);
       const data = await response.json();
 
       if (data.success) {
@@ -45,7 +46,7 @@ export default function Marketplace() {
     }
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/fork/${agentId}`, {
+      const response = await fetch(`${API_URL}/api/marketplace/fork/${agentId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id })
@@ -66,7 +67,7 @@ export default function Marketplace() {
       throw new Error('Please log in to rate agents.');
     }
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/rate/${agentId}`, {
+      const response = await fetch(`${API_URL}/api/marketplace/rate/${agentId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rating, review, userId: user.id })

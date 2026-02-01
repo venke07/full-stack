@@ -25,10 +25,10 @@ export default function SignupPage() {
       setIsSubmitting(false);
       return;
     }
-    setStatus('Profile created. Check your inbox to confirm.');
+    setStatus('Profile created! Redirecting to your workspace…');
     setTimeout(() => {
-      navigate('/login', { replace: true });
-    }, 1600);
+      navigate('/home', { replace: true });
+    }, 1200);
   };
 
   return (

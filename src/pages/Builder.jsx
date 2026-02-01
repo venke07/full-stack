@@ -226,8 +226,18 @@ export default function BuilderPage() {
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [builderTab, setBuilderTab] = useState('config'); // 'config', 'versions', 'testing', 'comparison'
   const [sharedContext, setSharedContext] = useState(null);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishTargetId, setPublishTargetId] = useState(null);
+  const [tagInput, setTagInput] = useState('');
+  const [tagError, setTagError] = useState('');
+  const [publishFeedback, setPublishFeedback] = useState({ type: '', message: '' });
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const descCount = form.description.length;
+
+  const sharedPermission = sharedContext?.permission;
+  const isSharedAgent = Boolean(sharedPermission && sharedPermission !== 'owner');
+  const canEditAgent = !isSharedAgent || sharedPermission === 'edit';
 
   const selectedModel = useMemo(
     () => modelOptions.find((option) => option.id === form.model) ?? modelOptions[0],
@@ -925,29 +935,91 @@ export default function BuilderPage() {
     setStatus('Draft reset.');
   };
 
-  const handlePublish = async (agentId) => {
-    const tags = prompt('Enter tags (comma-separated):', '');
-    if (!tags) return;
+  const extractTags = (value = '') =>
+    value
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
 
+  const handlePublish = (agentId) => {
+    if (!user) {
+      setPublishFeedback({ type: 'error', message: 'Sign in before publishing to the marketplace.' });
+      return;
+    }
+
+    if (!agentId) {
+      setPublishFeedback({ type: 'error', message: 'Save your agent before publishing to the marketplace.' });
+      return;
+    }
+
+    if (isSharedAgent) {
+      setPublishFeedback({ type: 'error', message: 'Shared agents cannot be published to the marketplace.' });
+      return;
+    }
+
+    setPublishFeedback({ type: '', message: '' });
+    setTagInput('');
+    setTagError('');
+    setPublishTargetId(agentId);
+    setShowPublishModal(true);
+  };
+
+  const handleTagInputChange = (value) => {
+    setTagInput(value);
+    if (!value) {
+      setTagError('');
+      return;
+    }
+
+    setTagError(extractTags(value).length ? '' : 'Separate tags with commas (e.g., "sales, research").');
+  };
+
+  const closePublishModal = () => {
+    setShowPublishModal(false);
+    setPublishTargetId(null);
+    setTagInput('');
+    setTagError('');
+  };
+
+  const submitMarketplacePublish = async () => {
+    if (!publishTargetId) {
+      setPublishFeedback({ type: 'error', message: 'Select an agent to publish.' });
+      return;
+    }
+
+    const tags = extractTags(tagInput);
+    if (tags.length === 0) {
+      setTagError('Add at least one tag to continue.');
+      return;
+    }
+
+    setIsPublishing(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/marketplace/publish/${agentId}`, {
+      const response = await fetch(`${API_URL}/api/marketplace/publish/${publishTargetId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags: tags.split(',').map(t => t.trim()) })
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({ tags }),
       });
 
       const data = await response.json();
-      if (data.success) {
-        alert('Agent published to marketplace!');
-        // Refresh agent list or update UI
+      if (!response.ok || !data.success) {
+        throw new Error(data?.message || 'Publishing failed.');
       }
+
+      setPublishFeedback({ type: 'success', message: 'Agent published to the marketplace.' });
+      closePublishModal();
+      loadAgentsForUser();
     } catch (error) {
-      console.error('Publish failed:', error);
+      const message = error?.message || 'Publish failed. Try again.';
+      setTagError(message);
+      setPublishFeedback({ type: 'error', message });
+    } finally {
+      setIsPublishing(false);
     }
   };
-
-  const isSharedAgent = sharedContext && sharedContext.permission && sharedContext.permission !== 'owner';
-  const canEditAgent = !isSharedAgent || sharedContext.permission === 'edit';
 
   const headerContent = (
     <div className="page-heading">
@@ -1425,42 +1497,92 @@ export default function BuilderPage() {
 
       <div className="footer">
         <div className="wrap">
-          <button className="btn danger" id="discard" onClick={handleDiscard} disabled={isSaving}>
-            Discard
-          </button>
-          <button
-            className="btn secondary"
-            id="saveDraft"
-            onClick={() => handleSave('draft')}
-            disabled={isSaving || !user || !canEditAgent}
-          >
-            Save
-          </button>
-          {selectedAgentId && (
+          <div className="action-pack">
+            <button className="btn danger" id="discard" onClick={handleDiscard} disabled={isSaving}>
+              Discard
+            </button>
             <button
               className="btn secondary"
-              onClick={() => navigate(`/testing?agentId=${selectedAgentId}`)}
+              id="saveDraft"
+              onClick={() => handleSave('draft')}
+              disabled={isSaving || !user || !canEditAgent}
             >
-              Open testing view
+              Save
             </button>
-          )}
-          <button
-            className="btn primary"
-            id="publish"
-            onClick={() => handleSave('published')}
-            disabled={isSaving || !user || !canEditAgent}
-          >
-            Publish
-          </button>
-          <button 
-            className="publish-btn"
-            onClick={() => handlePublish(selectedAgentId)}
-            disabled={!selectedAgentId || isSharedAgent}
-          >
-            Publish to Marketplace
-          </button>
+            {selectedAgentId && (
+              <button
+                className="btn secondary"
+                onClick={() => navigate(`/testing?agentId=${selectedAgentId}`)}
+              >
+                Open testing view
+              </button>
+            )}
+            <button
+              className="btn primary"
+              id="publish"
+              onClick={() => handleSave('published')}
+              disabled={isSaving || !user || !canEditAgent}
+            >
+              Publish
+            </button>
+          </div>
+          <div className="publish-controls">
+            <button
+              type="button"
+              className="btn secondary publish-btn"
+              onClick={() => handlePublish(selectedAgentId)}
+              disabled={!selectedAgentId || isSharedAgent || !user}
+            >
+              Publish to Marketplace
+            </button>
+            {publishFeedback.message && (
+              <span
+                className={`publish-feedback ${publishFeedback.type}`}
+                role="status"
+                aria-live="polite"
+              >
+                {publishFeedback.message}
+              </span>
+            )}
+          </div>
         </div>
       </div>
+
+      {showPublishModal && (
+        <div className="publish-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="publish-modal">
+            <h3>Publish to Marketplace</h3>
+            <p className="input-hint">Add comma-separated tags so others can find this agent.</p>
+            <input
+              type="text"
+              placeholder="productivity, sales, research"
+              value={tagInput}
+              onChange={(e) => handleTagInputChange(e.target.value)}
+              autoFocus
+              disabled={isPublishing}
+            />
+            {tagError && <p className="input-hint error">{tagError}</p>}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn primary"
+                onClick={submitMarketplacePublish}
+                disabled={isPublishing}
+              >
+                {isPublishing ? 'Publishing...' : 'Publish'}
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={closePublishModal}
+                disabled={isPublishing}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </DashboardLayout>
   );

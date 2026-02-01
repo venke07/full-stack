@@ -40,11 +40,31 @@ const MODEL_HANDLERS = {
     handler: callOpenAICompatible,
     baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
   },
+  'gemma-3-12b-it': {
+    envKey: 'GROQ_API_KEY',
+    handler: callOpenAICompatible,
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+  },
+  'gemma-3-1b-it': {
+    envKey: 'GROQ_API_KEY',
+    handler: callOpenAICompatible,
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+  },
+  'gemma-3-27b-it': {
+    envKey: 'GROQ_API_KEY',
+    handler: callOpenAICompatible,
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+  },
 };
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+
+app.use((req, res, next) => {
+  console.log(`[DEBUG] ${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 const storageEndpoint = process.env.SUPABASE_STORAGE_ENDPOINT;
 const storageRegion = process.env.SUPABASE_STORAGE_REGION || 'ap-south-1';
@@ -62,14 +82,14 @@ const MAX_ATTACHMENT_BYTES = 200 * 1024; // 200 KB per document sent to the mode
 
 const s3Client = hasStorageConfig
   ? new S3Client({
-      region: storageRegion,
-      endpoint: storageEndpoint,
-      forcePathStyle: true,
-      credentials: {
-        accessKeyId: storageAccessKey,
-        secretAccessKey: storageSecretKey,
-      },
-    })
+    region: storageRegion,
+    endpoint: storageEndpoint,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: storageAccessKey,
+      secretAccessKey: storageSecretKey,
+    },
+  })
   : null;
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -193,6 +213,37 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('[LLM_ERROR]', error);
     res.status(500).json({ error: error.message || 'Model call failed.' });
+  }
+});
+
+app.post('/api/auth/signup', async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const { email, password, metadata = {} } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ success: false, error: 'Email and password are required.' });
+  }
+
+  try {
+    const { data, error } = await analyticsSupabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ success: true, user: data?.user || null });
+  } catch (error) {
+    console.error('[AUTH_SIGNUP_ERROR]', error);
+    const message = error?.message || 'Unable to create profile.';
+    const status = /already/i.test(message) ? 409 : 500;
+    res.status(status).json({ success: false, error: message });
   }
 });
 
@@ -468,7 +519,7 @@ app.post('/api/marketplace/fork/:agentId', async (req, res) => {
 
     const forkPayload = {
       user_id: userId,
-      name: `${source.name || 'Agent'} (fork)` ,
+      name: `${source.name || 'Agent'} (fork)`,
       description: source.description || '',
       system_prompt: source.system_prompt || '',
       guardrails: source.guardrails || null,
@@ -778,14 +829,14 @@ Use [TOOL_CALL: toolName({"param": "value"})] syntax to call tools.`,
         for (const [agentName, output] of Object.entries(result.agentOutputs)) {
           consolidatedContent += `\n\n=== ${agentName} ===\n\n${output}`;
         }
-        
+
         const docFilename = `${workflowId}-consolidated-report.docx`;
         const docResult = await outputGenerators.generateDocument(
-          consolidatedContent.trim(), 
-          'document', 
+          consolidatedContent.trim(),
+          'document',
           docFilename
         );
-        
+
         generatedDocuments.push({
           agent: 'All Agents',
           filename: docResult.filename,
@@ -840,7 +891,7 @@ app.get('/api/orchestrated-output/:filename', (req, res) => {
  */
 app.get('/api/orchestrated-chat-stream', async (req, res) => {
   const { agentIds, userPrompt, mode = 'sequential', autoMode = 'false' } = req.query || {};
-  
+
   const isModeAutoTrue = autoMode === 'true';
   const parsedAgentIds = agentIds ? JSON.parse(agentIds) : [];
 
@@ -968,7 +1019,7 @@ Rules:
     // Create workflow
     const workflowId = `workflow-${Date.now()}`;
     const workflow = agentManager.createWorkflow(workflowId, selectedAgentIds, mode);
-    
+
     sendEvent({
       type: 'workflow-created',
       data: {
@@ -1244,7 +1295,7 @@ app.post('/api/a-b-tests/:sessionId/results', async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { agentId, versionId, userPrompt, agentResponse, responseTimeMs } = req.body;
-    
+
     const result = await promptVersioning.recordTestResult(
       sessionId,
       agentId,
@@ -1436,7 +1487,7 @@ app.post('/api/debate-mode', async (req, res) => {
     for (let i = 0; i < agentIds.length; i++) {
       const agentId = agentIds[i];
       const agent = agents.find(a => a.id === agentId);
-      
+
       if (!agent) continue;
 
       const positionPrompt = `${agent.system_prompt || `You are ${agent.name}.`}
@@ -1488,7 +1539,7 @@ Please provide your initial position/argument on this topic. Be clear, concise, 
     for (let i = 0; i < agentIds.length; i++) {
       const agentId = agentIds[i];
       const agent = agents.find(a => a.id === agentId);
-      
+
       if (!agent) continue;
 
       // Build rebuttal context from other agents' positions
@@ -1554,13 +1605,13 @@ Now, please provide a rebuttal to at least one other agent's position. Do you ag
 
 Here are the positions presented:
 ${agentIds
-  .map(id => {
-    const agent = agents.find(a => a.id === id);
-    return `**${agent?.name || 'Agent'}:**
+        .map(id => {
+          const agent = agents.find(a => a.id === id);
+          return `**${agent?.name || 'Agent'}:**
 Initial: ${agentResponses[id] || 'No response'}
 Rebuttal: ${agentResponses[`${id}-rebuttal`] || 'No rebuttal'}`;
-  })
-  .join('\n\n')}
+        })
+        .join('\n\n')}
 
 Analyze this discussion and provide:
 1. Areas of agreement between agents (consensus points)
@@ -1645,17 +1696,7 @@ app.use(express.static(path.join(__dirname, '../dist')));
 // Serve login folder static files
 app.use('/login', express.static(path.join(__dirname, '../login')));
 
-// Handle client-side routing - serve index.html for all non-API routes
-app.get('*', (req, res) => {
-  // Only serve index.html for non-API routes
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
-  }
-});
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Agent Builder API running on port ${PORT}`);
-});
 
 /**
  * Autonomous Task Execution Endpoint
@@ -1969,7 +2010,7 @@ async function detectAndGenerateFile(agentOutput, userPrompt) {
 
       // Try to extract filename from output
       const filenameMatch = agentOutput.match(/filename[:\s]+([^\n]+)/i) ||
-                           agentOutput.match(/name[:\s]+([^\n]+)/i);
+        agentOutput.match(/name[:\s]+([^\n]+)/i);
       if (filenameMatch) {
         filename = filenameMatch[1].trim().replace(/[^a-zA-Z0-9._-]/g, '');
       }
@@ -2356,19 +2397,24 @@ const getAuthUser = async (req) => {
   if (!analyticsSupabase) {
     throw new Error('Supabase not configured.');
   }
+  console.log('[DEBUG] getAuthUser: checking token');
   const authHeader = req.headers.authorization || '';
   if (!authHeader.startsWith('Bearer ')) {
+    console.warn('[DEBUG] getAuthUser: Missing Bearer token');
     const error = new Error('Authorization token required.');
     error.status = 401;
     throw error;
   }
   const token = authHeader.replace('Bearer ', '');
+  console.log('[DEBUG] getAuthUser: calling supabase.auth.getUser()');
   const { data, error } = await analyticsSupabase.auth.getUser(token);
   if (error || !data?.user) {
+    console.error('[DEBUG] getAuthUser: Invalid token or error:', error?.message);
     const err = new Error('Invalid or expired token.');
     err.status = 401;
     throw err;
   }
+  console.log('[DEBUG] getAuthUser: User authenticated:', data.user.id);
   return data.user;
 };
 
@@ -3042,6 +3088,78 @@ app.get('/api/analytics/usage-summary', async (req, res) => {
 /**
  * Agent sharing + permissions
  */
+app.get('/api/agents', guardAuth(async (req, res) => {
+  console.log('[DEBUG] GET /api/agents request received');
+  if (!analyticsSupabase) {
+    console.warn('[DEBUG] Supabase NOT configured in /api/agents');
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const userId = req.authUser.id;
+  console.log('[DEBUG] Fetching agents for userId:', userId);
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_personas')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[DEBUG] Supabase error in /api/agents:', error.message);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load agents.' });
+  }
+
+  console.log(`[DEBUG] Found ${data?.length || 0} agents for userId: ${userId}`);
+  res.json({ success: true, agents: data || [] });
+}));
+
+app.post('/api/agents', guardAuth(async (req, res) => {
+  if (!analyticsSupabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const userId = req.authUser.id;
+  const body = req.body || {};
+  const allowedFields = [
+    'name',
+    'description',
+    'system_prompt',
+    'guardrails',
+    'sliders',
+    'tools',
+    'files',
+    'model_id',
+    'model_label',
+    'model_provider',
+    'model_env_key',
+    'status',
+    'collection',
+  ];
+
+  const payload = allowedFields.reduce((acc, key) => {
+    if (body[key] !== undefined) {
+      acc[key] = body[key];
+    }
+    return acc;
+  }, {});
+
+  payload.user_id = userId;
+  payload.status = payload.status || 'draft';
+  payload.created_at = new Date().toISOString();
+
+  const { data, error } = await analyticsSupabase
+    .from('agent_personas')
+    .insert(payload)
+    .select('*')
+    .single();
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to create agent.' });
+  }
+
+  res.json({ success: true, agent: data });
+}));
+
 app.get('/api/agents/shared', guardAuth(async (req, res) => {
   const userId = req.authUser.id;
 
@@ -3520,6 +3638,7 @@ app.patch('/api/agents/:agentId', guardAuth(async (req, res) => {
     'status',
     'chat_history',
     'chat_summary',
+    'collection',
   ];
 
   const payload = allowedFields.reduce((acc, key) => {
@@ -3542,6 +3661,28 @@ app.patch('/api/agents/:agentId', guardAuth(async (req, res) => {
   }
 
   res.json({ success: true, agent: data });
+}));
+
+app.delete('/api/agents/:agentId', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+
+  const agent = await getAgentById(agentId);
+  if (agent.user_id !== userId) {
+    return res.status(403).json({ success: false, error: 'Only owners can delete agents.' });
+  }
+
+  const { error } = await analyticsSupabase
+    .from('agent_personas')
+    .delete()
+    .eq('id', agentId)
+    .eq('user_id', userId);
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to delete agent.' });
+  }
+
+  res.json({ success: true });
 }));
 
 app.get('/api/agents/:agentId/analytics', async (req, res) => {
@@ -3692,7 +3833,7 @@ app.post('/api/evolve-agent', async (req, res) => {
 
     // Get API key from environment
     const apiKey = process.env.OPENAI_API_KEY;
-    
+
     // Function to generate mock evolution
     const generateMockEvolution = () => {
       const improvementSummary = improvements.substring(0, 60);
@@ -3740,7 +3881,7 @@ Please provide:
 Format your response as JSON with keys: system_prompt, description, sliders (object with formality and creativity), tools (object with web, rfd, deep boolean values)`;
 
     console.log('[EVOLVE_AGENT] Calling OpenAI API...');
-    
+
     try {
       // Call OpenAI API
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -3770,7 +3911,7 @@ Format your response as JSON with keys: system_prompt, description, sliders (obj
         const errorData = await response.json();
         const errorMsg = errorData.error?.message || response.statusText;
         console.warn('[EVOLVE_AGENT] OpenAI API error, falling back to mock:', errorMsg);
-        
+
         // Fall back to mock evolution on any API error
         return res.json(generateMockEvolution());
       }
@@ -3898,9 +4039,8 @@ async function attemptFlowCanvasStep(prompt, workflow, stepIndex) {
     { role: 'system', content: FLOW_CANVAS_STEP_PROMPT },
     {
       role: 'user',
-      content: `Current workflow steps:\n${stepLines.join('\n') || 'No steps available.'}\n\nReplace step ${
-        stepIndex + 1
-      } with: ${prompt}\nReturn JSON only.`,
+      content: `Current workflow steps:\n${stepLines.join('\n') || 'No steps available.'}\n\nReplace step ${stepIndex + 1
+        } with: ${prompt}\nReturn JSON only.`,
     },
   ];
 
@@ -3937,9 +4077,8 @@ async function attemptFlowCanvasExplain(workflow) {
     { role: 'system', content: FLOW_CANVAS_EXPLAIN_PROMPT },
     {
       role: 'user',
-      content: `Prompt: ${workflow.prompt || 'N/A'}\nIntent: ${workflow.intentLabel || 'General'}\n\nSteps:\n${
-        stepLines.join('\n') || 'No steps available.'
-      }`,
+      content: `Prompt: ${workflow.prompt || 'N/A'}\nIntent: ${workflow.intentLabel || 'General'}\n\nSteps:\n${stepLines.join('\n') || 'No steps available.'
+        }`,
     },
   ];
 
@@ -3976,9 +4115,8 @@ async function attemptFlowCanvasExplainStep(step, index, workflow) {
     { role: 'system', content: FLOW_CANVAS_EXPLAIN_STEP_PROMPT },
     {
       role: 'user',
-      content: `Flow intent: ${flowIntent}\nStep ${index + 1}: ${step.title} (${step.kind || 'step'})\nDetails: ${
-        step.detail || 'No detail'
-      }`,
+      content: `Flow intent: ${flowIntent}\nStep ${index + 1}: ${step.title} (${step.kind || 'step'})\nDetails: ${step.detail || 'No detail'
+        }`,
     },
   ];
 
@@ -4015,9 +4153,8 @@ function buildFlowExplanation(workflow) {
     return 'This flow has no steps yet.';
   }
   const titles = steps.map((step, index) => `Step ${index + 1}: ${step.title}`).join('. ');
-  return `This workflow starts with ${steps[0].title}, routes through ${steps.length} total steps, and ends with ${
-    steps[steps.length - 1].title
-  }. ${titles}.`;
+  return `This workflow starts with ${steps[0].title}, routes through ${steps.length} total steps, and ends with ${steps[steps.length - 1].title
+    }. ${titles}.`;
 }
 
 function extractFlowCanvasJson(rawText = '') {
@@ -4043,8 +4180,8 @@ function normalizeModelPlan(plan, prompt, maxNodes = 6) {
 
   const normalizedSteps = Array.isArray(plan.steps)
     ? plan.steps
-        .filter(Boolean)
-        .map((step, index, arr) => normalizeFlowNode(step, index, arr.length))
+      .filter(Boolean)
+      .map((step, index, arr) => normalizeFlowNode(step, index, arr.length))
     : [];
 
   if (!normalizedSteps.length) {
@@ -4440,4 +4577,17 @@ Mention how the flow starts, the key reasoning/tool steps, and how it ends. Keep
 
 const FLOW_CANVAS_EXPLAIN_STEP_PROMPT = `You explain a single workflow node in 2-3 short sentences.
 Describe what the step does, why it exists, and any tools/systems it touches. Keep it concise.`;
+
+// Handle client-side routing - serve index.html for all non-API routes.
+// Ensure API requests continue down the middleware chain.
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+  return res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Agent Builder API running on port ${PORT}`);
+});
 

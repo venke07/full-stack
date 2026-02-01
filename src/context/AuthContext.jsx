@@ -1,5 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient.js';
+
+const API_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
+  (typeof process !== 'undefined' && (process.env?.VITE_API_URL || process.env?.API_URL)) ||
+  'http://localhost:4000';
 
 const AuthContext = createContext({
   session: null,
@@ -63,6 +68,38 @@ export function AuthProvider({ children }) {
     return fn(...args);
   };
 
+  const performSignup = useCallback(
+    async (email, password, metadata = {}) => {
+      if (bypassAuth) {
+        return { data: null, error: null };
+      }
+      if (!supabase) {
+        return { data: null, error: new Error('Supabase not configured. Add VITE_SUPABASE_ANON_KEY.') };
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/api/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, metadata }),
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok || !payload.success) {
+          throw new Error(payload?.error || 'Profile creation failed.');
+        }
+      } catch (error) {
+        return {
+          data: null,
+          error: error instanceof Error ? error : new Error('Profile creation failed.'),
+        };
+      }
+
+      return supabase.auth.signInWithPassword({ email, password });
+    },
+    [bypassAuth],
+  );
+
   const value = useMemo(
     () => ({
       session,
@@ -71,9 +108,7 @@ export function AuthProvider({ children }) {
       signIn: handlerFactory(async (email, password) =>
         supabase.auth.signInWithPassword({ email, password }),
       ),
-      signUp: handlerFactory(async (email, password, metadata = {}) =>
-        supabase.auth.signUp({ email, password, options: { data: metadata } }),
-      ),
+      signUp: performSignup,
       signOut: handlerFactory(async () => {
         if (bypassAuth) {
           setSession(fallbackSession);
@@ -82,7 +117,7 @@ export function AuthProvider({ children }) {
         await supabase.auth.signOut();
       }),
     }),
-    [session, loading, bypassAuth, fallbackSession],
+    [session, loading, bypassAuth, fallbackSession, performSignup],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { supabase } from '../lib/supabaseClient.js';
 import TutorialLauncher from '../components/TutorialLauncher.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
 import DashboardLayout from '../components/DashboardLayout.jsx';
@@ -24,7 +23,7 @@ const downloadFile = (url, filename) => {
 };
 
 export default function MultiAgentChat() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [chatMode, setChatMode] = useState('independent'); // 'independent', 'orchestrated', 'auto', 'debate'
   const [workflowMode, setWorkflowMode] = useState('sequential'); // 'sequential' or 'parallel'
   const [selectedAgents, setSelectedAgents] = useState([]);
@@ -38,31 +37,55 @@ export default function MultiAgentChat() {
   const [suggestedAgents, setSuggestedAgents] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
+  const authHeaders = useMemo(() => {
+    if (!session?.access_token) {
+      return {};
+    }
+    return { Authorization: `Bearer ${session.access_token}` };
+  }, [session?.access_token]);
+
   // Load user's agents from database
   useEffect(() => {
     const loadAgents = async () => {
-      if (!supabase || !user?.id) return;
-
-      const { data, error } = await supabase
-        .from('agent_personas')
-        .select('id, name, description, system_prompt, model_id, model_label, status')
-        .eq('user_id', user.id)
-        .eq('status', 'published');
-
-      if (error) {
-        console.error('Error loading agents:', error);
-      } else {
-        setAllAgents(data || []);
-        // Auto-select first 2 agents
-        if (data && data.length > 0) {
-          setSelectedAgents([data[0].id, data[1]?.id].filter(Boolean));
-        }
+      if (!session?.access_token) {
+        setAllAgents([]);
+        setSelectedAgents([]);
+        setAgentsLoading(false);
+        return;
       }
-      setAgentsLoading(false);
+
+      setAgentsLoading(true);
+      try {
+        const response = await fetch(`${API_URL}/api/agents`, {
+          headers: {
+            ...authHeaders,
+          },
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.success) {
+          throw new Error(payload?.error || 'Failed to load agents.');
+        }
+
+        const publishedAgents = (payload.agents || []).filter((agent) => agent.status === 'published');
+        setAllAgents(publishedAgents);
+
+        if (publishedAgents.length > 0) {
+          setSelectedAgents([publishedAgents[0].id, publishedAgents[1]?.id].filter(Boolean));
+        } else {
+          setSelectedAgents([]);
+        }
+      } catch (error) {
+        console.error('Error loading agents:', error);
+        setAllAgents([]);
+        setSelectedAgents([]);
+      } finally {
+        setAgentsLoading(false);
+      }
     };
 
     loadAgents();
-  }, [user?.id]);
+  }, [authHeaders, session?.access_token]);
 
   const toggleAgent = (agentId) => {
     setSelectedAgents(prev =>

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 import { modelOptions } from '../lib/modelOptions.js';
@@ -28,7 +27,7 @@ const TOOL_LABELS = {
   deep: 'Deep Research',
 };
 
-const defaultTemplatePayload = (userId, template, selectedModel = null) => {
+const defaultTemplatePayload = (template, selectedModel = null) => {
   // Use provided model, or default to GPT-4o mini (index 1) instead of Gemini (index 0)
   const defaultModel = selectedModel || modelOptions[1] || modelOptions[0];
   const derivedTools = { web: true, rfd: false, deep: false };
@@ -39,7 +38,6 @@ const defaultTemplatePayload = (userId, template, selectedModel = null) => {
   });
 
   return {
-    user_id: userId,
     name: template.name,
     description: template.desc,
     status: 'draft',
@@ -50,7 +48,6 @@ const defaultTemplatePayload = (userId, template, selectedModel = null) => {
     model_label: defaultModel.label,
     model_provider: defaultModel.provider,
     model_env_key: defaultModel.envKey,
-    created_at: new Date().toISOString(),
   };
 };
 
@@ -94,7 +91,26 @@ const deriveTagsFromAgent = (agent) => {
   return [...new Set(tags)];
 };
 
+const mergeAgentLists = (primary = [], secondary = []) => {
+  const merged = new Map();
+
+  const upsert = (agent, origin = 'primary') => {
+    if (!agent) {
+      return;
+    }
+    const key = agent.id || agent.share_id || `${origin}-${agent.name || 'agent'}`;
+    const existing = merged.get(key);
+    merged.set(key, existing ? { ...existing, ...agent } : agent);
+  };
+
+  (primary || []).forEach((agent) => upsert(agent, 'primary'));
+  (secondary || []).forEach((agent) => upsert(agent, 'secondary'));
+
+  return Array.from(merged.values());
+};
+
 export default function HomePage() {
+  console.log('[DEBUG] HomePage rendering');
   const { user, session } = useAuth();
   const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
@@ -139,16 +155,26 @@ export default function HomePage() {
     return { Authorization: `Bearer ${session.access_token}` };
   }, [session?.access_token]);
 
+  const requireSession = useCallback(() => {
+    if (!session?.access_token) {
+      showBanner('Sign in to manage your agents.', 'error');
+      return false;
+    }
+    return true;
+  }, [session?.access_token, showBanner]);
+
   const loadSharedAgents = useCallback(async () => {
     if (!session?.access_token) {
       return [];
     }
     try {
+      console.log('[DEBUG] Fetching shared agents from:', `${API_URL}/api/agents/shared`);
       const res = await fetch(`${API_URL}/api/agents/shared`, {
         headers: {
           ...authHeaders,
         },
       });
+      console.log('[DEBUG] Shared agents response status:', res.status);
       const data = await res.json();
       if (!res.ok || !data.success) {
         return [];
@@ -158,31 +184,54 @@ export default function HomePage() {
       console.error('Failed to load shared agents:', error);
       return [];
     }
-  }, [authHeaders, session?.access_token]);
+  }, [API_URL, authHeaders, session?.access_token]);
 
   const loadAgents = useCallback(async () => {
-    if (!supabase || !user?.id) {
+    if (!session?.access_token) {
       setAgents([]);
       setIsLoading(false);
       return;
     }
-    setIsLoading(true);
-    const { data, error } = await supabase
-      .from('agent_personas')
-      .select('id, user_id, name, status, description, created_at, tools, guardrails, model_label, model_provider, model_id, system_prompt, sliders, model_env_key, collection')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
 
-    if (error) {
+    console.log('[DEBUG] loadAgents called. Session token exists:', !!session?.access_token);
+    setIsLoading(true);
+    try {
+      console.log('[DEBUG] Fetching agents from:', `${API_URL}/api/agents`);
+      const response = await fetch(`${API_URL}/api/agents`, {
+        headers: {
+          ...authHeaders,
+        },
+      });
+      console.log('[DEBUG] Agents response status:', response.status);
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload?.error || 'Failed to load agents.');
+      }
+
+      showBanner(null);
+      const baseAgents = payload.agents ?? [];
+      setAgents(baseAgents);
+
+      loadSharedAgents()
+        .then((sharedAgents) => {
+          if (!Array.isArray(sharedAgents) || sharedAgents.length === 0) {
+            return;
+          }
+          setAgents((prev) => mergeAgentLists(prev, sharedAgents));
+        })
+        .catch((sharedError) => {
+          console.error('Failed to merge shared agents:', sharedError);
+        });
+    } catch (error) {
+      console.error('Failed to load agents:', error);
       showBanner(`Unable to load agents: ${error.message}`, 'error');
       setAgents([]);
-    } else {
-      const sharedAgents = await loadSharedAgents();
-      showBanner(null);
-      setAgents([...(data ?? []), ...(sharedAgents ?? [])]);
+    } finally {
+      console.log('[DEBUG] loadAgents finally block reached, setting isLoading to false');
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  }, [loadSharedAgents, showBanner, user?.id]);
+  }, [API_URL, authHeaders, loadSharedAgents, session?.access_token, showBanner]);
 
   useEffect(() => {
     loadAgents();
@@ -218,10 +267,15 @@ export default function HomePage() {
     if (searchTerm.trim()) {
       const query = searchTerm.toLowerCase();
       list = list.filter((agent) => {
-        const nameMatch = agent.name?.toLowerCase().includes(query);
-        const descMatch = agent.description?.toLowerCase().includes(query);
-        const tagsMatch = agent.tags?.some(tag => tag.toLowerCase().includes(query));
-        const modelMatch = agent.model_label?.toLowerCase().includes(query);
+        const nameValue = typeof agent.name === 'string' ? agent.name.toLowerCase() : '';
+        const descValue = typeof agent.description === 'string' ? agent.description.toLowerCase() : '';
+        const modelValue = typeof agent.model_label === 'string' ? agent.model_label.toLowerCase() : '';
+        const nameMatch = nameValue.includes(query);
+        const descMatch = descValue.includes(query);
+        const tagsMatch = Array.isArray(agent.tags)
+          ? agent.tags.some((tag) => typeof tag === 'string' && tag.toLowerCase().includes(query))
+          : false;
+        const modelMatch = modelValue.includes(query);
         return nameMatch || descMatch || tagsMatch || modelMatch;
       });
     }
@@ -244,27 +298,34 @@ export default function HomePage() {
   }, [agents, filter, searchTerm, providerFilter, collectionFilter, sortMode]);
 
   const handleToggleStatus = async (agent) => {
-    if (!supabase || !user?.id || filter === 'Templates') {
+    if (filter === 'Templates' || !requireSession()) {
       return;
     }
     const nextStatus = agent.status === 'published' ? 'draft' : 'published';
     setMutatingId(agent.id);
-    const { error } = await supabase
-      .from('agent_personas')
-      .update({ status: nextStatus })
-      .eq('id', agent.id)
-      .eq('user_id', user.id);
-
-    if (error) {
-      showBanner(`Unable to update status: ${error.message}`, 'error');
-    } else {
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agent.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || 'Failed to update status.');
+      }
       loadAgents();
+    } catch (error) {
+      showBanner(`Unable to update status: ${error.message}`, 'error');
+    } finally {
+      setMutatingId(null);
     }
-    setMutatingId(null);
   };
 
   const handleDelete = async (agent) => {
-    if (!supabase || !user?.id || filter === 'Templates') {
+    if (filter === 'Templates' || !requireSession()) {
       return;
     }
     const confirmDelete = window.confirm(`Delete ${agent.name || 'this agent'}?`);
@@ -272,18 +333,23 @@ export default function HomePage() {
       return;
     }
     setMutatingId(agent.id);
-    const { error } = await supabase
-      .from('agent_personas')
-      .delete()
-      .eq('id', agent.id)
-      .eq('user_id', user.id);
-
-    if (error) {
-      showBanner(`Unable to delete agent: ${error.message}`, 'error');
-    } else {
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agent.id}`, {
+        method: 'DELETE',
+        headers: {
+          ...authHeaders,
+        },
+      });
+      const data = res.status === 204 ? { success: true } : await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || 'Failed to delete agent.');
+      }
       loadAgents();
+    } catch (error) {
+      showBanner(`Unable to delete agent: ${error.message}`, 'error');
+    } finally {
+      setMutatingId(null);
     }
-    setMutatingId(null);
   };
 
   const handleExportAgent = (agent) => {
@@ -318,6 +384,10 @@ export default function HomePage() {
   const handleImportAgent = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!requireSession()) {
+      event.target.value = '';
+      return;
+    }
 
     try {
       const text = await file.text();
@@ -331,7 +401,6 @@ export default function HomePage() {
 
       // Create payload for import
       const payload = {
-        user_id: user.id,
         name: `${importData.name} (Imported)`,
         description: importData.description || '',
         system_prompt: importData.system_prompt || '',
@@ -344,17 +413,22 @@ export default function HomePage() {
         tools: importData.tools || { web: false, rfd: false, deep: false },
         collection: importData.collection || null,
         status: 'draft',
-        created_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('agent_personas').insert([payload]);
-
-      if (error) {
-        showBanner(`Import failed: ${error.message}`, 'error');
-      } else {
-        showBanner(`Agent "${importData.name}" imported successfully!`, 'success');
-        loadAgents();
+      const res = await fetch(`${API_URL}/api/agents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || 'Failed to import agent.');
       }
+      showBanner(`Agent "${importData.name}" imported successfully!`, 'success');
+      loadAgents();
     } catch (err) {
       showBanner(`Import failed: ${err.message}`, 'error');
     }
@@ -392,7 +466,7 @@ export default function HomePage() {
     }
   };
 
-  
+
   const openShareModal = async (agent) => {
     setShareTarget(agent);
     setSharePermission('view');
@@ -622,21 +696,30 @@ export default function HomePage() {
   };
 
   const handleUpdateCollection = async (agent, newCollection) => {
+    if (!requireSession()) {
+      return;
+    }
     setMutatingId(agent.id);
-    
-    const { error } = await supabase
-      .from('agent_personas')
-      .update({ collection: newCollection })
-      .eq('id', agent.id)
-      .eq('user_id', user.id);
-
-    if (error) {
-      showBanner(`Unable to update collection: ${error.message}`, 'error');
-    } else {
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agent.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({ collection: newCollection }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || 'Failed to update collection.');
+      }
       loadAgents();
       showBanner(`Moved to ${newCollection || 'No Collection'}`, 'success');
+    } catch (error) {
+      showBanner(`Unable to update collection: ${error.message}`, 'error');
+    } finally {
+      setMutatingId(null);
     }
-    setMutatingId(null);
   };
 
   const handleAddCollection = () => {
@@ -652,25 +735,32 @@ export default function HomePage() {
   };
 
   const handleAddTemplate = async (template) => {
-    if (!supabase) {
-      showBanner('Supabase is not configured.', 'error');
-      return;
-    }
-    if (!user?.id) {
-      showBanner('Sign in to use templates.', 'error');
+    if (!requireSession()) {
       return;
     }
     setIsTemplateAction(true);
-    const payload = defaultTemplatePayload(user.id, template);
-    const { error } = await supabase.from('agent_personas').insert([payload]);
-    if (error) {
-      showBanner(`Unable to add template: ${error.message}`, 'error');
-    } else {
+    try {
+      const payload = defaultTemplatePayload(template);
+      const res = await fetch(`${API_URL}/api/agents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || 'Failed to add template.');
+      }
       showBanner(`${template.name} added to drafts.`, 'success');
       setFilter('All');
       loadAgents();
+    } catch (error) {
+      showBanner(`Unable to add template: ${error.message}`, 'error');
+    } finally {
+      setIsTemplateAction(false);
     }
-    setIsTemplateAction(false);
   };
 
   const headerContent = (

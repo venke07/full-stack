@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -28,7 +28,7 @@ const formatMessage = (text) => {
 };
 
 export default function VoiceChatPage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -50,6 +50,13 @@ export default function VoiceChatPage() {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationRef = useRef(null);
+
+  const authHeaders = useMemo(() => {
+    if (!session?.access_token) {
+      return {};
+    }
+    return { Authorization: `Bearer ${session.access_token}` };
+  }, [session?.access_token]);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -110,29 +117,40 @@ export default function VoiceChatPage() {
   // Load agents
   useEffect(() => {
     const loadAgents = async () => {
-      if (!supabase || !user?.id) return;
+      if (!session?.access_token) {
+        setAgents([]);
+        setIsLoadingAgents(false);
+        return;
+      }
 
-      const { data, error } = await supabase
-        .from('agent_personas')
-        .select('id, name, description, system_prompt, model_id, status')
-        .eq('user_id', user.id)
-        .eq('status', 'published');
+      try {
+        const response = await fetch(`${API_URL}/api/agents`, {
+          headers: {
+            ...authHeaders,
+          },
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload?.error || 'Failed to load agents');
+        }
 
-      if (error) {
-        console.error('Error loading agents:', error);
-        setStatus('Failed to load agents');
-      } else {
-        const loadedAgents = data || [];
+        const loadedAgents = (payload.agents || []).filter((agent) => agent.status === 'published');
         setAgents(loadedAgents);
         if (loadedAgents.length > 0) {
           setSelectedAgent(loadedAgents[0]);
         }
+        setStatus('Ready to chat');
+      } catch (error) {
+        console.error('Error loading agents:', error);
+        setStatus('Failed to load agents');
+        setAgents([]);
+      } finally {
+        setIsLoadingAgents(false);
       }
-      setIsLoadingAgents(false);
     };
 
     loadAgents();
-  }, [user?.id]);
+  }, [session?.access_token, authHeaders]);
 
   // Initialize audio visualization
   const initializeAudioVisualization = async () => {
