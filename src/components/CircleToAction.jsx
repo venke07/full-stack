@@ -283,7 +283,7 @@ const CircleToAction = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          modelId: 'gemini-2.5-flash',
+          modelId: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: 'You are a helpful AI assistant. Provide concise, clear responses.' },
             { role: 'user', content: prompt }
