@@ -374,11 +374,70 @@
 .cta-response-content {
   padding: 16px;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: #212529;
-  max-height: 200px;
+  max-height: 250px;
   overflow-y: auto;
-  white-space: pre-wrap;
+}
+
+/* Markdown Styling */
+.cta-response-content strong {
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.cta-response-content em {
+  font-style: italic;
+  color: #495057;
+}
+
+.cta-response-content h3,
+.cta-response-content h4 {
+  margin: 16px 0 8px 0;
+  font-weight: 700;
+  color: #7c3aed;
+}
+
+.cta-response-content h3:first-child,
+.cta-response-content h4:first-child {
+  margin-top: 0;
+}
+
+.cta-response-content h3 {
+  font-size: 15px;
+}
+
+.cta-response-content h4 {
+  font-size: 14px;
+}
+
+.cta-response-content ul,
+.cta-response-content ol {
+  margin: 10px 0;
+  padding-left: 24px;
+}
+
+.cta-response-content li {
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.cta-response-content ul li {
+  list-style-type: disc;
+}
+
+.cta-response-content ol li {
+  list-style-type: decimal;
+}
+
+.cta-response-content p {
+  margin: 8px 0;
+}
+
+.cta-response-content br {
+  display: block;
+  content: "";
+  margin: 4px 0;
 }
 
 .cta-copy-response {

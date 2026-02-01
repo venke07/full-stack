@@ -1,6 +1,51 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import '../styles/CircleToAction.css';
 
+// Simple markdown to HTML converter
+const formatMarkdown = (text) => {
+  if (!text) return '';
+  
+  let html = text
+    // Bold: **text** or __text__
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    // Italic: *text* or _text_ (but not inside words)
+    .replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em>$1</em>')
+    // Headers: ## Header
+    .replace(/^###\s+(.+)$/gm, '<h4>$1</h4>')
+    .replace(/^##\s+(.+)$/gm, '<h3>$1</h3>')
+    .replace(/^#\s+(.+)$/gm, '<h3>$1</h3>')
+    // Bullet points: * item or - item (convert to list items)
+    .replace(/^\s*[\*\-]\s+(.+)$/gm, '••LISTITEM••$1••ENDLISTITEM••')
+    // Numbered lists: 1. item
+    .replace(/^\s*\d+\.\s+(.+)$/gm, '••NUMITEM••$1••ENDNUMITEM••')
+    // Line breaks
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>');
+  
+  // Wrap consecutive list items in <ul>
+  html = html.replace(/(••LISTITEM••[\s\S]*?••ENDLISTITEM••)+/g, (match) => {
+    const items = match
+      .split('••ENDLISTITEM••')
+      .filter(item => item.includes('••LISTITEM••'))
+      .map(item => `<li>${item.replace('••LISTITEM••', '').replace(/<br\/>/g, '')}</li>`)
+      .join('');
+    return `<ul>${items}</ul>`;
+  });
+  
+  // Wrap consecutive numbered items in <ol>
+  html = html.replace(/(••NUMITEM••[\s\S]*?••ENDNUMITEM••)+/g, (match) => {
+    const items = match
+      .split('••ENDNUMITEM••')
+      .filter(item => item.includes('••NUMITEM••'))
+      .map(item => `<li>${item.replace('••NUMITEM••', '').replace(/<br\/>/g, '')}</li>`)
+      .join('');
+    return `<ol>${items}</ol>`;
+  });
+  
+  return html;
+};
+
 const CircleToAction = () => {
   // Button position state (draggable)
   const [buttonPos, setButtonPos] = useState({ x: 20, y: window.innerHeight - 100 });
@@ -454,9 +499,10 @@ const CircleToAction = () => {
                       ← Back
                     </button>
                   </div>
-                  <div className="cta-response-content">
-                    {aiResponse.response}
-                  </div>
+                  <div 
+                    className="cta-response-content"
+                    dangerouslySetInnerHTML={{ __html: formatMarkdown(aiResponse.response) }}
+                  />
                   <button 
                     className="cta-copy-response"
                     onClick={() => {
