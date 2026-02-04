@@ -34,7 +34,7 @@ const deriveTagsFromAgent = (agent) => {
 };
 
 export default function PublicAgent() {
-  const { user, session } = useAuth();
+  const { user } = useAuth();
   const [agent, setAgent] = useState(null);
   const [permission, setPermission] = useState('view');
   const [status, setStatus] = useState('loading');
@@ -69,30 +69,7 @@ export default function PublicAgent() {
     load();
   }, [token]);
 
-  const canClone = permission === 'clone' || permission === 'edit';
-
-  const handleClone = async () => {
-    if (!session?.access_token || !agent?.id) {
-      setBanner('Sign in to clone this agent.');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_URL}/api/agents/${agent.id}/clone`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setBanner(data.error || 'Failed to clone agent.');
-      } else {
-        setBanner('Agent cloned to your workspace.');
-      }
-    } catch (error) {
-      setBanner('Failed to clone agent.');
-    }
-  };
+  const canEdit = permission === 'edit';
 
   if (status === 'loading') {
     return (
@@ -134,10 +111,8 @@ export default function PublicAgent() {
         </div>
         {banner && <div className="dashboard-status info" style={{ marginTop: '12px' }}>{banner}</div>}
         <div className="public-actions">
-          {canClone && (
-            <button className="btn primary" type="button" onClick={handleClone}>
-              Clone to workspace
-            </button>
+          {canEdit && (
+            <span className="badge">Edit access granted</span>
           )}
           {!user && (
             <Link className="btn secondary" to="/login">

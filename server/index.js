@@ -2375,15 +2375,27 @@ const parseRangeStart = (range) => {
 
 const safeNumber = (value) => (Number.isFinite(value) ? value : 0);
 
+const getAuthedSupabase = (req) => {
+  if (!supabaseUrl || !supabaseKey) return null;
+  const authHeader = req?.headers?.authorization || '';
+  return createClient(supabaseUrl, supabaseKey, {
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  });
+};
+
 const ACCESS_LEVELS = {
   view: 1,
-  clone: 2,
-  edit: 3,
-  owner: 4,
+  edit: 2,
+  owner: 3,
 };
 
 const normalizePermission = (value) => {
   const key = (value || '').toString().toLowerCase();
+  if (key === 'clone') return 'view';
   return ACCESS_LEVELS[key] ? key : null;
 };
 
@@ -2422,6 +2434,7 @@ const guardAuth = (handler) => async (req, res) => {
   try {
     const user = await getAuthUser(req);
     req.authUser = user;
+    req.authToken = (req.headers.authorization || '').replace('Bearer ', '');
     return handler(req, res);
   } catch (error) {
     const status = error.status || 500;
@@ -2429,8 +2442,8 @@ const guardAuth = (handler) => async (req, res) => {
   }
 };
 
-const getAgentById = async (agentId) => {
-  const { data, error } = await analyticsSupabase
+const getAgentById = async (supabaseClient, agentId) => {
+  const { data, error } = await supabaseClient
     .from('agent_personas')
     .select('*')
     .eq('id', agentId)
@@ -2443,8 +2456,8 @@ const getAgentById = async (agentId) => {
   return data;
 };
 
-const getShareRecord = async (agentId, userId) => {
-  const { data, error } = await analyticsSupabase
+const getShareRecord = async (supabaseClient, agentId, userId) => {
+  const { data, error } = await supabaseClient
     .from('agent_shares')
     .select('*')
     .eq('agent_id', agentId)
@@ -2458,13 +2471,13 @@ const getShareRecord = async (agentId, userId) => {
   return data;
 };
 
-const resolveAgentAccess = async (agentId, userId) => {
-  const agent = await getAgentById(agentId);
+const resolveAgentAccess = async (supabaseClient, agentId, userId) => {
+  const agent = await getAgentById(supabaseClient, agentId);
   if (agent.user_id === userId) {
     return { agent, permission: 'owner', share: null };
   }
 
-  const share = await getShareRecord(agentId, userId);
+  const share = await getShareRecord(supabaseClient, agentId, userId);
   if (!share) {
     const err = new Error('Access denied.');
     err.status = 403;
@@ -3090,7 +3103,8 @@ app.get('/api/analytics/usage-summary', async (req, res) => {
  */
 app.get('/api/agents', guardAuth(async (req, res) => {
   console.log('[DEBUG] GET /api/agents request received');
-  if (!analyticsSupabase) {
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
     console.warn('[DEBUG] Supabase NOT configured in /api/agents');
     return res.status(500).json({ success: false, error: 'Supabase not configured.' });
   }
@@ -3098,7 +3112,7 @@ app.get('/api/agents', guardAuth(async (req, res) => {
   const userId = req.authUser.id;
   console.log('[DEBUG] Fetching agents for userId:', userId);
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_personas')
     .select('*')
     .eq('user_id', userId)
@@ -3114,7 +3128,8 @@ app.get('/api/agents', guardAuth(async (req, res) => {
 }));
 
 app.post('/api/agents', guardAuth(async (req, res) => {
-  if (!analyticsSupabase) {
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
     return res.status(500).json({ success: false, error: 'Supabase not configured.' });
   }
 
@@ -3147,7 +3162,7 @@ app.post('/api/agents', guardAuth(async (req, res) => {
   payload.status = payload.status || 'draft';
   payload.created_at = new Date().toISOString();
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_personas')
     .insert(payload)
     .select('*')
@@ -3162,8 +3177,12 @@ app.post('/api/agents', guardAuth(async (req, res) => {
 
 app.get('/api/agents/shared', guardAuth(async (req, res) => {
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const { data: shareRows, error } = await analyticsSupabase
+  const { data: shareRows, error } = await supabase
     .from('agent_shares')
     .select('id, agent_id, permission, owner_id, shared_with_email, created_at')
     .eq('shared_with_user_id', userId)
@@ -3176,7 +3195,7 @@ app.get('/api/agents/shared', guardAuth(async (req, res) => {
   const agentIds = (shareRows || []).map((row) => row.agent_id).filter(Boolean);
   let agents = [];
   if (agentIds.length) {
-    const { data: agentRows, error: agentError } = await analyticsSupabase
+    const { data: agentRows, error: agentError } = await supabase
       .from('agent_personas')
       .select('*')
       .in('id', agentIds);
@@ -3209,8 +3228,12 @@ app.get('/api/agents/shared', guardAuth(async (req, res) => {
 app.get('/api/agents/:agentId', guardAuth(async (req, res) => {
   const { agentId } = req.params;
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const access = await resolveAgentAccess(agentId, userId);
+  const access = await resolveAgentAccess(supabase, agentId, userId);
   if (!hasPermission(access.permission, 'view')) {
     return res.status(403).json({ success: false, error: 'Access denied.' });
   }
@@ -3221,13 +3244,17 @@ app.get('/api/agents/:agentId', guardAuth(async (req, res) => {
 app.get('/api/agents/:agentId/shares', guardAuth(async (req, res) => {
   const { agentId } = req.params;
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const agent = await getAgentById(agentId);
+  const agent = await getAgentById(supabase, agentId);
   if (agent.user_id !== userId) {
     return res.status(403).json({ success: false, error: 'Only owners can view shares.' });
   }
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_shares')
     .select('id, shared_with_user_id, shared_with_email, permission, created_at')
     .eq('agent_id', agentId)
@@ -3241,231 +3268,28 @@ app.get('/api/agents/:agentId/shares', guardAuth(async (req, res) => {
 }));
 
 
-app.get('/api/agents/:agentId/share-links', guardAuth(async (req, res) => {
-  const { agentId } = req.params;
-  const userId = req.authUser.id;
-
-  const agent = await getAgentById(agentId);
-  if (agent.user_id !== userId) {
-    return res.status(403).json({ success: false, error: 'Only owners can manage share links.' });
-  }
-
-  const { data, error } = await analyticsSupabase
-    .from('agent_share_links')
-    .select('id, token, permission, is_public, expires_at, created_at')
-    .eq('agent_id', agentId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    return res.status(500).json({ success: false, error: error.message || 'Failed to load share links.' });
-  }
-
-  res.json({ success: true, links: data || [] });
+app.get('/api/agents/:agentId/share-links', guardAuth(async (_req, res) => {
+  res.status(410).json({ success: false, error: 'Share links are disabled.' });
 }));
 
-app.post('/api/agents/:agentId/share-links', guardAuth(async (req, res) => {
-  const { agentId } = req.params;
-  const userId = req.authUser.id;
-  const resolvedPermission = normalizePermission(req.body?.permission) || 'view';
-  const isPublic = !!req.body?.isPublic;
-  const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt) : null;
-
-  const agent = await getAgentById(agentId);
-  if (agent.user_id !== userId) {
-    return res.status(403).json({ success: false, error: 'Only owners can create share links.' });
-  }
-
-  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
-    return res.status(400).json({ success: false, error: 'Invalid expiresAt value.' });
-  }
-  if (isPublic && resolvedPermission === 'edit') {
-    return res.status(400).json({ success: false, error: 'Public links cannot grant edit access.' });
-  }
-
-  const token = crypto.randomUUID();
-  const { data, error } = await analyticsSupabase
-    .from('agent_share_links')
-    .insert({
-      agent_id: agentId,
-      owner_id: userId,
-      token,
-      permission: resolvedPermission,
-      is_public: isPublic,
-      expires_at: expiresAt ? expiresAt.toISOString() : null,
-    })
-    .select('id, token, permission, is_public, expires_at, created_at')
-    .single();
-
-  if (error) {
-    return res.status(500).json({ success: false, error: error.message || 'Failed to create share link.' });
-  }
-
-  res.json({ success: true, link: data });
+app.post('/api/agents/:agentId/share-links', guardAuth(async (_req, res) => {
+  res.status(410).json({ success: false, error: 'Share links are disabled.' });
 }));
 
-app.patch('/api/agents/:agentId/share-links/:linkId', guardAuth(async (req, res) => {
-  const { agentId, linkId } = req.params;
-  const userId = req.authUser.id;
-  const resolvedPermission = normalizePermission(req.body?.permission);
-  const isPublic = req.body?.isPublic;
-  const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt) : null;
-
-  const agent = await getAgentById(agentId);
-  if (agent.user_id !== userId) {
-    return res.status(403).json({ success: false, error: 'Only owners can update share links.' });
-  }
-
-  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
-    return res.status(400).json({ success: false, error: 'Invalid expiresAt value.' });
-  }
-
-  if (resolvedPermission && isPublic && resolvedPermission === 'edit') {
-    return res.status(400).json({ success: false, error: 'Public links cannot grant edit access.' });
-  }
-
-  const payload = {};
-  if (resolvedPermission) payload.permission = resolvedPermission;
-  if (isPublic !== undefined) payload.is_public = !!isPublic;
-  if (isPublic === true && !resolvedPermission) {
-    payload.permission = 'view';
-  }
-  if (expiresAt !== null) payload.expires_at = expiresAt.toISOString();
-
-  if (!Object.keys(payload).length) {
-    return res.status(400).json({ success: false, error: 'No updates provided.' });
-  }
-
-  const { data, error } = await analyticsSupabase
-    .from('agent_share_links')
-    .update(payload)
-    .eq('id', linkId)
-    .eq('agent_id', agentId)
-    .select('id, token, permission, is_public, expires_at, created_at')
-    .single();
-
-  if (error) {
-    return res.status(500).json({ success: false, error: error.message || 'Failed to update share link.' });
-  }
-
-  res.json({ success: true, link: data });
+app.patch('/api/agents/:agentId/share-links/:linkId', guardAuth(async (_req, res) => {
+  res.status(410).json({ success: false, error: 'Share links are disabled.' });
 }));
 
-app.delete('/api/agents/:agentId/share-links/:linkId', guardAuth(async (req, res) => {
-  const { agentId, linkId } = req.params;
-  const userId = req.authUser.id;
-
-  const agent = await getAgentById(agentId);
-  if (agent.user_id !== userId) {
-    return res.status(403).json({ success: false, error: 'Only owners can revoke share links.' });
-  }
-
-  const { error } = await analyticsSupabase
-    .from('agent_share_links')
-    .delete()
-    .eq('id', linkId)
-    .eq('agent_id', agentId);
-
-  if (error) {
-    return res.status(500).json({ success: false, error: error.message || 'Failed to revoke share link.' });
-  }
-
-  res.json({ success: true });
+app.delete('/api/agents/:agentId/share-links/:linkId', guardAuth(async (_req, res) => {
+  res.status(410).json({ success: false, error: 'Share links are disabled.' });
 }));
 
-app.post('/api/agents/share-links/resolve', guardAuth(async (req, res) => {
-  const userId = req.authUser.id;
-  const token = (req.body?.token || '').toString().trim();
-
-  if (!token) {
-    return res.status(400).json({ success: false, error: 'token is required.' });
-  }
-
-  const { data, error } = await analyticsSupabase
-    .from('agent_share_links')
-    .select('id, agent_id, permission, owner_id, is_public, expires_at')
-    .eq('token', token)
-    .single();
-
-  if (error || !data) {
-    return res.status(404).json({ success: false, error: 'Share link not found.' });
-  }
-
-  if (data.expires_at) {
-    const expiry = new Date(data.expires_at);
-    if (!Number.isNaN(expiry.getTime()) && expiry < new Date()) {
-      return res.status(410).json({ success: false, error: 'Share link expired.' });
-    }
-  }
-
-  if (data.owner_id === userId) {
-    return res.json({ success: true, agentId: data.agent_id, permission: 'owner' });
-  }
-
-  const { data: shareRow, error: shareError } = await analyticsSupabase
-    .from('agent_shares')
-    .upsert({
-      agent_id: data.agent_id,
-      owner_id: data.owner_id,
-      shared_with_user_id: userId,
-      permission: data.permission || 'view',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'agent_id,shared_with_user_id' })
-    .select('permission')
-    .single();
-
-  if (shareError) {
-    return res.status(500).json({ success: false, error: shareError.message || 'Failed to accept share link.' });
-  }
-
-  res.json({ success: true, agentId: data.agent_id, permission: shareRow?.permission || data.permission });
+app.post('/api/agents/share-links/resolve', guardAuth(async (_req, res) => {
+  res.status(410).json({ success: false, error: 'Share links are disabled.' });
 }));
 
-app.get('/api/public/agents/:token', async (req, res) => {
-  const token = (req.params?.token || '').toString().trim();
-  if (!token) {
-    return res.status(400).json({ success: false, error: 'token is required.' });
-  }
-
-  if (!analyticsSupabase) {
-    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
-  }
-
-  const { data, error } = await analyticsSupabase
-    .from('agent_share_links')
-    .select('agent_id, permission, is_public, expires_at, owner_id')
-    .eq('token', token)
-    .single();
-
-  if (error || !data) {
-    return res.status(404).json({ success: false, error: 'Public link not found.' });
-  }
-
-  if (!data.is_public) {
-    return res.status(403).json({ success: false, error: 'Link is not public.' });
-  }
-
-  if (data.expires_at) {
-    const expiry = new Date(data.expires_at);
-    if (!Number.isNaN(expiry.getTime()) && expiry < new Date()) {
-      return res.status(410).json({ success: false, error: 'Share link expired.' });
-    }
-  }
-
-  const { data: agent, error: agentError } = await analyticsSupabase
-    .from('agent_personas')
-    .select('id, name, description, model_label, model_provider, tools, guardrails, created_at')
-    .eq('id', data.agent_id)
-    .single();
-
-  if (agentError || !agent) {
-    return res.status(404).json({ success: false, error: 'Agent not found.' });
-  }
-
-  res.json({
-    success: true,
-    agent,
-    permission: data.permission === 'edit' ? 'view' : (data.permission || 'view'),
-  });
+app.get('/api/public/agents/:token', async (_req, res) => {
+  res.status(410).json({ success: false, error: 'Public share links are disabled.' });
 });
 
 app.post('/api/agents/:agentId/share', guardAuth(async (req, res) => {
@@ -3473,8 +3297,12 @@ app.post('/api/agents/:agentId/share', guardAuth(async (req, res) => {
   const userId = req.authUser.id;
   const { sharedWithUserId, sharedWithEmail, permission } = req.body || {};
   const resolvedPermission = normalizePermission(permission) || 'view';
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const agent = await getAgentById(agentId);
+  const agent = await getAgentById(supabase, agentId);
   if (agent.user_id !== userId) {
     return res.status(403).json({ success: false, error: 'Only owners can share agents.' });
   }
@@ -3483,12 +3311,30 @@ app.post('/api/agents/:agentId/share', guardAuth(async (req, res) => {
   let targetEmail = sharedWithEmail;
 
   if (!targetUserId && targetEmail) {
-    const adminResult = await analyticsSupabase.auth.admin.getUserByEmail(targetEmail);
-    if (adminResult?.data?.user?.id) {
-      targetUserId = adminResult.data.user.id;
-    } else {
-      return res.status(404).json({ success: false, error: 'User not found for that email.' });
+    if (targetEmail.toLowerCase() === (req.authUser.email || '').toLowerCase()) {
+      return res.status(400).json({ success: false, error: 'Cannot share with yourself.' });
     }
+
+    const invitePayload = {
+      agent_id: agentId,
+      owner_id: userId,
+      shared_with_email: targetEmail,
+      permission: resolvedPermission,
+      status: 'pending',
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('agent_share_invites')
+      .upsert(invitePayload, { onConflict: 'agent_id,shared_with_email' })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message || 'Failed to create share invite.' });
+    }
+
+    return res.json({ success: true, invite: data });
   }
 
   if (!targetUserId) {
@@ -3508,7 +3354,7 @@ app.post('/api/agents/:agentId/share', guardAuth(async (req, res) => {
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_shares')
     .upsert(payload, { onConflict: 'agent_id,shared_with_user_id' })
     .select()
@@ -3521,21 +3367,116 @@ app.post('/api/agents/:agentId/share', guardAuth(async (req, res) => {
   res.json({ success: true, share: data });
 }));
 
+app.get('/api/agents/share-invites', guardAuth(async (req, res) => {
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const email = (req.authUser.email || '').toString().trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'User email is required.' });
+  }
+
+  const { data, error } = await supabase
+    .from('agent_share_invites')
+    .select('id, agent_id, owner_id, shared_with_email, permission, status, created_at, updated_at')
+    .eq('shared_with_email', email)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load share invites.' });
+  }
+
+  res.json({ success: true, invites: data || [] });
+}));
+
+app.post('/api/agents/share-invites/accept', guardAuth(async (req, res) => {
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  const userId = req.authUser.id;
+  const email = (req.authUser.email || '').toString().trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'User email is required.' });
+  }
+
+  const { data: invites, error } = await supabase
+    .from('agent_share_invites')
+    .select('*')
+    .eq('shared_with_email', email)
+    .eq('status', 'pending');
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load share invites.' });
+  }
+
+  const pending = invites || [];
+  if (!pending.length) {
+    return res.json({ success: true, accepted: 0, invites: [] });
+  }
+
+  const accepted = [];
+  const errors = [];
+
+  for (const invite of pending) {
+    const sharePayload = {
+      agent_id: invite.agent_id,
+      owner_id: invite.owner_id,
+      shared_with_user_id: userId,
+      shared_with_email: email,
+      permission: invite.permission || 'view',
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: shareError } = await supabase
+      .from('agent_shares')
+      .upsert(sharePayload, { onConflict: 'agent_id,shared_with_user_id' })
+      .select('id')
+      .single();
+
+    if (shareError) {
+      errors.push({ inviteId: invite.id, error: shareError.message || 'Failed to accept invite.' });
+      continue;
+    }
+
+    const { error: inviteError } = await supabase
+      .from('agent_share_invites')
+      .update({ status: 'accepted', updated_at: new Date().toISOString() })
+      .eq('id', invite.id);
+
+    if (inviteError) {
+      errors.push({ inviteId: invite.id, error: inviteError.message || 'Failed to update invite.' });
+      continue;
+    }
+
+    accepted.push(invite);
+  }
+
+  res.json({ success: true, accepted: accepted.length, invites: accepted, errors });
+}));
+
 app.patch('/api/agents/:agentId/shares/:shareId', guardAuth(async (req, res) => {
   const { agentId, shareId } = req.params;
   const userId = req.authUser.id;
   const resolvedPermission = normalizePermission(req.body?.permission);
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
   if (!resolvedPermission) {
     return res.status(400).json({ success: false, error: 'Valid permission is required.' });
   }
 
-  const agent = await getAgentById(agentId);
+  const agent = await getAgentById(supabase, agentId);
   if (agent.user_id !== userId) {
     return res.status(403).json({ success: false, error: 'Only owners can update shares.' });
   }
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_shares')
     .update({ permission: resolvedPermission, updated_at: new Date().toISOString() })
     .eq('id', shareId)
@@ -3553,13 +3494,17 @@ app.patch('/api/agents/:agentId/shares/:shareId', guardAuth(async (req, res) => 
 app.delete('/api/agents/:agentId/shares/:shareId', guardAuth(async (req, res) => {
   const { agentId, shareId } = req.params;
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const agent = await getAgentById(agentId);
+  const agent = await getAgentById(supabase, agentId);
   if (agent.user_id !== userId) {
     return res.status(403).json({ success: false, error: 'Only owners can revoke shares.' });
   }
 
-  const { error } = await analyticsSupabase
+  const { error } = await supabase
     .from('agent_shares')
     .delete()
     .eq('id', shareId)
@@ -3575,10 +3520,14 @@ app.delete('/api/agents/:agentId/shares/:shareId', guardAuth(async (req, res) =>
 app.post('/api/agents/:agentId/clone', guardAuth(async (req, res) => {
   const { agentId } = req.params;
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const access = await resolveAgentAccess(agentId, userId);
-  if (!hasPermission(access.permission, 'clone')) {
-    return res.status(403).json({ success: false, error: 'Clone permission required.' });
+  const access = await resolveAgentAccess(supabase, agentId, userId);
+  if (!hasPermission(access.permission, 'edit')) {
+    return res.status(403).json({ success: false, error: 'Edit permission required.' });
   }
 
   const agent = access.agent;
@@ -3600,7 +3549,7 @@ app.post('/api/agents/:agentId/clone', guardAuth(async (req, res) => {
     created_at: new Date().toISOString(),
   };
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_personas')
     .insert(clonePayload)
     .select('id')
@@ -3616,8 +3565,12 @@ app.post('/api/agents/:agentId/clone', guardAuth(async (req, res) => {
 app.patch('/api/agents/:agentId', guardAuth(async (req, res) => {
   const { agentId } = req.params;
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const access = await resolveAgentAccess(agentId, userId);
+  const access = await resolveAgentAccess(supabase, agentId, userId);
   if (!hasPermission(access.permission, 'edit')) {
     return res.status(403).json({ success: false, error: 'Edit permission required.' });
   }
@@ -3649,7 +3602,7 @@ app.patch('/api/agents/:agentId', guardAuth(async (req, res) => {
   }, {});
   payload.updated_at = new Date().toISOString();
 
-  const { data, error } = await analyticsSupabase
+  const { data, error } = await supabase
     .from('agent_personas')
     .update(payload)
     .eq('id', agentId)
@@ -3666,13 +3619,17 @@ app.patch('/api/agents/:agentId', guardAuth(async (req, res) => {
 app.delete('/api/agents/:agentId', guardAuth(async (req, res) => {
   const { agentId } = req.params;
   const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
 
-  const agent = await getAgentById(agentId);
+  const agent = await getAgentById(supabase, agentId);
   if (agent.user_id !== userId) {
     return res.status(403).json({ success: false, error: 'Only owners can delete agents.' });
   }
 
-  const { error } = await analyticsSupabase
+  const { error } = await supabase
     .from('agent_personas')
     .delete()
     .eq('id', agentId)
@@ -3709,6 +3666,38 @@ app.get('/api/agents/:agentId/analytics', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+app.get('/api/agents/:agentId/conversations/latest', guardAuth(async (req, res) => {
+  const { agentId } = req.params;
+  const userId = req.authUser.id;
+  const supabase = getAuthedSupabase(req);
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'Supabase not configured.' });
+  }
+
+  if (!agentId) {
+    return res.status(400).json({ success: false, error: 'agentId is required' });
+  }
+
+  const access = await resolveAgentAccess(supabase, agentId, userId);
+  if (!hasPermission(access.permission, 'view')) {
+    return res.status(403).json({ success: false, error: 'Access denied.' });
+  }
+
+  const { data, error } = await supabase
+    .from('conversation_history')
+    .select('id, messages, summary, message_count, tags, created_at, updated_at, conversation_messages(*)')
+    .eq('agent_id', agentId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load conversation.' });
+  }
+
+  const conversation = Array.isArray(data) && data.length ? data[0] : null;
+  res.json({ success: true, conversation });
+}));
 
 /**
  * Get conversations for a user/agent

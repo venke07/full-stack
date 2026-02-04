@@ -600,38 +600,9 @@ export default function BuilderPage() {
     const isShared = urlParams.get('shared') === '1';
     const shareToken = urlParams.get('shareToken');
 
-    const resolveShareToken = async (token) => {
-      if (!session?.access_token) {
-        setStatus('Sign in to accept shared agents.');
-        return null;
-      }
-      try {
-        const res = await fetch(`${API_URL}/api/agents/share-links/resolve`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ token }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          setStatus(data.error || 'Unable to accept share link.');
-          return null;
-        }
-        return data.agentId || null;
-      } catch (error) {
-        setStatus('Unable to accept share link.');
-        return null;
-      }
-    };
-
     const handleSharedFlow = async () => {
       if (shareToken) {
-        const agentId = await resolveShareToken(shareToken);
-        if (agentId && user) {
-          await handleSelectAgent(agentId, { allowShared: true });
-        }
+        setStatus('Share links are disabled.');
         navigate('/builder', { replace: true });
         return;
       }

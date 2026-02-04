@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import DashboardLayout from '../components/DashboardLayout.jsx';
 import '../styles.css';
@@ -8,7 +7,7 @@ import '../styles.css';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export default function Analytics() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [analytics, setAnalytics] = useState(null);
@@ -17,9 +16,14 @@ export default function Analytics() {
   const [usageLoading, setUsageLoading] = useState(false);
   const [timeRange, setTimeRange] = useState('7d');
 
+  const authHeaders = useMemo(() => {
+    if (!session?.access_token) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
+  }, [session?.access_token]);
+
   useEffect(() => {
     fetchAgents();
-  }, [user]);
+  }, [user?.id, session?.access_token]);
 
   useEffect(() => {
     if (user?.id) {
@@ -36,19 +40,32 @@ export default function Analytics() {
   }, [selectedAgentId, timeRange]);
 
   const fetchAgents = async () => {
-    if (!user?.id) return;
+    if (!user?.id || !session?.access_token) {
+      setAgents([]);
+      setSelectedAgentId(null);
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from('agent_personas')
-      .select('id, name, description, status')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    try {
+      const res = await fetch(`${API_URL}/api/agents`, {
+        headers: {
+          ...authHeaders,
+        },
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload.success) {
+        throw new Error(payload?.error || 'Failed to load agents.');
+      }
 
-    if (!error && data) {
+      const data = Array.isArray(payload.agents) ? payload.agents : [];
       setAgents(data);
       if (data.length > 0 && !selectedAgentId) {
         setSelectedAgentId(data[0].id);
       }
+    } catch (error) {
+      console.error('Error fetching agents:', error);
+      setAgents([]);
+      setSelectedAgentId(null);
     }
   };
 

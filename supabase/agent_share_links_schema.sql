@@ -19,6 +19,11 @@ create policy "agent_share_links_select_owner" on public.agent_share_links
   for select
   using (auth.uid() = owner_id);
 
+-- Allow public links to be resolved without auth.
+create policy "agent_share_links_select_public" on public.agent_share_links
+  for select
+  using (is_public = true);
+
 create policy "agent_share_links_insert_owner" on public.agent_share_links
   for insert
   with check (auth.uid() = owner_id);

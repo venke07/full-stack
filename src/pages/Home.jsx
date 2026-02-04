@@ -135,11 +135,6 @@ export default function HomePage() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareSubmitting, setShareSubmitting] = useState(false);
 
-  const [shareLinks, setShareLinks] = useState([]);
-  const [shareLinkPermission, setShareLinkPermission] = useState('view');
-  const [shareLinkIsPublic, setShareLinkIsPublic] = useState(false);
-  const [shareLinkExpiresAt, setShareLinkExpiresAt] = useState('');
-  const [shareLinksLoading, setShareLinksLoading] = useState(false);
 
 
   const showBanner = useCallback((text, type = 'info') => {
@@ -186,6 +181,28 @@ export default function HomePage() {
     }
   }, [API_URL, authHeaders, session?.access_token]);
 
+  const acceptShareInvites = useCallback(async () => {
+    if (!session?.access_token) {
+      return 0;
+    }
+    try {
+      const res = await fetch(`${API_URL}/api/agents/share-invites/accept`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return 0;
+      }
+      return data.accepted || 0;
+    } catch (error) {
+      console.error('Failed to accept share invites:', error);
+      return 0;
+    }
+  }, [API_URL, authHeaders, session?.access_token]);
+
   const loadAgents = useCallback(async () => {
     if (!session?.access_token) {
       setAgents([]);
@@ -213,6 +230,8 @@ export default function HomePage() {
       const baseAgents = payload.agents ?? [];
       setAgents(baseAgents);
 
+      await acceptShareInvites();
+
       loadSharedAgents()
         .then((sharedAgents) => {
           if (!Array.isArray(sharedAgents) || sharedAgents.length === 0) {
@@ -231,7 +250,7 @@ export default function HomePage() {
       console.log('[DEBUG] loadAgents finally block reached, setting isLoading to false');
       setIsLoading(false);
     }
-  }, [API_URL, authHeaders, loadSharedAgents, session?.access_token, showBanner]);
+  }, [API_URL, authHeaders, loadSharedAgents, acceptShareInvites, session?.access_token, showBanner]);
 
   useEffect(() => {
     loadAgents();
@@ -437,8 +456,7 @@ export default function HomePage() {
 
   const permissionRank = {
     view: 1,
-    clone: 2,
-    edit: 3,
+    edit: 2,
   };
 
   const refreshShareList = async (agentId) => {
@@ -470,124 +488,14 @@ export default function HomePage() {
   const openShareModal = async (agent) => {
     setShareTarget(agent);
     setSharePermission('view');
-    setShareLinkPermission('view');
-    setShareLinkIsPublic(false);
     setShareInput('');
     setShareModalOpen(true);
     await Promise.all([
       refreshShareList(agent.id),
-      refreshShareLinks(agent.id),
     ]);
   };
 
-
-
-  const refreshShareLinks = async (agentId) => {
-    if (!session?.access_token) return;
-    setShareLinksLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/agents/${agentId}/share-links`, {
-        headers: {
-          ...authHeaders,
-        },
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setShareLinks(data.links || []);
-      } else {
-        setShareLinks([]);
-      }
-    } catch (error) {
-      setShareLinks([]);
-    } finally {
-      setShareLinksLoading(false);
-    }
-  };
-
-  const handleCreateShareLink = async () => {
-    if (!shareTarget || !session?.access_token) return;
-    if (shareLinkIsPublic && shareLinkPermission === 'edit') {
-      showBanner('Public links cannot grant edit access.', 'error');
-      return;
-    }
-    try {
-      const payload = {
-        permission: shareLinkPermission,
-        isPublic: shareLinkIsPublic,
-        expiresAt: shareLinkExpiresAt || null,
-      };
-      const res = await fetch(`${API_URL}/api/agents/${shareTarget.id}/share-links`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showBanner('Share link created.', 'success');
-        setShareLinkExpiresAt('');
-        await refreshShareLinks(shareTarget.id);
-      } else {
-        showBanner(data.error || 'Failed to create share link.', 'error');
-      }
-    } catch (error) {
-      showBanner('Failed to create share link.', 'error');
-    }
-  };
-
-  const handleRevokeShareLink = async (linkId) => {
-    if (!shareTarget || !session?.access_token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/agents/${shareTarget.id}/share-links/${linkId}`, {
-        method: 'DELETE',
-        headers: {
-          ...authHeaders,
-        },
-      });
-      if (res.ok) {
-        showBanner('Share link revoked.', 'success');
-        await refreshShareLinks(shareTarget.id);
-      } else {
-        showBanner('Failed to revoke share link.', 'error');
-      }
-    } catch (error) {
-      showBanner('Failed to revoke share link.', 'error');
-    }
-  };
-
-  const handleUpdateShareLink = async (linkId, updates) => {
-    if (!shareTarget || !session?.access_token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/agents/${shareTarget.id}/share-links/${linkId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-        body: JSON.stringify(updates),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        showBanner(data.error || 'Failed to update share link.', 'error');
-      } else {
-        await refreshShareLinks(shareTarget.id);
-      }
-    } catch (error) {
-      showBanner('Failed to update share link.', 'error');
-    }
-  };
-
-  const handleCopyShareLink = (token, isPublic) => {
-    const path = isPublic ? `/public/agent?token=${token}` : `/builder?shareToken=${token}`;
-    const url = `${window.location.origin}${path}`;
-    navigator.clipboard.writeText(url).then(() => {
-      showBanner('Share link copied.', 'success');
-    }).catch(() => {
-      showBanner('Failed to copy link.', 'error');
-    });
-  };
+  const handleCopyShareLink = () => {};
 
   const handleShareSubmit = async () => {
     if (!shareTarget || !session?.access_token) {
@@ -616,7 +524,11 @@ export default function HomePage() {
       if (!res.ok || !data.success) {
         showBanner(data.error || 'Failed to share agent.', 'error');
       } else {
-        showBanner('Agent shared successfully.', 'success');
+        const isEmail = trimmed.includes('@');
+        showBanner(
+          isEmail ? 'Invite sent. They will see this agent after signing in.' : 'Agent shared successfully.',
+          'success',
+        );
         setShareInput('');
         await refreshShareList(shareTarget.id);
       }
@@ -668,30 +580,6 @@ export default function HomePage() {
       }
     } catch (error) {
       showBanner('Failed to revoke share.', 'error');
-    }
-  };
-
-  const handleCloneShared = async (agent) => {
-    if (!session?.access_token) {
-      showBanner('Sign in to clone shared agents.', 'error');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_URL}/api/agents/${agent.id}/clone`, {
-        method: 'POST',
-        headers: {
-          ...authHeaders,
-        },
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showBanner('Agent cloned to your workspace.', 'success');
-        loadAgents();
-      } else {
-        showBanner(data.error || 'Failed to clone agent.', 'error');
-      }
-    } catch (error) {
-      showBanner('Failed to clone agent.', 'error');
     }
   };
 
@@ -849,7 +737,6 @@ export default function HomePage() {
             const isTemplate = filter === 'Templates';
             const isShared = !!agent.isShared;
             const permissionLevel = permissionRank[agent.shared_permission] || 0;
-            const canClone = isShared && permissionLevel >= permissionRank.clone;
             const canEdit = isShared && permissionLevel >= permissionRank.edit;
             const statusClass = isTemplate
               ? 'template'
@@ -938,7 +825,7 @@ export default function HomePage() {
                         <button type="button" onClick={() => navigate(`/chat?agentId=${agent.id}`)}>
                           Open chat
                         </button>
-                        <button type="button" onClick={() => navigate(`/testing?agentId=${agent.id}`)}>
+                        <button type="button" onClick={() => navigate(`/testing?agentId=${agent.id}`)} disabled={!canEdit}>
                           Testing view
                         </button>
                         {canEdit ? (
@@ -950,11 +837,7 @@ export default function HomePage() {
                             View only
                           </button>
                         )}
-                        {canClone && (
-                          <button type="button" onClick={() => handleCloneShared(agent)}>
-                            Clone agent
-                          </button>
-                        )}
+                        
                       </div>
                     ) : (
                       <div className="agent-card-actions">
@@ -1067,7 +950,6 @@ export default function HomePage() {
                   />
                   <select value={sharePermission} onChange={(event) => setSharePermission(event.target.value)}>
                     <option value="view">View only</option>
-                    <option value="clone">Clone only</option>
                     <option value="edit">Edit access</option>
                   </select>
                   <button
@@ -1082,87 +964,6 @@ export default function HomePage() {
               </div>
 
 
-              <div className="share-links">
-                <h3>Share links</h3>
-                <div className="input-group">
-                  <select
-                    value={shareLinkPermission}
-                    onChange={(event) => setShareLinkPermission(event.target.value)}
-                  >
-                    <option value="view">View only</option>
-                    <option value="clone">Clone only</option>
-                    <option value="edit" disabled={shareLinkIsPublic}>Edit access</option>
-                  </select>
-                  <input
-                    type="date"
-                    value={shareLinkExpiresAt}
-                    onChange={(event) => setShareLinkExpiresAt(event.target.value)}
-                  />
-                  <label className="share-public-toggle">
-                    <input
-                      type="checkbox"
-                      checked={shareLinkIsPublic}
-                      onChange={(event) => {
-                        const checked = event.target.checked;
-                        setShareLinkIsPublic(checked);
-                        if (checked && shareLinkPermission === 'edit') {
-                          setShareLinkPermission('view');
-                        }
-                      }}
-                    />
-                    Public view
-                  </label>
-                  <button type="button" className="btn secondary" onClick={handleCreateShareLink}>
-                    Create link
-                  </button>
-                </div>
-                {shareLinksLoading ? (
-                  <p className="muted">Loading links...</p>
-                ) : shareLinks.length === 0 ? (
-                  <p className="muted">No share links created.</p>
-                ) : (
-                  shareLinks.map((link) => (
-                    <div key={link.id} className="share-row">
-                      <div>
-                        <p className="share-user">{link.permission} link</p>
-                        <span className="muted">
-                          {link.is_public ? 'Public' : 'Private'} - {link.expires_at ? `Expires ${formatDateShort(link.expires_at)}` : 'No expiry'}
-                        </span>
-                      </div>
-                      <div className="share-link-actions">
-                        <select
-                          className="share-permission-select"
-                          value={link.permission}
-                          onChange={(event) => handleUpdateShareLink(link.id, { permission: event.target.value })}
-                        >
-                          <option value="view">View</option>
-                          <option value="clone">Clone</option>
-                          <option value="edit" disabled={link.is_public}>Edit</option>
-                        </select>
-                        <label className="share-public-toggle">
-                          <input
-                            type="checkbox"
-                            checked={!!link.is_public}
-                            onChange={(event) =>
-                              handleUpdateShareLink(link.id, {
-                                isPublic: event.target.checked,
-                                permission: event.target.checked && link.permission === 'edit' ? 'view' : link.permission,
-                              })
-                            }
-                          />
-                          Public
-                        </label>
-                        <button type="button" onClick={() => handleCopyShareLink(link.token, link.is_public)}>
-                          Copy
-                        </button>
-                        <button type="button" className="link-danger" onClick={() => handleRevokeShareLink(link.id)}>
-                          Revoke
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
 
               <div className="share-list">
 
@@ -1185,7 +986,6 @@ export default function HomePage() {
                           onChange={(event) => handleUpdateSharePermission(share.id, event.target.value)}
                         >
                           <option value="view">View</option>
-                          <option value="clone">Clone</option>
                           <option value="edit">Edit</option>
                         </select>
                         <button type="button" className="link-danger" onClick={() => handleRevokeShare(share.id)}>

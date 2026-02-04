@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabaseClient.js';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getModelMeta } from '../lib/modelOptions.js';
 import TutorialLauncher from '../components/TutorialLauncher.jsx';
@@ -56,6 +55,7 @@ const normalizeHistory = (agent) => {
 export default function ChatPage() {
   const { user, session } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [agents, setAgents] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [chatLog, setChatLog] = useState(fallbackChat);
@@ -75,11 +75,7 @@ export default function ChatPage() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareInput, setShareInput] = useState('');
   const [sharePermission, setSharePermission] = useState('view');
-  const [shareLinkPermission, setShareLinkPermission] = useState('view');
-  const [shareLinkIsPublic, setShareLinkIsPublic] = useState(false);
-  const [shareLinkExpiresAt, setShareLinkExpiresAt] = useState('');
   const [shareSubmitting, setShareSubmitting] = useState(false);
-  const [shareLinkToken, setShareLinkToken] = useState('');
   
   // Voice Chat States
   const [isListening, setIsListening] = useState(false);
@@ -90,40 +86,85 @@ export default function ChatPage() {
   const [voiceSupported, setVoiceSupported] = useState(false);
   const recognitionRef = useRef(null);
 
+  const authHeaders = useMemo(() => {
+    if (!session?.access_token) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
+  }, [session?.access_token]);
+
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
   );
 
+  const isShared = !!selectedAgent?.shared_permission;
+  const canEdit = !isShared || selectedAgent?.shared_permission === 'edit';
+  const viewOnly = isShared && !canEdit;
+
   useEffect(() => {
     const fetchAgents = async () => {
-      if (!supabase || !user?.id) {
+      if (!session?.access_token) {
         setAgents([]);
         return;
       }
       setIsLoadingAgents(true);
-      const { data, error } = await supabase
-        .from('agent_personas')
-        .select(
-          'id, name, description, system_prompt, guardrails, sliders, tools, model_id, chat_history, status, created_at',
-        )
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      try {
+        const res = await fetch(`${API_URL}/api/agents`, {
+          headers: {
+            ...authHeaders,
+          },
+        });
+        const payload = await res.json();
+        if (!res.ok || !payload.success) {
+          throw new Error(payload?.error || 'Failed to load agents.');
+        }
 
-      if (error) {
+        const ownedAgents = Array.isArray(payload.agents) ? payload.agents : [];
+        let sharedAgents = [];
+        try {
+          const sharedRes = await fetch(`${API_URL}/api/agents/shared`, {
+            headers: {
+              ...authHeaders,
+            },
+          });
+          const sharedPayload = await sharedRes.json();
+          if (sharedRes.ok && sharedPayload.success) {
+            sharedAgents = Array.isArray(sharedPayload.agents) ? sharedPayload.agents : [];
+          }
+        } catch (sharedError) {
+          console.error('Failed to load shared agents:', sharedError);
+        }
+
+        const merged = new Map();
+        const upsert = (agent, origin = 'primary') => {
+          if (!agent) return;
+          const key = agent.id || agent.share_id || `${origin}-${agent.name || 'agent'}`;
+          const existing = merged.get(key);
+          merged.set(key, existing ? { ...existing, ...agent } : agent);
+        };
+        ownedAgents.forEach((agent) => upsert(agent, 'primary'));
+        sharedAgents.forEach((agent) => upsert(agent, 'shared'));
+
+        const list = Array.from(merged.values());
+        setAgents(list);
+
+        if (!selectedAgentId && list.length) {
+          setSelectedAgentId(list[0].id);
+        }
+      } catch (error) {
         setStatus(`Failed to load agents: ${error.message}`);
         setAgents([]);
-      } else {
-        setAgents(data ?? []);
-        if (!selectedAgentId && data?.length) {
-          setSelectedAgentId(data[0].id);
-        }
       }
       setIsLoadingAgents(false);
     };
 
     fetchAgents();
-  }, [user?.id]);
+  }, [authHeaders, session?.access_token]);
+
+  useEffect(() => {
+    const paramAgentId = searchParams.get('agentId');
+    if (!paramAgentId) return;
+    setSelectedAgentId(paramAgentId);
+  }, [searchParams]);
 
   // Initialize Web Speech API
   useEffect(() => {
@@ -241,18 +282,66 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!selectedAgent) return;
-    
+
     // Try to load the most recent conversation from database first
     loadMostRecentConversation(selectedAgent.id);
     setStatus('');
     loadActiveABTest(selectedAgent.id);
-  }, [selectedAgent]);
+  }, [selectedAgent, viewOnly]);
+
+  const formatConversationMessages = (conversation) => {
+    const messages = conversation?.messages || conversation?.conversation_messages || [];
+    return messages.map((msg, idx) => ({
+      id: `${msg.role}-${idx}`,
+      role: msg.role,
+      text: msg.content || msg.text,
+    }));
+  };
+
+  const lastViewSnapshotRef = useRef({ id: null, count: 0 });
+
+  const fetchLatestConversationForView = async (agentId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/agents/${agentId}/conversations/latest`, {
+        headers: {
+          ...authHeaders,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return;
+      }
+
+      const convo = data.conversation;
+      if (!convo) {
+        setChatLog(normalizeHistory(selectedAgent));
+        return;
+      }
+
+      const messages = formatConversationMessages(convo);
+      const snapshot = lastViewSnapshotRef.current;
+      if (snapshot.id === convo.id && snapshot.count === messages.length) {
+        return;
+      }
+
+      lastViewSnapshotRef.current = { id: convo.id, count: messages.length };
+      setChatLog(messages);
+      setCurrentConversationId(convo.id);
+    } catch (err) {
+      console.warn('Could not load shared conversation:', err);
+    }
+  };
 
   /**
    * Load the most recent saved conversation for this agent from database
    */
   const loadMostRecentConversation = async (agentId) => {
     try {
+      if (viewOnly) {
+        await fetchLatestConversationForView(agentId);
+        return;
+      }
+
       const res = await fetch(`${API_URL}/api/conversations?userId=${user?.id}&agentId=${agentId}&limit=1`);
       const data = await res.json();
       
@@ -274,6 +363,19 @@ export default function ChatPage() {
     // Fallback: Use agent's default chat history if no saved conversation
     setChatLog(normalizeHistory(selectedAgent));
   };
+
+  useEffect(() => {
+    if (!selectedAgent?.id || !viewOnly) {
+      return;
+    }
+
+    fetchLatestConversationForView(selectedAgent.id);
+    const interval = setInterval(() => {
+      fetchLatestConversationForView(selectedAgent.id);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [selectedAgent?.id, viewOnly, authHeaders]);
 
   /**
    * Load active A/B test sessions for the agent
@@ -391,6 +493,11 @@ export default function ChatPage() {
    * Save current conversation to database (manual save)
    */
   const saveConversation = async () => {
+    if (viewOnly) {
+      setStatus('View-only access: saving is disabled.');
+      setTimeout(() => setStatus(''), 2000);
+      return;
+    }
     if (!user || !selectedAgent || chatLog.length < 2) {
       setStatus('Nothing to save yet!');
       setTimeout(() => setStatus(''), 2000);
@@ -428,17 +535,46 @@ export default function ChatPage() {
     }
   };
 
+  const autoSaveConversation = async (messages) => {
+    if (!user || !selectedAgent || viewOnly) {
+      return;
+    }
+    if (!Array.isArray(messages) || messages.length < 2) {
+      return;
+    }
+
+    try {
+      const payloadMessages = messages.map((m) => ({
+        role: m.role,
+        content: m.text,
+      }));
+
+      const res = await fetch(`${API_URL}/api/conversations/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          agentId: selectedAgent.id,
+          messages: payloadMessages,
+          summary: payloadMessages.find((m) => m.role === 'user')?.content || 'Conversation',
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (data?.success && data?.conversation?.id) {
+        setCurrentConversationId(data.conversation.id);
+      }
+    } catch (err) {
+      console.warn('Auto-save failed:', err);
+    }
+  };
+
   /**
    * Load a conversation from history
    */
   const handleLoadConversation = (conversation) => {
     // Convert stored messages to chat log format
-    const messages = conversation.messages || conversation.conversation_messages || [];
-    const formattedMessages = messages.map((msg, idx) => ({
-      id: `${msg.role}-${idx}`,
-      role: msg.role,
-      text: msg.content || msg.text,
-    }));
+    const formattedMessages = formatConversationMessages(conversation);
 
     setChatLog(formattedMessages);
     setCurrentConversationId(conversation.id);
@@ -451,6 +587,10 @@ export default function ChatPage() {
     if (!trimmed || isResponding) return;
     if (!selectedAgent) {
       setStatus('Select an agent before chatting.');
+      return;
+    }
+    if (viewOnly) {
+      setStatus('View-only access: you can watch this chat in real time but cannot send messages.');
       return;
     }
 
@@ -516,7 +656,9 @@ export default function ChatPage() {
       const responseTimeMs = Date.now() - requestStartTime;
       
       const agentMessageId = `agent-${timestamp}`;
-      setChatLog((prev) => [...prev, { id: agentMessageId, role: 'agent', text: agentResponse }]);
+      const updatedHistory = [...history, { id: agentMessageId, role: 'agent', text: agentResponse }];
+      setChatLog(updatedHistory);
+      autoSaveConversation(updatedHistory);
       
       // Speak the response if voice is enabled
       if (voiceEnabled && agentResponse) {
@@ -557,23 +699,18 @@ export default function ChatPage() {
     }
   };
 
-  const authHeaders = useMemo(() => {
-    if (!session?.access_token) return {};
-    return { Authorization: `Bearer ${session.access_token}` };
-  }, [session?.access_token]);
-
   const openShareModal = () => {
     if (!selectedAgent) {
       setStatus('Select an agent to share.');
       return;
     }
+    if (isShared) {
+      setStatus('Only owners can share agents.');
+      return;
+    }
     setShareModalOpen(true);
     setShareInput('');
     setSharePermission('view');
-    setShareLinkPermission('view');
-    setShareLinkIsPublic(false);
-    setShareLinkExpiresAt('');
-    setShareLinkToken('');
   };
 
   const handleShareAgent = async () => {
@@ -614,56 +751,7 @@ export default function ChatPage() {
     }
   };
 
-  const handleCreateShareLink = async () => {
-    if (!selectedAgent || !session?.access_token) {
-      setStatus('Sign in to create share links.');
-      return;
-    }
-    if (shareLinkIsPublic && shareLinkPermission === 'edit') {
-      setStatus('Public links cannot grant edit access.');
-      return;
-    }
-    setShareSubmitting(true);
-    try {
-      const res = await fetch(`${API_URL}/api/agents/${selectedAgent.id}/share-links`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-        body: JSON.stringify({
-          permission: shareLinkPermission,
-          isPublic: shareLinkIsPublic,
-          expiresAt: shareLinkExpiresAt || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setStatus(data.error || 'Failed to create share link.');
-      } else {
-        setShareLinkToken(data.link?.token || '');
-        setStatus('Share link created.');
-      }
-    } catch (error) {
-      setStatus('Failed to create share link.');
-    } finally {
-      setShareSubmitting(false);
-      setTimeout(() => setStatus(''), 3000);
-    }
-  };
-
-  const handleCopyShareLink = () => {
-    if (!shareLinkToken) return;
-    const path = shareLinkIsPublic ? `/public/agent?token=${shareLinkToken}` : `/builder?shareToken=${shareLinkToken}`;
-    const url = `${window.location.origin}${path}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setStatus('Share link copied.');
-      setTimeout(() => setStatus(''), 2500);
-    }).catch(() => {
-      setStatus('Failed to copy link.');
-      setTimeout(() => setStatus(''), 2500);
-    });
-  };
+  const handleCopyShareLink = () => {};
 
   const trackUsageEvent = async ({ userMessage, assistantMessage, responseTimeMs }) => {
     if (!user?.id || !selectedAgent?.id) return;
@@ -931,7 +1019,7 @@ export default function ChatPage() {
       <Link className="btn secondary" to="/builder">
         Back to builder
       </Link>
-      <button className="btn secondary" type="button" onClick={openShareModal} disabled={!selectedAgent}>
+      <button className="btn secondary" type="button" onClick={openShareModal} disabled={!selectedAgent || isShared}>
         Share agent
       </button>
       <Link className="btn secondary" to="/home">
@@ -1080,7 +1168,7 @@ export default function ChatPage() {
             <div className="stage-input">
               <input
                 type="text"
-                placeholder="Type your message…"
+                placeholder={viewOnly ? 'View-only: live chat updates only' : 'Type your message…'}
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -1088,22 +1176,29 @@ export default function ChatPage() {
                     handleChatSend();
                   }
                 }}
+                disabled={viewOnly}
               />
               {voiceSupported && (
                 <button
                   className={`btn voice-btn ${isListening ? 'listening' : ''}`}
                   type="button"
                   onClick={() => navigate('/voice-chat')}
-                  disabled={!selectedAgent || isResponding}
+                  disabled={!selectedAgent || isResponding || viewOnly}
                   title="Open voice chat"
                 >
                   🎤
                 </button>
               )}
-              <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent}>
+              <button className="btn primary" type="button" onClick={handleChatSend} disabled={isResponding || !selectedAgent || viewOnly}>
                 {isResponding ? 'Thinking…' : 'Send'}
               </button>
-              <button className="btn ghost compact" type="button" onClick={saveConversation} title="Save this conversation to memory">
+              <button
+                className="btn ghost compact"
+                type="button"
+                onClick={saveConversation}
+                title="Save this conversation to memory"
+                disabled={viewOnly}
+              >
                 💾 Save
               </button>
               <button
@@ -1111,6 +1206,7 @@ export default function ChatPage() {
                 type="button"
                 onClick={() => setShowHistoryPanel(true)}
                 title="View conversation history"
+                disabled={viewOnly}
               >
                 📂 History
               </button>
@@ -1119,7 +1215,7 @@ export default function ChatPage() {
                 type="button"
                 onClick={() => setShowSummarizer(true)}
                 title="Summarize conversation"
-                disabled={chatLog.length < MIN_SUMMARY_MESSAGES}
+                disabled={chatLog.length < MIN_SUMMARY_MESSAGES || viewOnly}
               >
                 📝 Summarize
               </button>
@@ -1242,63 +1338,8 @@ export default function ChatPage() {
               <div className="modal-body">
                 <div className="share-options">
                   <div className="share-panel">
-                    <h3>Public link</h3>
-                    <p className="muted">Generate a link for public viewing or cloning.</p>
-                    <label className="share-public-toggle">
-                      <input
-                        type="checkbox"
-                        checked={shareLinkIsPublic}
-                        onChange={(event) => {
-                          const checked = event.target.checked;
-                          setShareLinkIsPublic(checked);
-                          if (checked && shareLinkPermission === 'edit') {
-                            setShareLinkPermission('view');
-                          }
-                        }}
-                      />
-                      Enable public view
-                    </label>
-                    <div className="input-group">
-                      <select
-                        value={shareLinkPermission}
-                        onChange={(event) => {
-                          const next = event.target.value;
-                          setShareLinkPermission(next);
-                          if (next === 'edit') {
-                            setShareLinkIsPublic(false);
-                          }
-                        }}
-                      >
-                        <option value="view">View only</option>
-                        <option value="clone">Clone only</option>
-                        <option value="edit">Edit access</option>
-                      </select>
-                      <input
-                        type="date"
-                        value={shareLinkExpiresAt}
-                        onChange={(event) => setShareLinkExpiresAt(event.target.value)}
-                      />
-                      <button type="button" className="btn secondary" onClick={handleCreateShareLink} disabled={shareSubmitting}>
-                        Create link
-                      </button>
-                    </div>
-                    {shareLinkToken && (
-                      <div className="share-link-output">
-                        <span className="muted">Link ready</span>
-                        <button type="button" className="btn ghost compact" onClick={handleCopyShareLink}>
-                          Copy link
-                        </button>
-                      </div>
-                    )}
-                    {shareLinkIsPublic && (
-                      <span className="muted" style={{ fontSize: '12px' }}>
-                        Public links support view/clone only. Picking edit turns public off.
-                      </span>
-                    )}
-                  </div>
-                  <div className="share-panel">
                     <h3>Share with Aether user</h3>
-                    <p className="muted">Grant view, clone, or edit access.</p>
+                    <p className="muted">Grant view or edit access.</p>
                     <div className="input-group">
                       <input
                         type="text"
@@ -1308,7 +1349,6 @@ export default function ChatPage() {
                       />
                       <select value={sharePermission} onChange={(event) => setSharePermission(event.target.value)}>
                         <option value="view">View only</option>
-                        <option value="clone">Clone only</option>
                         <option value="edit">Edit access</option>
                       </select>
                       <button type="button" className="btn primary" onClick={handleShareAgent} disabled={shareSubmitting}>
